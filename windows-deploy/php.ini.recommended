@@ -1,0 +1,85 @@
+; php.ini recommandé pour App Magasin Lycée
+; Windows Server 2019 + IIS
+
+[PHP]
+engine = On
+short_open_tag = Off
+precision = 14
+output_buffering = 4096
+zlib.output_compression = Off
+implicit_flush = Off
+serialize_precision = -1
+disable_functions =
+max_execution_time = 120
+max_input_time = 120
+max_input_vars = 3000
+memory_limit = 256M
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+error_log = C:\inetpub\wwwroot\app-magasin\storage\logs\php_errors.log
+ignore_repeated_errors = Off
+post_max_size = 20M
+default_mimetype = "text/html"
+default_charset = "UTF-8"
+file_uploads = On
+upload_max_filesize = 10M
+max_file_uploads = 20
+allow_url_fopen = On
+
+[Date]
+date.timezone = Europe/Paris
+
+[Pdo_mysql]
+pdo_mysql.default_socket =
+
+[mail function]
+; Désactivé car on utilise SMTP via Laravel Mail
+sendmail_path =
+
+[CLI Server]
+cli_server.color = On
+
+[Phar]
+phar.readonly = Off
+
+[Session]
+session.save_handler = files
+session.save_path = "C:\Windows\Temp"
+session.use_strict_mode = 1
+session.use_cookies = 1
+session.use_only_cookies = 1
+session.name = PHPSESSID
+session.auto_start = 0
+session.cookie_lifetime = 0
+session.cookie_path = /
+session.cookie_domain =
+session.cookie_httponly = 1
+session.cookie_samesite = Lax
+session.serialize_handler = php
+session.gc_probability = 1
+session.gc_divisor = 1000
+session.gc_maxlifetime = 14400
+
+[opcache]
+zend_extension=opcache
+opcache.enable = 1
+opcache.enable_cli = 1
+opcache.memory_consumption = 128
+opcache.interned_strings_buffer = 8
+opcache.max_accelerated_files = 10000
+opcache.revalidate_freq = 60
+opcache.save_comments = 1
+
+; Extensions requises
+extension_dir = "C:\PHP82\ext"
+extension=curl
+extension=fileinfo
+extension=gd
+extension=intl
+extension=mbstring
+extension=openssl
+extension=pdo_mysql
+extension=zip
+extension=sodium
