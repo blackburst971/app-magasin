@@ -12,6 +12,9 @@
 /storage/framework/views/
 /storage/app/public/
 /vendor
+/database/*.sqlite
+/database/*.sqlite-wal
+/database/*.sqlite-shm
 .env
 .env.backup
 .env.production
