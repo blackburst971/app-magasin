@@ -23,6 +23,7 @@ use App\Http\Controllers\ConsommableController;
 use App\Http\Controllers\ConsommableRequestController;
 use App\Http\Controllers\RoomController;
 use App\Http\Controllers\AssetFileController;
+use App\Http\Controllers\BackupController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -275,6 +276,16 @@ Route::middleware('auth')->group(function () {
         Route::put('/maintenance/{maintenance}', [\App\Http\Controllers\MaintenanceController::class, 'update'])->name('maintenance.update');
         Route::post('/maintenance/{maintenance}/resolve', [\App\Http\Controllers\MaintenanceController::class, 'resolve'])->name('maintenance.resolve');
         Route::delete('/maintenance/{maintenance}', [\App\Http\Controllers\MaintenanceController::class, 'destroy'])->name('maintenance.destroy');
+    });
+
+    // Sauvegardes (admin only)
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/backups', [BackupController::class, 'index'])->name('backups.index');
+        Route::post('/backups/create', [BackupController::class, 'create'])->name('backups.create');
+        Route::post('/backups/restore', [BackupController::class, 'restore'])->name('backups.restore');
+        Route::post('/backups/{filename}/restore-existing', [BackupController::class, 'restoreExisting'])->name('backups.restore-existing');
+        Route::get('/backups/{filename}/download', [BackupController::class, 'download'])->name('backups.download');
+        Route::delete('/backups/{filename}', [BackupController::class, 'destroy'])->name('backups.destroy');
     });
 
     // Décheterie (admin only) — routes statiques AVANT {recyclingItem}

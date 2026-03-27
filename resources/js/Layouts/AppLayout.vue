@@ -170,6 +170,7 @@ const navItems = computed(() => {
       { name: 'Modèles',      href: route('models.index'),            icon: CubeTransparentIcon,    current: route().current('models.*') },
       { name: 'Maintenance',   href: route('maintenance.index'),       icon: WrenchScrewdriverIcon,  current: route().current('maintenance.*') },
       { name: 'Decheterie',   href: route('recycling.index'),         icon: ArchiveBoxXMarkIcon,    current: route().current('recycling.*') },
+      { name: 'Sauvegardes',  href: route('backups.index'),           icon: ShieldCheckIcon,         current: route().current('backups.*') },
       { name: 'Licences',     href: route('licenses.index'),          icon: KeyIcon,                current: route().current('licenses.*') },
       { name: 'Postes',       href: route('computers.index'),         icon: ComputerDesktopIcon,    current: route().current('computers.*') },
       { name: 'Fournisseurs', href: route('suppliers.index'),         icon: BuildingStorefrontIcon, current: route().current('suppliers.*') },

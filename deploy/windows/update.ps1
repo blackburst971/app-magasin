@@ -6,6 +6,7 @@
 #    PowerShell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
 #
 #  Ce script :
+#    0. Sauvegarde automatique (BDD + fichiers) AVANT toute modification
 #    1. Git pull (recupere les nouveaux fichiers depuis GitHub)
 #    2. Composer install (nouvelles dependances PHP si besoin)
 #    3. Migrations base de donnees
@@ -45,9 +46,68 @@ Write-Host "  App Magasin - Mise a jour via Git" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 # ==============================================================================
+# ETAPE 0 — Sauvegarde automatique de securite AVANT toute modification
+# ==============================================================================
+Step "0/7" "Sauvegarde automatique de securite"
+
+$BACKUP_DIR  = "$APP_DIR\storage\app\backups"
+$DB_PATH     = "$APP_DIR\database\database.sqlite"
+$STORAGE_DIR = "$APP_DIR\storage\app\public"
+
+if (-not (Test-Path $BACKUP_DIR)) {
+    New-Item -ItemType Directory -Path $BACKUP_DIR -Force | Out-Null
+}
+
+$backupName = "pre_deploy_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".zip"
+$backupPath = "$BACKUP_DIR\$backupName"
+
+try {
+    Add-Type -Assembly "System.IO.Compression.FileSystem"
+
+    $zip = [System.IO.Compression.ZipFile]::Open($backupPath, "Create")
+
+    # Ajouter la base de donnees SQLite
+    if (Test-Path $DB_PATH) {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $DB_PATH, "database/database.sqlite",
+            [System.IO.Compression.CompressionLevel]::Optimal
+        ) | Out-Null
+    }
+
+    # Ajouter les fichiers uploades (storage/app/public)
+    if (Test-Path $STORAGE_DIR) {
+        $storageItems = Get-ChildItem -Path $STORAGE_DIR -Recurse -File
+        foreach ($item in $storageItems) {
+            $relativePath = "storage/app/public/" + $item.FullName.Substring($STORAGE_DIR.Length + 1).Replace("\", "/")
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zip, $item.FullName, $relativePath,
+                [System.IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+        }
+    }
+
+    $zip.Dispose()
+
+    $backupSize = [math]::Round((Get-Item $backupPath).Length / 1MB, 1)
+    OK "Sauvegarde creee : $backupName ($backupSize Mo)"
+
+    # Conserver uniquement les 5 dernieres sauvegardes automatiques de deploiement
+    $oldBackups = Get-ChildItem -Path $BACKUP_DIR -Filter "pre_deploy_*.zip" |
+                  Sort-Object LastWriteTime -Descending |
+                  Select-Object -Skip 5
+    foreach ($old in $oldBackups) {
+        Remove-Item $old.FullName -Force
+        Warn "Ancienne sauvegarde supprimee : $($old.Name)"
+    }
+} catch {
+    Warn "Impossible de creer la sauvegarde : $_"
+    Warn "La mise a jour continue, mais sauvegardez manuellement avant de continuer si necessaire."
+}
+
+# ==============================================================================
 # ETAPE 1 — Mode maintenance
 # ==============================================================================
-Step "1/6" "Mode maintenance ON"
+Step "1/7" "Mode maintenance ON"
 
 Set-Location $APP_DIR
 & php artisan down --render="errors.503" --retry=60 2>$null
@@ -57,7 +117,7 @@ OK "Application en maintenance"
 # ==============================================================================
 # ETAPE 2 — Git pull
 # ==============================================================================
-Step "2/6" "Recuperation des mises a jour (git pull)"
+Step "2/7" "Recuperation des mises a jour (git pull)"
 
 # Verifier que git est disponible
 $_gitObj = Get-Command git -ErrorAction SilentlyContinue
@@ -96,7 +156,7 @@ OK "Dernier commit : $lastCommit"
 # ==============================================================================
 # ETAPE 3 — Dependances PHP
 # ==============================================================================
-Step "3/6" "Mise a jour des dependances PHP"
+Step "3/7" "Mise a jour des dependances PHP"
 
 & php artisan clear-compiled 2>$null
 & php artisan package:discover --ansi
@@ -106,7 +166,7 @@ OK "Composer OK"
 # ==============================================================================
 # ETAPE 4 — Migrations base de donnees
 # ==============================================================================
-Step "4/6" "Migrations base de donnees"
+Step "4/7" "Migrations base de donnees"
 
 & php artisan migrate --force
 OK "Migrations OK"
@@ -114,7 +174,7 @@ OK "Migrations OK"
 # ==============================================================================
 # ETAPE 5 — Reconstruction des caches
 # ==============================================================================
-Step "5/6" "Reconstruction des caches"
+Step "5/7" "Reconstruction des caches"
 
 & php artisan config:cache
 & php artisan route:cache
@@ -149,7 +209,7 @@ if (Test-Path "IIS:\Sites\$SITE") {
 # ==============================================================================
 # ETAPE 6 — Redemarrage des services
 # ==============================================================================
-Step "6/6" "Redemarrage des services"
+Step "6/7" "Redemarrage des services"
 
 Stop-Service -Name "AppMagasinWorker" -Force -ErrorAction SilentlyContinue
 Start-Service -Name "AppMagasinWorker" -ErrorAction SilentlyContinue
@@ -165,6 +225,17 @@ if (Test-Path "IIS:\AppPools\$pool") {
 
 & php artisan up
 OK "Application remise en ligne"
+
+# ==============================================================================
+# ETAPE 7 — Confirmation de la sauvegarde disponible
+# ==============================================================================
+Step "7/7" "Verification de la sauvegarde"
+
+if (Test-Path $backupPath) {
+    $finalSize = [math]::Round((Get-Item $backupPath).Length / 1MB, 1)
+    OK "Sauvegarde pre-deploiement disponible : $backupName ($finalSize Mo)"
+    OK "Restauration possible depuis : Parametres > Sauvegardes"
+}
 
 # ==============================================================================
 # RESUME
