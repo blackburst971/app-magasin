@@ -19,8 +19,6 @@ $ErrorActionPreference = "Stop"
 
 # ── Variables ─────────────────────────────────────────────────────────────────
 $APP_DIR  = (Get-Location).Path
-$PHP_DIR  = "C:\php"
-$SITE     = "AppMagasin"
 $IP1      = "10.15.9.114"
 $IP2      = "10.15.80.229"
 $PORT     = 8080
@@ -185,25 +183,7 @@ OK "Caches reconstruits"
 # Lien storage (au cas ou il aurait ete perdu)
 if (-not (Test-Path "public\storage")) {
     & php artisan storage:link
-    $dir  = "$APP_DIR\public\storage"
-    $acl  = Get-Acl $dir
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        "IIS_IUSRS", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow"
-    )
-    $acl.SetAccessRule($rule)
-    Set-Acl $dir $acl
     OK "Lien storage recree"
-}
-
-# Verification binding IIS
-Import-Module WebAdministration -ErrorAction SilentlyContinue
-if (Test-Path "IIS:\Sites\$SITE") {
-    $bindings  = Get-WebBinding -Name $SITE -ErrorAction SilentlyContinue
-    $has2ndIP  = $bindings | Where-Object { $_.bindingInformation -like "*${IP2}:${PORT}*" }
-    if (-not $has2ndIP) {
-        New-WebBinding -Name $SITE -IPAddress $IP2 -Port $PORT -Protocol "http"
-        OK "Binding ${IP2}:${PORT} ajoute"
-    }
 }
 
 # ==============================================================================
@@ -215,13 +195,13 @@ Stop-Service -Name "AppMagasinWorker" -Force -ErrorAction SilentlyContinue
 Start-Service -Name "AppMagasinWorker" -ErrorAction SilentlyContinue
 OK "Queue worker redemarre"
 
-# Recycler le pool IIS pour vider le cache PHP
-Import-Module WebAdministration -ErrorAction SilentlyContinue
-$pool = "AppMagasinPool"
-if (Test-Path "IIS:\AppPools\$pool") {
-    Restart-WebAppPool -Name $pool
-    OK "Pool IIS '$pool' recycle"
-}
+# Redemarrer PHP-FPM pour vider l'OPcache
+Restart-Service -Name "AppMagasinPhpFcgi" -ErrorAction SilentlyContinue
+OK "PHP-FPM (AppMagasinPhpFcgi) redemarre"
+
+# Redemarrer Nginx
+Restart-Service -Name "AppMagasinNginx" -ErrorAction SilentlyContinue
+OK "Nginx (AppMagasinNginx) redemarre"
 
 & php artisan up
 OK "Application remise en ligne"
