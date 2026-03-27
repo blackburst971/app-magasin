@@ -64,8 +64,21 @@ if (Test-Path ".env") {
 }
 
 # ==============================================================================
-Step "3/4" "Initialisation du depot Git"
+Step "3/4" "Arret IIS + initialisation du depot Git"
 # ==============================================================================
+
+# IIS verrouille certains fichiers (ex: public/index.php), il faut l'arreter
+# avant que git puisse ecraser les fichiers existants.
+$POOL = "AppMagasinPool"
+Import-Module WebAdministration -ErrorAction SilentlyContinue
+if (Test-Path "IIS:\AppPools\$POOL") {
+    Stop-WebAppPool -Name $POOL -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    OK "Pool IIS '$POOL' arrete"
+} else {
+    Warn "Pool IIS '$POOL' introuvable - poursuite sans arret IIS"
+}
+
 if (Test-Path ".git") {
     Warn "Un depot Git existe deja. Mise a jour de l'origine."
     & git remote set-url origin $GITHUB_URL
@@ -75,22 +88,29 @@ if (Test-Path ".git") {
     OK "Depot Git initialise"
 }
 
-# Configurer git pour ignorer les changements sur .env (protection)
-& git update-index --assume-unchanged .env 2>$null
-
 OK "Remote configure : $GITHUB_URL"
 
 # ==============================================================================
-Step "4/4" "Premier git pull"
+Step "4/4" "Premier git pull (synchronisation des fichiers)"
 # ==============================================================================
-Warn "Connexion a GitHub... (vous aurez peut-etre besoin d'un token d'acces)"
-Warn "Si le depot est prive, utilisez SSH ou un token dans l'URL"
+Warn "Connexion a GitHub..."
 
 & git fetch origin main
-& git reset --hard origin/main
+if ($LASTEXITCODE -ne 0) {
+    # Redemarrer IIS avant de quitter
+    Start-WebAppPool -Name $POOL -ErrorAction SilentlyContinue
+    Fail "git fetch a echoue."
+}
 
-# Restaurer le .env (git ne le touche pas car il est dans .gitignore,
-# mais reset --hard pourrait le supprimer si des residus existent)
+# reset --hard : ecrase les fichiers existants par la version GitHub
+# IIS est arrete donc les fichiers ne sont plus verrouilles
+& git reset --hard origin/main
+if ($LASTEXITCODE -ne 0) {
+    Start-WebAppPool -Name $POOL -ErrorAction SilentlyContinue
+    Fail "git reset a echoue. Verifiez les permissions sur le dossier."
+}
+
+# .env est dans .gitignore : git ne le touche jamais
 if (Test-Path ".env.server.backup") {
     if (-not (Test-Path ".env")) {
         Copy-Item ".env.server.backup" ".env" -Force
@@ -98,6 +118,12 @@ if (Test-Path ".env.server.backup") {
     } else {
         OK ".env present - non modifie"
     }
+}
+
+# Redemarrer IIS
+if (Test-Path "IIS:\AppPools\$POOL") {
+    Start-WebAppPool -Name $POOL
+    OK "Pool IIS '$POOL' redemarre"
 }
 
 $hash = & git rev-parse --short HEAD
