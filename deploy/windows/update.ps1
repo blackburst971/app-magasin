@@ -178,8 +178,8 @@ Step "5/7" "Reconstruction des caches"
 
 & php artisan config:cache
 & php artisan route:cache
-& php artisan view:cache
 & php artisan event:cache
+# Note: view:cache desactive (mbstring requis, non disponible sur ce serveur)
 OK "Caches reconstruits"
 
 # Lien storage (au cas ou il aurait ete perdu)
