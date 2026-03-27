@@ -1,5 +1,7 @@
 /.phpunit.cache
 /node_modules
+/bootstrap/cache/packages.php
+/bootstrap/cache/services.php
 # public/build intentionnellement inclus dans git (déploiement sans npm sur le serveur)
 /public/hot
 /public/storage
