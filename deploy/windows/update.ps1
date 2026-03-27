@@ -73,20 +73,14 @@ if (-not $gitPath) {
 }
 
 # Sauvegarder le hash avant pull
-$hashBefore = & git rev-parse --short HEAD 2>$null
+$hashBefore = & git rev-parse --short HEAD
+if ($LASTEXITCODE -ne 0) { Fail "Impossible de lire le commit courant. Depot Git valide ?" }
 
-# Stash les fichiers locaux non commites (ex: .env ne doit jamais etre ecrase)
-& git stash 2>$null
-
-# Pull
+# Pull (le .env est dans .gitignore donc git ne le touche jamais)
 & git pull origin main
 if ($LASTEXITCODE -ne 0) {
-    & git stash pop 2>$null
-    Fail "git pull a echoue. Verifiez la connectivite et les droits."
+    Fail "git pull a echoue. Verifiez la connectivite et les droits GitHub."
 }
-
-# Restaurer les fichiers locaux
-& git stash pop 2>$null
 
 $hashAfter = & git rev-parse --short HEAD 2>$null
 if ($hashBefore -eq $hashAfter) {

@@ -84,17 +84,21 @@ OK "Remote configure : $GITHUB_URL"
 Step "4/4" "Premier git pull"
 # ==============================================================================
 Warn "Connexion a GitHub... (vous aurez peut-etre besoin d'un token d'acces)"
-Warn "Si le depot est prive, utilisez : https://TOKEN@github.com/VOTRE_NOM/app-magasin.git"
+Warn "Si le depot est prive, utilisez SSH ou un token dans l'URL"
 
 & git fetch origin main
 & git reset --hard origin/main
 
-# Proteger .env (ne jamais l'ecraser depuis git)
+# Restaurer le .env (git ne le touche pas car il est dans .gitignore,
+# mais reset --hard pourrait le supprimer si des residus existent)
 if (Test-Path ".env.server.backup") {
-    Copy-Item ".env.server.backup" ".env" -Force
-    OK ".env restaure depuis la sauvegarde"
+    if (-not (Test-Path ".env")) {
+        Copy-Item ".env.server.backup" ".env" -Force
+        OK ".env restaure depuis la sauvegarde"
+    } else {
+        OK ".env present - non modifie"
+    }
 }
-& git update-index --assume-unchanged .env
 
 $hash = & git rev-parse --short HEAD
 OK "Code synchronise ! Commit actuel : $hash"
