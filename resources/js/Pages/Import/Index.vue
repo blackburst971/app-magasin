@@ -148,7 +148,22 @@ const reset = () => {
   <AppLayout>
     <div class="max-w-4xl">
       <h1 class="text-2xl font-bold text-gray-900 mb-1">⬆️ Import Snipe-IT</h1>
-      <p class="text-gray-500 text-sm mb-6">Importez vos données depuis un export CSV Snipe-IT</p>
+      <p class="text-gray-500 text-sm mb-4">Importez vos données depuis un export CSV Snipe-IT</p>
+
+      <!-- Lien vers import sauvegarde complète -->
+      <a
+        :href="route('import.snipe-backup')"
+        class="flex items-center gap-4 bg-green-50 border-2 border-green-300 hover:border-green-500 rounded-xl px-5 py-4 mb-6 transition group"
+      >
+        <span class="text-3xl">📦</span>
+        <div class="flex-1">
+          <p class="font-semibold text-green-800 group-hover:text-green-900">Import sauvegarde complète Snipe-IT</p>
+          <p class="text-sm text-green-600">Importez un fichier ZIP de sauvegarde complet — modèles, équipements, fabricants, <strong>images incluses</strong></p>
+        </div>
+        <span class="text-green-500 text-xl">→</span>
+      </a>
+
+      <p class="text-xs text-gray-400 mb-4 font-medium uppercase tracking-wide">Ou importer depuis un fichier CSV :</p>
 
       <!-- Sélecteur de type d'import -->
       <div class="flex gap-3 mb-6">

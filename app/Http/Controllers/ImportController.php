@@ -18,7 +18,7 @@ class ImportController extends Controller
 
     public function preview(Request $request)
     {
-        $request->validate(['file' => 'required|file|mimes:csv,txt|max:10240']);
+        $request->validate(['file' => 'required|file|mimes:csv,txt|max:51200']);
 
         $service = new SnipeItImportService();
         $result  = $service->preview($request->file('file'));
@@ -29,7 +29,7 @@ class ImportController extends Controller
     public function process(Request $request)
     {
         $request->validate([
-            'file'    => 'required|file|mimes:csv,txt|max:10240',
+            'file'    => 'required|file|mimes:csv,txt|max:51200',
             'mapping' => 'required|array',
         ]);
 

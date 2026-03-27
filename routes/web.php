@@ -10,6 +10,7 @@ use App\Http\Controllers\KitController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\CheckoutFormController;
 use App\Http\Controllers\ImportController;
+use App\Http\Controllers\SnipeItBackupController;
 use App\Http\Controllers\ScannerController;
 use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\ReportController;
@@ -180,6 +181,11 @@ Route::middleware('auth')->group(function () {
         // Licences (Snipe-IT licenses)
         Route::post('/import/licenses/preview', [ImportController::class, 'previewLicenses'])->name('import.licenses.preview');
         Route::post('/import/licenses/process', [ImportController::class, 'processLicenses'])->name('import.licenses.process');
+        // Import sauvegarde complète Snipe-IT (ZIP)
+        Route::get('/import/snipe-backup', [SnipeItBackupController::class, 'index'])->name('import.snipe-backup');
+        Route::post('/import/snipe-backup/analyze', [SnipeItBackupController::class, 'analyze'])->name('import.snipe-backup.analyze');
+        Route::post('/import/snipe-backup/import', [SnipeItBackupController::class, 'import'])->name('import.snipe-backup.import');
+        Route::post('/import/snipe-backup/cancel', [SnipeItBackupController::class, 'cancel'])->name('import.snipe-backup.cancel');
     });
 
     // ─── Consommables ────────────────────────────────────────────────────

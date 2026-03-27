@@ -48,6 +48,9 @@ class SnipeItImportService
 
     public function import(UploadedFile $file, array $mapping): array
     {
+        set_time_limit(0);
+        ini_set('memory_limit', '256M');
+
         $csv = Reader::createFromPath($file->getPathname(), 'r');
         $csv->setHeaderOffset(0);
         $imported = 0; $updated = 0; $errors = [];
@@ -89,6 +92,19 @@ class SnipeItImportService
                 // Mapper le statut
                 $data['status'] = $this->mapStatus($data['status'] ?? 'available');
 
+                // Normaliser la date d'achat (DD/MM/YYYY ou MM/DD/YYYY → YYYY-MM-DD)
+                if (!empty($data['purchase_date'])) {
+                    $data['purchase_date'] = $this->normalizeDate($data['purchase_date']);
+                }
+
+                // Normaliser le coût d'achat (virgule → point, espaces supprimés)
+                if (isset($data['purchase_cost'])) {
+                    $cost = str_replace([' ', "\u{00A0}"], '', $data['purchase_cost']);
+                    $cost = str_replace(',', '.', $cost);
+                    $cost = preg_replace('/[^0-9.]/', '', $cost);
+                    $data['purchase_cost'] = is_numeric($cost) ? $cost : null;
+                }
+
                 // Champs supplémentaires non mappés vers des colonnes Asset standard
                 unset($data['order_number'], $data['warranty']);
 
@@ -107,6 +123,30 @@ class SnipeItImportService
         }
 
         return ['imported' => $imported, 'updated' => $updated, 'errors' => $errors, 'total' => $imported + $updated];
+    }
+
+    private function normalizeDate(string $value): ?string
+    {
+        $value = trim($value);
+        if (empty($value)) return null;
+
+        // Déjà au format YYYY-MM-DD
+        if (preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
+            return substr($value, 0, 10);
+        }
+
+        // Format DD/MM/YYYY ou DD-MM-YYYY
+        if (preg_match('/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/', $value, $m)) {
+            // Si le 2e groupe > 12, c'est forcément MM/DD — sinon on assume DD/MM (français)
+            if ((int)$m[2] > 12) {
+                return "{$m[3]}-{$m[1]}-{$m[2]}";
+            }
+            return "{$m[3]}-{$m[2]}-{$m[1]}";
+        }
+
+        // Tentative générique via strtotime
+        $ts = strtotime($value);
+        return $ts ? date('Y-m-d', $ts) : null;
     }
 
     private function autoDetectMapping(array $headers): array
