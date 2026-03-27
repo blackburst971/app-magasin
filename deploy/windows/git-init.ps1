@@ -41,7 +41,8 @@ Write-Host "==========================================" -ForegroundColor Cyan
 # ==============================================================================
 Step "1/4" "Verification de Git"
 # ==============================================================================
-$gitCmd = (Get-Command git -ErrorAction SilentlyContinue)?.Source
+$_gitObj = Get-Command git -ErrorAction SilentlyContinue
+$gitCmd  = if ($_gitObj) { $_gitObj.Source } else { $null }
 if (-not $gitCmd) {
     $candidates = @("C:\Program Files\Git\bin\git.exe", "C:\Program Files (x86)\Git\bin\git.exe")
     foreach ($c in $candidates) { if (Test-Path $c) { $gitCmd = $c; break } }

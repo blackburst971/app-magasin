@@ -60,9 +60,9 @@ OK "Application en maintenance"
 Step "2/6" "Recuperation des mises a jour (git pull)"
 
 # Verifier que git est disponible
-$gitPath = (Get-Command git -ErrorAction SilentlyContinue)?.Source
+$_gitObj = Get-Command git -ErrorAction SilentlyContinue
+$gitPath = if ($_gitObj) { $_gitObj.Source } else { $null }
 if (-not $gitPath) {
-    # Chercher git dans les emplacements courants
     $candidates = @("C:\Program Files\Git\bin\git.exe", "C:\Program Files (x86)\Git\bin\git.exe")
     foreach ($c in $candidates) {
         if (Test-Path $c) { $gitPath = $c; break }
