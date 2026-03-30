@@ -94,6 +94,14 @@ class AttributionController extends Controller
         }
 
         if ($pivotAsset->pivot->checkout_at) {
+            // Vérifier si c'est un accessoire auto-sorti (parent_asset_id non null)
+            if ($asset->parent_asset_id) {
+                return response()->json([
+                    'success' => true,
+                    'already_checked_out_accessory' => true,
+                    'asset' => ['name' => $asset->name, 'asset_tag' => $asset->asset_tag],
+                ]);
+            }
             return response()->json(['error' => "Cet équipement a déjà été scanné"], 409);
         }
 

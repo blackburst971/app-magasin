@@ -3,6 +3,7 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ReservationMessageController;
 use App\Http\Controllers\AssetController;
+use App\Http\Controllers\AssetAssignmentController;
 use App\Http\Controllers\AssetStatusController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ManufacturerController;
@@ -155,6 +156,7 @@ Route::middleware('auth')->group(function () {
 
     // Calendar API
     Route::get('/api/reservations/calendar', [ReservationController::class, 'calendarEvents'])->name('reservations.calendar');
+    Route::get('/api/events/calendar', [\App\Http\Controllers\EventController::class, 'calendarEvents'])->name('events.calendar');
     Route::get('/api/assets/available', [AssetController::class, 'available'])->name('assets.available');
 
     // Calendar page (all users)
@@ -270,9 +272,25 @@ Route::middleware('auth')->group(function () {
         Route::put('/users/{user}', [AdminController::class, 'updateUser'])->name('users.update');
         Route::delete('/users/{user}', [AdminController::class, 'destroyUser'])->name('users.destroy');
         Route::post('/users/{user}/role', [AdminController::class, 'changeRole'])->name('users.role');
+        Route::post('/users/{user}/avatar', [AdminController::class, 'updateUserAvatar'])->name('users.avatar');
         // Gestion des rôles & permissions
         Route::get('/roles',  [RolesController::class, 'index'])->name('roles');
         Route::post('/roles', [RolesController::class, 'update'])->name('roles.update');
+    });
+
+    // Affectation équipement → équipement (admin only)
+    Route::middleware('role:admin')->group(function () {
+        Route::post('/asset-assignments', [AssetAssignmentController::class, 'assign'])->name('asset-assignments.assign');
+        Route::post('/asset-assignments/{assignment}/return', [AssetAssignmentController::class, 'returnAsset'])->name('asset-assignments.return');
+        Route::post('/assets/{asset}/return-all-assignments', [AssetAssignmentController::class, 'returnAll'])->name('asset-assignments.return-all');
+
+        // Événements (admin only)
+        Route::get('/events', [\App\Http\Controllers\EventController::class, 'index'])->name('events.index');
+        Route::post('/events', [\App\Http\Controllers\EventController::class, 'store'])->name('events.store');
+        Route::get('/events/{event}', [\App\Http\Controllers\EventController::class, 'show'])->name('events.show');
+        Route::put('/events/{event}', [\App\Http\Controllers\EventController::class, 'update'])->name('events.update');
+        Route::delete('/events/{event}', [\App\Http\Controllers\EventController::class, 'destroy'])->name('events.destroy');
+        Route::post('/events/{event}/reservations', [\App\Http\Controllers\EventController::class, 'createReservation'])->name('events.reservations.create');
     });
 
     // Waitlist — list d'attente pour les équipements non disponibles

@@ -140,6 +140,13 @@ function goToPage(p) {
   })
 }
 
+function changePerPage(n) {
+  currentPerPage.value = n
+  router.get(route('assets.index'), routeParams({ per_page: n, page: 1 }), {
+    preserveState: true, preserveScroll: false, replace: true,
+  })
+}
+
 // Pages visibles dans la pagination (max 7 boutons)
 const visiblePages = computed(() => {
   const total = props.assets?.last_page ?? 1
@@ -868,13 +875,21 @@ function executeBulkReserve() {
 
           <!-- Pagination (liste) -->
           <div class="px-4 py-3 border-t bg-gray-50">
-            <div class="flex items-center justify-between gap-4 text-sm text-gray-500 mb-2">
+            <div class="flex items-center justify-between gap-4 text-sm text-gray-500 mb-2 flex-wrap">
               <span>{{ assets.from ?? 1 }}–{{ assets.to ?? assets.data.length }} sur {{ assets.total }} équipement(s)</span>
-              <div class="flex items-center gap-2">
-                <button v-if="assets.last_page <= 1 && assets.total > (assets.to ?? 0)" @click="showAll"
-                  :disabled="loadingMore" class="text-xs text-blue-600 hover:underline disabled:opacity-50">
-                  Tout afficher ({{ assets.total }})
-                </button>
+              <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1.5 text-xs text-gray-500">
+                  <span>Par page :</span>
+                  <div class="flex gap-1">
+                    <button v-for="n in [50, 100, 200, 500]" :key="n" @click="changePerPage(n)"
+                      :class="['px-2 py-0.5 rounded border text-xs transition',
+                        currentPerPage === n
+                          ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                          : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50']">
+                      {{ n }}
+                    </button>
+                  </div>
+                </div>
                 <span v-if="assets.last_page > 1" class="text-xs text-gray-400">Page {{ assets.current_page }} / {{ assets.last_page }}</span>
               </div>
             </div>
@@ -918,9 +933,23 @@ function executeBulkReserve() {
 
         <!-- Pagination (grille) -->
         <div v-if="viewMode === 'grid'" class="mt-4 space-y-2">
-          <div class="flex items-center justify-between text-sm text-gray-500">
+          <div class="flex items-center justify-between text-sm text-gray-500 flex-wrap gap-2">
             <span>{{ assets.from ?? 1 }}–{{ assets.to ?? assets.data.length }} sur {{ assets.total }} équipement(s)</span>
-            <span v-if="assets.last_page > 1" class="text-xs text-gray-400">Page {{ assets.current_page }} / {{ assets.last_page }}</span>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>Par page :</span>
+                <div class="flex gap-1">
+                  <button v-for="n in [50, 100, 200, 500]" :key="n" @click="changePerPage(n)"
+                    :class="['px-2 py-0.5 rounded border text-xs transition',
+                      currentPerPage === n
+                        ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                        : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50']">
+                    {{ n }}
+                  </button>
+                </div>
+              </div>
+              <span v-if="assets.last_page > 1" class="text-xs text-gray-400">Page {{ assets.current_page }} / {{ assets.last_page }}</span>
+            </div>
           </div>
           <div class="w-full bg-gray-200 rounded-full h-1.5">
             <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500"

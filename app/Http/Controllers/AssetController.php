@@ -60,8 +60,8 @@ class AssetController extends Controller
                    ->orWhere('manufacturer', $request->manufacturer);
             }));
 
-        // Nombre d'éléments par page — min:12, max:200
-        $perPage = max(12, min(200, (int) ($request->per_page ?? 24)));
+        // Nombre d'éléments par page — min:12, max:500
+        $perPage = max(12, min(500, (int) ($request->per_page ?? 24)));
 
         $assets = $query->orderBy('name')->paginate($perPage, ['*'], 'page', (int)($request->page ?? 1))->withQueryString()
             ->through(fn($a) => [
@@ -135,7 +135,7 @@ class AssetController extends Controller
             abort(403);
         }
 
-        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files']);
+        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files', 'activeAssignment.assignedToAsset', 'assignedAssets.asset']);
 
         $movements = $asset->movements->map(fn($m) => [
             'id'         => $m->id,
@@ -197,6 +197,29 @@ class AssetController extends Controller
             ->map(fn($a) => ['id' => $a->id, 'name' => $a->name, 'asset_tag' => $a->asset_tag])
             ->values();
 
+        // Affectation active de cet équipement vers un autre
+        $activeAssignment = $asset->activeAssignment;
+
+        // Équipements affectés à cet asset (en tant que destinataire)
+        $assignedAssets = $asset->assignedAssets->map(fn($asgn) => [
+            'id'             => $asgn->id,
+            'asset_id'       => $asgn->asset_id,
+            'asset_name'     => $asgn->asset->name,
+            'asset_tag'      => $asgn->asset->asset_tag,
+            'notes'          => $asgn->notes,
+            'assigned_at'    => $asgn->assigned_at->format('d/m/Y'),
+            'assigned_by'    => $asgn->assignedBy?->name,
+        ])->values();
+
+        // Équipements disponibles pour être affectés (disponibles, pas d'affectation active)
+        $assignableAssets = $isAdmin ? Asset::where('id', '!=', $asset->id)
+            ->whereIn('status', ['ready_to_deploy', 'available'])
+            ->whereDoesntHave('assetAssignments', fn($q) => $q->whereNull('returned_at'))
+            ->orderBy('name')
+            ->get(['id', 'name', 'asset_tag', 'status'])
+            ->map(fn($a) => ['id' => $a->id, 'name' => $a->name, 'asset_tag' => $a->asset_tag])
+            ->values() : collect();
+
         // Fichiers publics attachés (images + PDFs)
         $assetFiles = $asset->files->map(fn($f) => [
             'id'             => $f->id,
@@ -223,6 +246,15 @@ class AssetController extends Controller
             'accessories'       => $accessories,
             'assetFiles'        => $assetFiles,
             'linkableAssets'    => $linkableAssets,
+            'activeAssignment'  => $activeAssignment ? [
+                'id'               => $activeAssignment->id,
+                'assigned_to_name' => $activeAssignment->assignedToAsset->name,
+                'assigned_to_id'   => $activeAssignment->assigned_to_asset_id,
+                'notes'            => $activeAssignment->notes,
+                'assigned_at'      => $activeAssignment->assigned_at->format('d/m/Y'),
+            ] : null,
+            'assignedAssets'    => $assignedAssets,
+            'assignableAssets'  => $assignableAssets,
             'movements'         => $movements,
             'modelDocuments'    => $modelDocuments,
             'maintenances'      => $maintenances,

@@ -3,6 +3,9 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
 import { CheckIcon, XMarkIcon, ClipboardDocumentCheckIcon } from '@heroicons/vue/24/outline'
+import { useSound } from '@/composables/useSound'
+
+const { playSound } = useSound()
 
 const props = defineProps({
   assets:     Array,
@@ -32,15 +35,18 @@ function processTag(tag) {
   if (!t) return
   const asset = props.assets.find(a => a.asset_tag === t || a.serial === t)
   if (!asset) {
+    playSound('scan_error')
     scanError.value = `Tag "${t}" non trouvé dans cette session`
     return
   }
   if (scanned.value[asset.id] !== undefined) {
+    playSound('scan_error')
     scanError.value = `"${asset.name}" déjà traité`
     return
   }
   scanned.value = { ...scanned.value, [asset.id]: true }
   scanError.value = ''
+  playSound('scan_success')
 }
 
 function onScanKeydown(e) {

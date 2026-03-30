@@ -17,7 +17,7 @@ import {
   ShieldCheckIcon, InboxStackIcon, WrenchScrewdriverIcon,
   KeyIcon, ComputerDesktopIcon, BuildingOfficeIcon,
   MagnifyingGlassIcon, ArchiveBoxXMarkIcon,
-  ClipboardDocumentCheckIcon,
+  ClipboardDocumentCheckIcon, SparklesIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -160,6 +160,7 @@ const navItems = computed(() => {
     items.push(
       { type: 'sep', label: 'Réservations' },
       { name: 'Réservations', href: route('reservations.index'), icon: CalendarDaysIcon,        current: route().current('reservations.*') },
+      { name: 'Événements',   href: route('events.index'),       icon: SparklesIcon,             current: route().current('events.*') },
       { name: 'Attribution',  href: route('attribution.index'),  icon: ArrowLeftOnRectangleIcon, current: route().current('attribution.*') },
       { name: 'Retours',      href: route('returns.index'),      icon: ArrowUturnLeftIcon,       current: route().current('returns.*') },
       { name: 'Scanner',      href: route('scanner.index'),      icon: QrCodeIcon,               current: route().current('scanner.*') },

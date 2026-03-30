@@ -8,6 +8,7 @@ use App\Models\KitMissingItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use League\Csv\Reader;
@@ -30,6 +31,7 @@ class AdminController extends Controller
                 'supervisor_name' => $u->supervisor?->name,
                 'roles'           => $u->getRoleNames(),
                 'created_at'      => $u->created_at->format('d/m/Y'),
+                'avatar_url'      => $u->avatar ? Storage::disk('public')->url($u->avatar) : null,
             ]),
             // Liste plate id+name pour les dropdowns superviseur
             'supervisors' => $allUsers->map(fn($u) => ['id' => $u->id, 'name' => $u->name]),
@@ -123,6 +125,17 @@ class AdminController extends Controller
         $request->validate(['role' => 'required|in:admin,professeur,personnel,user']);
         $user->syncRoles([$request->role]);
         return back()->with('success', 'Rôle mis à jour.');
+    }
+
+    public function updateUserAvatar(Request $request, User $user)
+    {
+        $request->validate(['avatar' => 'required|image|mimes:jpeg,jpg,png,gif,webp|max:2048']);
+        if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
+            Storage::disk('public')->delete($user->avatar);
+        }
+        $path = $request->file('avatar')->store('avatars', 'public');
+        $user->update(['avatar' => $path]);
+        return back()->with('success', 'Photo de profil mise à jour.');
     }
 
     // ── Import CSV ───────────────────────────────────────────────────────────

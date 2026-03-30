@@ -46,6 +46,11 @@ class Reservation extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function event()
+    {
+        return $this->belongsTo(\App\Models\Event::class);
+    }
+
     public function kit()
     {
         return $this->belongsTo(Kit::class);

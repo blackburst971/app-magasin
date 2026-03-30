@@ -30,11 +30,12 @@ const viewDate        = ref(new Date(today))
 async function loadEvents() {
   loading.value = true
   try {
-    const [resvRes, roomRes] = await Promise.all([
+    const [resvRes, roomRes, eventsRes] = await Promise.all([
       axios.get(route('reservations.calendar')),
       axios.get(route('rooms.calendar')),
+      axios.get(route('events.calendar')),
     ])
-    events.value = [...resvRes.data, ...roomRes.data]
+    events.value = [...resvRes.data, ...roomRes.data, ...eventsRes.data]
   } catch (e) {
     // silently fail
   } finally {
@@ -170,8 +171,8 @@ function openDay(day) {
 
 // Status colors for events (CSS class pour reservations equipements)
 function eventBgColor(ev) {
-  // Salles : couleur hex directe
-  if (ev.extendedProps?.type === 'room') return ''
+  // Salles ou événements lycée : couleur hex directe
+  if (ev.extendedProps?.type === 'room' || ev.extendedProps?.type === 'event') return ''
   const map = {
     pending: 'bg-amber-400',
     approved: 'bg-blue-500',
@@ -183,9 +184,11 @@ function eventBgColor(ev) {
   return map[ev.extendedProps?.status] ?? 'bg-gray-400'
 }
 
-// Style inline pour les salles
+// Style inline pour les salles et événements
 function eventInlineStyle(ev) {
-  if (ev.extendedProps?.type === 'room') return { backgroundColor: ev.backgroundColor }
+  if (ev.extendedProps?.type === 'room' || ev.extendedProps?.type === 'event') {
+    return { backgroundColor: ev.backgroundColor }
+  }
   return {}
 }
 

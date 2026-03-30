@@ -1,6 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { useSound } from '@/composables/useSound'
 import { CheckCircleIcon, ClockIcon, QrCodeIcon, UserIcon, CalendarIcon, ListBulletIcon, BoltIcon } from '@heroicons/vue/24/outline'
@@ -35,6 +35,17 @@ const localReservations = ref(props.reservations.map(r => ({
   managingRemoveId: null,
   manageError: null,
 })))
+
+// ── Refs des inputs de scan (pour refocus automatique) ─────────────────────
+const scanInputRefs = ref({})
+function setScanInputRef(el, resId) {
+  if (el) scanInputRefs.value[resId] = el
+}
+function focusScanInput(resId) {
+  nextTick(() => {
+    scanInputRefs.value[resId]?.focus()
+  })
+}
 
 // ── Modal substitution équivalent ──────────────────────────────────────────
 const substituteModal = ref(null)
@@ -332,10 +343,17 @@ async function scanAsset(reservation) {
       asset.checkout_at = new Date().toISOString()
     }
 
-    const emailMsg = data.checkout_email_sent ? ' — 📧 Email récapitulatif envoyé' : ''
-    reservation.scanResult = {
-      type: 'success',
-      message: `${data.asset.name} (${data.asset.asset_tag}) — attribué avec succès${emailMsg}`,
+    if (data.already_checked_out_accessory) {
+      reservation.scanResult = {
+        type: 'success',
+        message: `ℹ️ ${data.asset.name} (${data.asset.asset_tag}) — déjà attribué automatiquement en tant qu'accessoire`,
+      }
+    } else {
+      const emailMsg = data.checkout_email_sent ? ' — 📧 Email récapitulatif envoyé' : ''
+      reservation.scanResult = {
+        type: 'success',
+        message: `${data.asset.name} (${data.asset.asset_tag}) — attribué avec succès${emailMsg}`,
+      }
     }
 
     // Check if all done
@@ -351,6 +369,7 @@ async function scanAsset(reservation) {
   } finally {
     reservation.scanning = false
     reservation.scanInput = ''
+    focusScanInput(reservation.id)
     // Auto-clear result after 4 seconds
     setTimeout(() => {
       reservation.scanResult = null
@@ -780,10 +799,12 @@ const totalPending = computed(() =>
                 <div class="flex gap-2">
                   <input
                     v-model="res.scanInput"
+                    :ref="el => setScanInputRef(el, res.id)"
                     type="text"
                     placeholder="Tag d'équipement (ex: EQ-001)…"
                     :disabled="res.scanning"
                     @keydown.enter="scanAsset(res)"
+                    autocomplete="off"
                     class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-60"
                   />
                   <button

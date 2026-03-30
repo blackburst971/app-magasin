@@ -70,6 +70,32 @@ const submitEdit = () => {
   })
 }
 
+// ── Avatar admin ──────────────────────────────────────────────────────────────
+const avatarInputRefs = ref({})
+function setAvatarInputRef(el, userId) { if (el) avatarInputRefs.value[userId] = el }
+
+function triggerAvatarUpload(userId) {
+  avatarInputRefs.value[userId]?.click()
+}
+
+async function onAvatarChange(e, user) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const fd = new FormData()
+  fd.append('avatar', file)
+  fd.append('_method', 'POST')
+  try {
+    await axios.post(route('admin.users.avatar', user.id), fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    // Recharger la page pour voir le nouvel avatar
+    router.reload({ preserveScroll: true })
+  } catch (err) {
+    alert(err.response?.data?.message ?? 'Erreur lors de l\'upload')
+  }
+  e.target.value = ''
+}
+
 // Exclure l'utilisateur édité de sa propre liste de superviseurs
 const editSupervisors = computed(() =>
   editingUser.value
@@ -268,9 +294,16 @@ watch(importResults, (val) => {
               <!-- Utilisateur -->
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
-                  <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                    {{ user.name.charAt(0).toUpperCase() }}
+                  <!-- Avatar cliquable pour upload -->
+                  <div @click="triggerAvatarUpload(user.id)"
+                    class="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 cursor-pointer hover:opacity-80 transition relative group"
+                    title="Changer la photo">
+                    <img v-if="user.avatar_url" :src="user.avatar_url" class="w-full h-full object-cover" />
+                    <span v-else>{{ user.name.charAt(0).toUpperCase() }}</span>
+                    <span class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 rounded-full text-white text-[9px] font-bold transition">📷</span>
                   </div>
+                  <input :ref="el => setAvatarInputRef(el, user.id)" type="file" accept="image/*" class="hidden"
+                    @change="e => onAvatarChange(e, user)" />
                   <div>
                     <p class="font-medium">{{ user.name }}</p>
                     <p class="text-xs text-gray-500">{{ user.email }}</p>

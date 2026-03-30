@@ -383,6 +383,96 @@
                         </div>
                     </Teleport>
 
+                    <!-- ── Affectation équipement→équipement (admin) ── -->
+                    <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                🔀 Affectation à un équipement
+                            </h2>
+                        </div>
+
+                        <!-- Cet asset est affecté à un autre -->
+                        <div v-if="activeAssignment"
+                            class="mb-3 flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                            <span class="text-xl mt-0.5">📌</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-indigo-800">
+                                    Affecté à :
+                                    <Link :href="route('assets.show', activeAssignment.assigned_to_id)" class="underline">
+                                        {{ activeAssignment.assigned_to_name }}
+                                    </Link>
+                                </p>
+                                <p class="text-xs text-indigo-600 mt-0.5">Depuis le {{ activeAssignment.assigned_at }}</p>
+                                <p v-if="activeAssignment.notes" class="text-xs text-indigo-500 mt-0.5 italic">{{ activeAssignment.notes }}</p>
+                            </div>
+                            <button @click="returnAssignment(activeAssignment.id)"
+                                :disabled="returningAssignId === activeAssignment.id"
+                                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition disabled:opacity-50">
+                                Retourner
+                            </button>
+                        </div>
+
+                        <!-- Bouton affecter (si pas déjà affecté et pas sorti) -->
+                        <div v-else-if="asset.status !== 'checked_out'">
+                            <button @click="showAssignModal = true"
+                                class="flex items-center gap-2 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-lg transition font-medium">
+                                + Affecter à un équipement
+                            </button>
+                        </div>
+                        <p v-else class="text-xs text-gray-400">Impossible d'affecter — équipement actuellement sorti.</p>
+
+                        <!-- Équipements affectés à CET asset (en tant que destinataire) -->
+                        <div v-if="assignedAssets.length > 0" class="mt-4">
+                            <p class="text-xs font-semibold text-gray-600 mb-2">Équipements affectés à cet équipement :</p>
+                            <div class="space-y-2">
+                                <div v-for="asgn in assignedAssets" :key="asgn.id"
+                                    class="flex items-center justify-between px-3 py-2 rounded-lg border border-indigo-100 bg-indigo-50/40 text-sm">
+                                    <div>
+                                        <p class="font-medium text-gray-900">{{ asgn.asset_name }}</p>
+                                        <p class="text-xs text-gray-400 font-mono">{{ asgn.asset_tag }} · depuis {{ asgn.assigned_at }}</p>
+                                        <p v-if="asgn.notes" class="text-xs text-gray-500 italic">{{ asgn.notes }}</p>
+                                    </div>
+                                    <button @click="returnAssignment(asgn.id)"
+                                        :disabled="returningAssignId === asgn.id"
+                                        class="text-xs bg-white hover:bg-red-50 text-red-600 border border-red-200 px-2.5 py-1 rounded-lg transition disabled:opacity-50">
+                                        Retourner
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal affectation -->
+                    <Teleport to="body">
+                        <div v-if="showAssignModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                            <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                                <h3 class="font-semibold text-gray-900 mb-4">
+                                    Affecter <span class="text-indigo-700">{{ asset.name }}</span> à un équipement
+                                </h3>
+                                <input v-model="assignSearch" type="text" placeholder="Rechercher un équipement destinataire…"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                <div class="max-h-52 overflow-y-auto space-y-1 mb-3">
+                                    <div v-if="filteredAssignable.length === 0" class="text-center text-gray-400 text-sm py-4">
+                                        Aucun équipement disponible
+                                    </div>
+                                    <button v-for="a in filteredAssignable" :key="a.id"
+                                        @click="assignToAsset(a.id)"
+                                        :disabled="assigningId === a.id"
+                                        class="w-full text-left flex items-center justify-between px-3 py-2 rounded-lg hover:bg-indigo-50 transition disabled:opacity-50 text-sm border border-transparent hover:border-indigo-200">
+                                        <span class="font-medium text-gray-900">{{ a.name }}</span>
+                                        <span class="text-xs text-gray-400 font-mono">{{ a.asset_tag }}</span>
+                                    </button>
+                                </div>
+                                <textarea v-model="assignNotes" rows="2" placeholder="Notes (optionnel)…"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:ring-2 focus:ring-indigo-500 outline-none resize-none" />
+                                <button @click="showAssignModal = false; assignSearch = ''; assignNotes = ''"
+                                    class="w-full border border-gray-300 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">
+                                    Annuler
+                                </button>
+                            </div>
+                        </div>
+                    </Teleport>
+
                     <!-- Maintenances (admin) -->
                     <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm p-6">
                         <div class="flex items-center justify-between mb-4">
@@ -633,6 +723,9 @@ const props = defineProps({
     accessories:       { type: Array,   default: () => [] },
     linkableAssets:    { type: Array,   default: () => [] },
     assetFiles:        { type: Array,   default: () => [] },
+    activeAssignment:  { type: Object,  default: null },
+    assignedAssets:    { type: Array,   default: () => [] },
+    assignableAssets:  { type: Array,   default: () => [] },
 })
 
 const isAdmin = computed(() => page.props.auth?.user?.is_admin)
@@ -680,6 +773,43 @@ function unlinkAccessory(accessoryId) {
     router.delete(route('assets.unlink-accessory', props.asset.id), {
         data: { accessory_id: accessoryId },
         preserveScroll: true,
+    })
+}
+
+// ── Affectation équipement → équipement ──────────────────────────────────────
+const showAssignModal    = ref(false)
+const assignSearch       = ref('')
+const assignNotes        = ref('')
+const assigningId        = ref(null)
+const returningAssignId  = ref(null)
+
+const filteredAssignable = computed(() => {
+    const q = assignSearch.value.trim().toLowerCase()
+    if (!q) return props.assignableAssets.slice(0, 10)
+    return props.assignableAssets
+        .filter(a => a.name.toLowerCase().includes(q) || a.asset_tag.toLowerCase().includes(q))
+        .slice(0, 10)
+})
+
+function assignToAsset(targetId) {
+    assigningId.value = targetId
+    router.post(route('asset-assignments.assign'), {
+        asset_id: props.asset.id,
+        assigned_to_asset_id: targetId,
+        notes: assignNotes.value || null,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => { showAssignModal.value = false; assignSearch.value = ''; assignNotes.value = '' },
+        onFinish: () => { assigningId.value = null },
+    })
+}
+
+function returnAssignment(assignmentId) {
+    if (!confirm('Confirmer le retour de cet équipement ?')) return
+    returningAssignId.value = assignmentId
+    router.post(route('asset-assignments.return', assignmentId), {}, {
+        preserveScroll: true,
+        onFinish: () => { returningAssignId.value = null },
     })
 }
 

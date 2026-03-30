@@ -80,6 +80,24 @@ class Asset extends Model
         return $this->hasMany(Asset::class, 'parent_asset_id');
     }
 
+    /** Affectations actives de cet équipement vers un autre équipement */
+    public function activeAssignment()
+    {
+        return $this->hasOne(AssetAssignment::class)->whereNull('returned_at')->latest('assigned_at');
+    }
+
+    /** Toutes les affectations de cet équipement */
+    public function assetAssignments()
+    {
+        return $this->hasMany(AssetAssignment::class);
+    }
+
+    /** Équipements qui lui sont affectés (en tant que destinataire) */
+    public function assignedAssets()
+    {
+        return $this->hasMany(AssetAssignment::class, 'assigned_to_asset_id')->whereNull('returned_at');
+    }
+
     public function supplier()
     {
         return $this->belongsTo(Supplier::class);
