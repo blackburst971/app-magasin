@@ -4,7 +4,7 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 
 // ─── Type d'import ────────────────────────────────────────────────────────────
-const importType = ref('assets') // 'assets' | 'licenses'
+const importType = ref('assets') // 'assets' | 'licenses' | 'manufacturers'
 
 // ─── État commun ──────────────────────────────────────────────────────────────
 const file          = ref(null)
@@ -61,30 +61,48 @@ const licenseFieldOptions = [
   { value: 'notes',         label: 'Notes' },
 ]
 
-const fieldOptions = computed(() =>
-  importType.value === 'licenses' ? licenseFieldOptions : assetFieldOptions
-)
+const manufacturerFieldOptions = [
+  { value: 'name',        label: 'Nom' },
+  { value: 'description', label: 'Description' },
+  { value: 'website',     label: 'Site web' },
+]
+
+const fieldOptions = computed(() => {
+  if (importType.value === 'licenses') return licenseFieldOptions
+  if (importType.value === 'manufacturers') return manufacturerFieldOptions
+  return assetFieldOptions
+})
 
 // ─── Routes dynamiques ────────────────────────────────────────────────────────
-const previewRoute = computed(() =>
-  importType.value === 'licenses' ? route('import.licenses.preview') : route('import.preview')
-)
-const processRoute = computed(() =>
-  importType.value === 'licenses' ? route('import.licenses.process') : route('import.process')
-)
-const successRoute = computed(() =>
-  importType.value === 'licenses' ? route('licenses.index') : route('assets.index')
-)
-const successLabel = computed(() =>
-  importType.value === 'licenses' ? 'Voir les licences →' : 'Voir les équipements →'
-)
+const previewRoute = computed(() => {
+  if (importType.value === 'licenses') return route('import.licenses.preview')
+  if (importType.value === 'manufacturers') return route('import.manufacturers.preview')
+  return route('import.preview')
+})
+const processRoute = computed(() => {
+  if (importType.value === 'licenses') return route('import.licenses.process')
+  if (importType.value === 'manufacturers') return route('import.manufacturers.process')
+  return route('import.process')
+})
+const successRoute = computed(() => {
+  if (importType.value === 'licenses') return route('licenses.index')
+  if (importType.value === 'manufacturers') return route('manufacturers.index')
+  return route('assets.index')
+})
+const successLabel = computed(() => {
+  if (importType.value === 'licenses') return 'Voir les licences →'
+  if (importType.value === 'manufacturers') return 'Voir les fabricants →'
+  return 'Voir les équipements →'
+})
 
 // ─── Couleurs par type ────────────────────────────────────────────────────────
-const accentColor = computed(() =>
-  importType.value === 'licenses'
-    ? { btn: 'bg-purple-600 hover:bg-purple-700', badge: 'bg-purple-100 text-purple-700', step: 'bg-purple-600', check: 'text-purple-600' }
-    : { btn: 'bg-blue-600 hover:bg-blue-700',   badge: 'bg-blue-100 text-blue-700',   step: 'bg-blue-600',   check: 'text-blue-600'   }
-)
+const accentColor = computed(() => {
+  if (importType.value === 'licenses')
+    return { btn: 'bg-purple-600 hover:bg-purple-700', badge: 'bg-purple-100 text-purple-700', step: 'bg-purple-600', check: 'text-purple-600' }
+  if (importType.value === 'manufacturers')
+    return { btn: 'bg-orange-600 hover:bg-orange-700', badge: 'bg-orange-100 text-orange-700', step: 'bg-orange-600', check: 'text-orange-600' }
+  return { btn: 'bg-blue-600 hover:bg-blue-700', badge: 'bg-blue-100 text-blue-700', step: 'bg-blue-600', check: 'text-blue-600' }
+})
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 const onFileChange = (e) => {
@@ -197,6 +215,21 @@ const reset = () => {
             <div class="text-xs opacity-70">Licences Snipe-IT</div>
           </div>
         </button>
+        <button
+          @click="setImportType('manufacturers')"
+          :class="[
+            'flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm border-2 transition',
+            importType === 'manufacturers'
+              ? 'border-orange-600 bg-orange-50 text-orange-700'
+              : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+          ]"
+        >
+          <span class="text-lg">🏭</span>
+          <div class="text-left">
+            <div class="font-semibold">Fabricants</div>
+            <div class="text-xs opacity-70">CSV fabricants</div>
+          </div>
+        </button>
       </div>
 
       <!-- Bandeau info contextuel -->
@@ -206,10 +239,16 @@ const reset = () => {
           <span class="font-semibold">Équipements</span> — Exportez depuis Snipe-IT : <em>Assets → Exporter</em> (toutes les colonnes). Les colonnes sont détectées automatiquement.
         </div>
       </div>
-      <div v-else class="flex items-start gap-3 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 mb-6 text-sm text-purple-800">
+      <div v-else-if="importType === 'licenses'" class="flex items-start gap-3 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 mb-6 text-sm text-purple-800">
         <span class="text-base mt-0.5">ℹ️</span>
         <div>
           <span class="font-semibold">Licences</span> — Exportez depuis Snipe-IT : <em>Licences → Exporter</em>. La colonne <code class="bg-purple-100 px-1 rounded">serial</code> sera mappée automatiquement sur la clé de licence.
+        </div>
+      </div>
+      <div v-else class="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-6 text-sm text-orange-800">
+        <span class="text-base mt-0.5">ℹ️</span>
+        <div>
+          <span class="font-semibold">Fabricants</span> — Fichier CSV avec les colonnes <code class="bg-orange-100 px-1 rounded">name</code>, <code class="bg-orange-100 px-1 rounded">description</code>, <code class="bg-orange-100 px-1 rounded">website</code>. Les doublons (même nom) sont ignorés.
         </div>
       </div>
 
@@ -221,7 +260,7 @@ const reset = () => {
           :class="[
             'flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium transition',
             step === i + 1
-              ? (importType === 'licenses' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white')
+              ? accentColor.step + ' text-white'
               : step > i + 1
               ? 'bg-green-100 text-green-700'
               : 'bg-gray-100 text-gray-400'
