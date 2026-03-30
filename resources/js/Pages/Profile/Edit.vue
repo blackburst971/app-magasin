@@ -82,6 +82,29 @@
                 </form>
             </div>
 
+            <!-- Avatar -->
+            <div class="bg-white rounded-xl shadow-sm p-6">
+                <h2 class="text-base font-semibold text-gray-900 mb-4">Photo de profil</h2>
+                <div class="flex items-center gap-6">
+                    <div class="w-20 h-20 rounded-full overflow-hidden bg-gray-100 border-2 border-gray-200 flex-shrink-0 flex items-center justify-center">
+                        <img v-if="avatarPreview || user.avatar_url" :src="avatarPreview || user.avatar_url"
+                             class="w-full h-full object-cover" />
+                        <span v-else class="text-3xl font-bold text-gray-400">{{ user.name.charAt(0).toUpperCase() }}</span>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="cursor-pointer inline-flex items-center gap-2 text-sm text-blue-600 hover:underline font-medium">
+                            📷 Choisir une photo
+                            <input type="file" accept="image/*" class="hidden" @change="onAvatarChange" />
+                        </label>
+                        <p class="text-xs text-gray-400">JPEG, PNG, GIF, WEBP — max 2 Mo</p>
+                        <button v-if="avatarFile" @click="submitAvatar" :disabled="avatarLoading"
+                                class="btn-primary text-xs px-3 py-1.5">
+                            {{ avatarLoading ? 'Envoi…' : 'Enregistrer la photo' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Zone de danger -->
             <div class="bg-white rounded-xl shadow-sm p-6 border border-red-100">
                 <h2 class="text-base font-semibold text-red-700 mb-2">Zone de danger</h2>
@@ -142,6 +165,29 @@ const passwordForm = reactive({
 })
 const passwordErrors = ref({})
 const passwordLoading = ref(false)
+
+const avatarFile    = ref(null)
+const avatarPreview = ref(null)
+const avatarLoading = ref(false)
+
+function onAvatarChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    avatarFile.value    = file
+    avatarPreview.value = URL.createObjectURL(file)
+}
+
+function submitAvatar() {
+    if (!avatarFile.value) return
+    avatarLoading.value = true
+    const fd = new FormData()
+    fd.append('avatar', avatarFile.value)
+    router.post(route('profile.avatar'), fd, {
+        forceFormData: true,
+        onSuccess: () => { avatarFile.value = null },
+        onFinish: () => { avatarLoading.value = false },
+    })
+}
 
 const confirmDelete = ref(false)
 const deletePassword = ref('')

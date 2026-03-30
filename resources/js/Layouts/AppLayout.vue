@@ -17,6 +17,7 @@ import {
   ShieldCheckIcon, InboxStackIcon, WrenchScrewdriverIcon,
   KeyIcon, ComputerDesktopIcon, BuildingOfficeIcon,
   MagnifyingGlassIcon, ArchiveBoxXMarkIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -136,15 +137,15 @@ const navItems = computed(() => {
 
   if (isAdmin.value) {
     items.push(
-      { name: 'Catégories', href: route('assets.index', { tab: 'categories' }),    icon: TagIcon,                current: onA && tab === 'categories',    sub: true },
-      { name: 'Lieux',      href: route('assets.index', { tab: 'locations' }),     icon: MapPinIcon,             current: onA && tab === 'locations',     sub: true },
-      { name: 'Fabricants', href: route('assets.index', { tab: 'manufacturers' }), icon: BuildingStorefrontIcon, current: onA && tab === 'manufacturers', sub: true },
+      { name: 'Catégories', href: route('assets.index', { tab: 'categories' }), icon: TagIcon,    current: onA && tab === 'categories', sub: true },
+      { name: 'Lieux',      href: route('assets.index', { tab: 'locations' }),  icon: MapPinIcon, current: onA && tab === 'locations',  sub: true },
     )
   }
 
-  items.push({ name: 'Calendrier', href: route('calendar.index'), icon: CalendarDaysIcon,  current: route().current('calendar.*') })
-  items.push({ name: 'Salles',     href: route('rooms.index'),    icon: BuildingOfficeIcon, current: route().current('rooms.*') || route().current('room-reservations.*') })
-  items.push({ name: 'Kits',       href: route('kits.index'),     icon: ArchiveBoxIcon,     current: route().current('kits.*') })
+  items.push({ name: 'Fabricants', href: route('manufacturers.index'), icon: BuildingStorefrontIcon, current: route().current('manufacturers.*') })
+  items.push({ name: 'Calendrier', href: route('calendar.index'),      icon: CalendarDaysIcon,       current: route().current('calendar.*') })
+  items.push({ name: 'Salles',     href: route('rooms.index'),         icon: BuildingOfficeIcon,     current: route().current('rooms.*') || route().current('room-reservations.*') })
+  items.push({ name: 'Kits',       href: route('kits.index'),          icon: ArchiveBoxIcon,         current: route().current('kits.*') })
 
   if (!isAdmin.value) {
     items.push({ name: 'Mes réservations', href: route('reservations.index'), icon: ClipboardDocumentListIcon, current: route().current('reservations.*') })
@@ -166,6 +167,7 @@ const navItems = computed(() => {
     // ── Inventaire ────────────────────────────────────────────
     items.push(
       { type: 'sep', label: 'Inventaire' },
+      { name: 'Faire inventaire', href: route('inventory.index'), icon: ClipboardDocumentCheckIcon, current: route().current('inventory.*') },
       { name: 'Consommables', href: route('consommables.index'),      icon: InboxStackIcon,         current: route().current('consommables.*') },
       { name: 'Modèles',      href: route('models.index'),            icon: CubeTransparentIcon,    current: route().current('models.*') },
       { name: 'Maintenance',   href: route('maintenance.index'),       icon: WrenchScrewdriverIcon,  current: route().current('maintenance.*') },
@@ -174,7 +176,6 @@ const navItems = computed(() => {
       { name: 'Licences',     href: route('licenses.index'),          icon: KeyIcon,                current: route().current('licenses.*') },
       { name: 'Postes',       href: route('computers.index'),         icon: ComputerDesktopIcon,    current: route().current('computers.*') },
       { name: 'Fournisseurs', href: route('suppliers.index'),         icon: BuildingStorefrontIcon, current: route().current('suppliers.*') },
-      { name: 'Fabricants',   href: route('manufacturers.index'),     icon: BuildingStorefrontIcon, current: route().current('manufacturers.*') },
     )
     // ── Rapports ──────────────────────────────────────────────
     items.push(
@@ -341,8 +342,9 @@ onUnmounted(() => {
 
       <div class="border-t p-3 flex-shrink-0">
         <Link :href="route('profile.edit')" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-            {{ user?.name?.charAt(0)?.toUpperCase() }}
+          <div class="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <img v-if="user?.avatar_url" :src="user.avatar_url" class="w-full h-full object-cover" />
+            <span v-else>{{ user?.name?.charAt(0)?.toUpperCase() }}</span>
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-gray-900 truncate">{{ user?.name }}</p>

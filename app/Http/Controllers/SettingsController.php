@@ -61,6 +61,10 @@ class SettingsController extends Controller
             'print_show_asset_tag'        => 'print',
             'print_show_form'             => 'print',
             'print_proviseur_label'       => 'print',
+            // Visibilité calendrier par rôle
+            'calendar_visibility_professeur' => 'calendar',
+            'calendar_visibility_etudiant'   => 'calendar',
+            'calendar_visibility_personnel'  => 'calendar',
         ];
 
         foreach ($request->all() as $key => $value) {

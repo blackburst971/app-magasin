@@ -60,10 +60,10 @@ class AssetController extends Controller
                    ->orWhere('manufacturer', $request->manufacturer);
             }));
 
-        // Nombre d'éléments par page (progressif) — min:12, max:500
-        $perPage = max(12, min(500, (int) ($request->per_page ?? 24)));
+        // Nombre d'éléments par page — min:12, max:200
+        $perPage = max(12, min(200, (int) ($request->per_page ?? 24)));
 
-        $assets = $query->orderBy('name')->paginate($perPage)->withQueryString()
+        $assets = $query->orderBy('name')->paginate($perPage, ['*'], 'page', (int)($request->page ?? 1))->withQueryString()
             ->through(fn($a) => [
                 'id'                    => $a->id,
                 'name'                  => $a->name,

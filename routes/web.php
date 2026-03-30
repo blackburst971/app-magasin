@@ -46,6 +46,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::patch('/profile', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('password.update');
+    Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar'])->name('profile.avatar');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // Assets
@@ -91,9 +92,9 @@ Route::middleware('auth')->group(function () {
         Route::resource('categories', CategoryController::class);
     });
 
-    // Manufacturers (admin only)
+    // Manufacturers — lecture pour tous, CRUD admin uniquement
+    Route::get('/manufacturers', [ManufacturerController::class, 'index'])->name('manufacturers.index');
     Route::middleware('role:admin')->group(function () {
-        Route::get('/manufacturers', [ManufacturerController::class, 'index'])->name('manufacturers.index');
         Route::post('/manufacturers', [ManufacturerController::class, 'store'])->name('manufacturers.store');
         Route::put('/manufacturers/{manufacturer}', [ManufacturerController::class, 'update'])->name('manufacturers.update');
         Route::delete('/manufacturers/{manufacturer}', [ManufacturerController::class, 'destroy'])->name('manufacturers.destroy');
@@ -181,6 +182,9 @@ Route::middleware('auth')->group(function () {
         // Licences (Snipe-IT licenses)
         Route::post('/import/licenses/preview', [ImportController::class, 'previewLicenses'])->name('import.licenses.preview');
         Route::post('/import/licenses/process', [ImportController::class, 'processLicenses'])->name('import.licenses.process');
+        // Fabricants
+        Route::post('/import/manufacturers/preview', [ImportController::class, 'previewManufacturers'])->name('import.manufacturers.preview');
+        Route::post('/import/manufacturers/process', [ImportController::class, 'processManufacturers'])->name('import.manufacturers.process');
         // Import sauvegarde complète Snipe-IT (ZIP)
         Route::get('/import/snipe-backup', [SnipeItBackupController::class, 'index'])->name('import.snipe-backup');
         Route::post('/import/snipe-backup/analyze', [SnipeItBackupController::class, 'analyze'])->name('import.snipe-backup.analyze');
@@ -338,6 +342,12 @@ Route::middleware('auth')->group(function () {
         Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test-email');
         Route::post('/settings/logo', [SettingsController::class, 'uploadLogo'])->name('settings.logo.upload');
         Route::delete('/settings/logo/{type}', [SettingsController::class, 'deleteLogo'])->name('settings.logo.delete');
+    });
+
+    // Inventaire (admin only)
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/inventory', [\App\Http\Controllers\InventoryController::class, 'index'])->name('inventory.index');
+        Route::post('/inventory/session', [\App\Http\Controllers\InventoryController::class, 'session'])->name('inventory.session');
     });
 
     // Asset Statuses (admin only)

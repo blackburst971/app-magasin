@@ -135,6 +135,11 @@ class SnipeItBackupService
             $r = $this->importAssets($sqlData['assets'] ?? [], $statusMap, $extractDir, $withImages);
             $stats['assets'] = $r;
             $errors = array_merge($errors, $r['errors']);
+
+            // Propager les images des modèles vers les équipements sans image
+            if ($withImages) {
+                $this->propagateModelImagesToAssets();
+            }
         }
 
         // 5. Licences
@@ -421,6 +426,16 @@ class SnipeItBackupService
         }
 
         return compact('imported', 'updated', 'errors');
+    }
+
+    /**
+     * Propage l'image du modèle vers tous les équipements liés qui n'ont pas d'image.
+     */
+    private function propagateModelImagesToAssets(): void
+    {
+        EquipmentModel::whereNotNull('image')->get()->each(function ($model) {
+            $model->assets()->whereNull('image')->update(['image' => $model->image]);
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────

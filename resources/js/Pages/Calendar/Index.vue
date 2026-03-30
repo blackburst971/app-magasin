@@ -1,8 +1,15 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref, computed, onMounted } from 'vue'
+import { usePage } from '@inertiajs/vue3'
 import axios from 'axios'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
+
+const page = usePage()
+
+const props = defineProps({
+  canSeeAllEvents: { type: Boolean, default: false },
+})
 
 // --- State ---
 const today = new Date()

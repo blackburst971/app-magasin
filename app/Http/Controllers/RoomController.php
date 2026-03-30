@@ -217,16 +217,26 @@ class RoomController extends Controller
         $user    = $request->user();
         $isAdmin = $user->hasRole('admin');
 
+        $canSeeAll = $isAdmin;
+        if (!$canSeeAll) {
+            foreach (['professeur', 'etudiant', 'personnel'] as $role) {
+                if ($user->hasRole($role)) {
+                    $canSeeAll = \App\Models\Setting::get("calendar_visibility_{$role}", 'false') === 'true';
+                    break;
+                }
+            }
+        }
+
         $query = RoomReservation::with(['room', 'user'])
             ->whereNotIn('status', ['cancelled', 'rejected']);
 
-        if (!$isAdmin) {
+        if (!$canSeeAll) {
             $query->where('user_id', $user->id);
         }
 
         $events = $query->get()->map(fn($r) => [
             'id'              => 'room-' . $r->id,
-            'title'           => $isAdmin
+            'title'           => $canSeeAll
                 ? "[{$r->user->name}] {$r->room->name} — {$r->title}"
                 : "{$r->room->name} — {$r->title}",
             'start'           => $r->start_date->toISOString(),

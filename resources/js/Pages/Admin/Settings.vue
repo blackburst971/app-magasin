@@ -58,6 +58,11 @@ const form = useForm({
   auto_cancel_enabled: props.settings?.reservations?.auto_cancel_enabled ?? 'false',
   auto_cancel_hours:   props.settings?.reservations?.auto_cancel_hours   ?? '24',
 
+  // Visibilité calendrier par rôle
+  calendar_visibility_professeur: props.settings?.calendar?.calendar_visibility_professeur ?? 'false',
+  calendar_visibility_etudiant:   props.settings?.calendar?.calendar_visibility_etudiant   ?? 'false',
+  calendar_visibility_personnel:  props.settings?.calendar?.calendar_visibility_personnel  ?? 'false',
+
   // Fiche imprimable
   print_show_thumbnails: props.settings?.print?.print_show_thumbnails ?? 'false',
   print_show_notes:      props.settings?.print?.print_show_notes      ?? 'true',
@@ -283,6 +288,36 @@ function sendTestEmail() {
                       :class="form[tab.key] === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
                 <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
                       :class="form[tab.key] === 'true' ? 'translate-x-6' : 'translate-x-1'" />
+              </button>
+            </label>
+          </div>
+        </div>
+
+        <!-- Visibilité Calendrier par rôle -->
+        <div class="bg-white rounded-xl shadow-sm border p-6">
+          <h2 class="font-semibold text-gray-900 mb-1">Visibilité du calendrier par rôle</h2>
+          <p class="text-sm text-gray-500 mb-4">
+            Activez pour permettre à ces rôles de voir toutes les réservations dans le calendrier
+            (comme l'administrateur). Par défaut, chaque utilisateur ne voit que les siennes.
+          </p>
+          <div class="space-y-3">
+            <label v-for="role in [
+              { key: 'calendar_visibility_professeur', label: 'Professeurs',  desc: 'Voir toutes les réservations et salles' },
+              { key: 'calendar_visibility_etudiant',   label: 'Étudiants',    desc: 'Voir toutes les réservations et salles' },
+              { key: 'calendar_visibility_personnel',  label: 'Personnels',   desc: 'Voir toutes les réservations et salles' },
+            ]" :key="role.key"
+                  class="flex items-center justify-between p-3 rounded-lg border transition cursor-pointer"
+                  :class="form[role.key] === 'true' ? 'border-blue-200 bg-blue-50' : 'border-gray-200'">
+              <div>
+                <p class="text-sm font-medium text-gray-900">{{ role.label }}</p>
+                <p class="text-xs text-gray-500">{{ role.desc }}</p>
+              </div>
+              <button type="button"
+                      @click="form[role.key] = form[role.key] === 'true' ? 'false' : 'true'"
+                      class="relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none"
+                      :class="form[role.key] === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+                <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                      :class="form[role.key] === 'true' ? 'translate-x-6' : 'translate-x-1'" />
               </button>
             </label>
           </div>

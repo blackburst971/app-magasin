@@ -794,18 +794,27 @@ class ReservationController extends Controller
 
         $query = Reservation::with(['user', 'assets.category']);
 
-        if ($isAdmin) {
-            // Admin voit tout (sauf cancelled/rejected)
+        // Visibilité complète : admin ou rôle autorisé via paramètres
+        $canSeeAll = $isAdmin;
+        if (!$canSeeAll) {
+            foreach (['professeur', 'etudiant', 'personnel'] as $role) {
+                if ($user->hasRole($role)) {
+                    $canSeeAll = \App\Models\Setting::get("calendar_visibility_{$role}", 'false') === 'true';
+                    break;
+                }
+            }
+        }
+
+        if ($canSeeAll) {
             $query->whereNotIn('status', ['cancelled', 'rejected']);
         } else {
-            // Non-admin : seulement ses propres réservations en attente / confirmées / en cours
             $query->where('user_id', $user->id)
                   ->whereIn('status', ['awaiting_supervisor', 'pending', 'approved', 'active']);
         }
 
         $reservations = $query->get()->map(fn($r) => [
             'id'              => $r->id,
-            'title'           => $isAdmin ? "[{$r->user->name}] {$r->title}" : $r->title,
+            'title'           => $canSeeAll ? "[{$r->user->name}] {$r->title}" : $r->title,
             'start'           => $r->start_date->toISOString(),
             'end'             => $r->end_date->toISOString(),
             'backgroundColor' => $r->status_color,

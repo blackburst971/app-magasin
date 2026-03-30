@@ -96,9 +96,9 @@ const localReservable = ref({})
 const currentPerPage = ref(props.assets?.per_page ?? 24)
 const loadingMore    = ref(false)
 
-function applyFilters(extra = {}) {
+function routeParams(extra = {}) {
   const tab = activeTab.value !== 'list' ? activeTab.value : undefined
-  router.get(route('assets.index'), {
+  return {
     search:       search.value           || undefined,
     category:     selectedCategory.value || undefined,
     status:       selectedStatus.value   || undefined,
@@ -107,49 +107,48 @@ function applyFilters(extra = {}) {
     per_page:     currentPerPage.value,
     tab,
     ...extra,
-  }, { preserveState: true, replace: true })
+  }
+}
+
+function applyFilters(extra = {}) {
+  router.get(route('assets.index'), routeParams({ page: 1, ...extra }),
+    { preserveState: true, replace: true })
 }
 
 function loadMore() {
   loadingMore.value = true
   const newPerPage  = currentPerPage.value + 24
   currentPerPage.value = newPerPage
-  const tab = activeTab.value !== 'list' ? activeTab.value : undefined
-  router.get(route('assets.index'), {
-    search:       search.value           || undefined,
-    category:     selectedCategory.value || undefined,
-    status:       selectedStatus.value   || undefined,
-    location:     selectedLocation.value || undefined,
-    manufacturer: selectedMfr.value      || undefined,
-    per_page:     newPerPage,
-    tab,
-  }, {
-    preserveState:  true,
-    preserveScroll: true,
-    replace:        true,
-    onFinish:       () => { loadingMore.value = false },
+  router.get(route('assets.index'), routeParams({ per_page: newPerPage }), {
+    preserveState: true, preserveScroll: true, replace: true,
+    onFinish: () => { loadingMore.value = false },
   })
 }
 
 function showAll() {
   loadingMore.value = true
-  currentPerPage.value = 9999
-  const tab = activeTab.value !== 'list' ? activeTab.value : undefined
-  router.get(route('assets.index'), {
-    search:       search.value           || undefined,
-    category:     selectedCategory.value || undefined,
-    status:       selectedStatus.value   || undefined,
-    location:     selectedLocation.value || undefined,
-    manufacturer: selectedMfr.value      || undefined,
-    per_page:     9999,
-    tab,
-  }, {
-    preserveState:  true,
-    preserveScroll: true,
-    replace:        true,
-    onFinish:       () => { loadingMore.value = false },
+  currentPerPage.value = 200
+  router.get(route('assets.index'), routeParams({ per_page: 200, page: 1 }), {
+    preserveState: true, preserveScroll: true, replace: true,
+    onFinish: () => { loadingMore.value = false },
   })
 }
+
+function goToPage(p) {
+  router.get(route('assets.index'), routeParams({ page: p }), {
+    preserveState: true, preserveScroll: false, replace: true,
+  })
+}
+
+// Pages visibles dans la pagination (max 7 boutons)
+const visiblePages = computed(() => {
+  const total = props.assets?.last_page ?? 1
+  const cur   = props.assets?.current_page ?? 1
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages = new Set([1, total, cur])
+  for (let i = cur - 2; i <= cur + 2; i++) { if (i > 0 && i <= total) pages.add(i) }
+  return [...pages].sort((a, b) => a - b)
+})
 
 // Réinitialiser le per_page quand les filtres changent + vider la sélection
 function resetAndFilter(extra = {}) {
@@ -867,47 +866,87 @@ function executeBulkReserve() {
             </tbody>
           </table>
 
-          <!-- Barre de progression + Voir plus (liste) -->
+          <!-- Pagination (liste) -->
           <div class="px-4 py-3 border-t bg-gray-50">
             <div class="flex items-center justify-between gap-4 text-sm text-gray-500 mb-2">
-              <span>{{ assets.to ?? assets.data.length }} affichés sur {{ assets.total }} équipement(s)</span>
-              <button v-if="assets.total > (assets.to ?? 0)" @click="showAll"
-                :disabled="loadingMore"
-                class="text-xs text-blue-600 hover:underline disabled:opacity-50">
-                Tout afficher ({{ assets.total }})
-              </button>
+              <span>{{ assets.from ?? 1 }}–{{ assets.to ?? assets.data.length }} sur {{ assets.total }} équipement(s)</span>
+              <div class="flex items-center gap-2">
+                <button v-if="assets.last_page <= 1 && assets.total > (assets.to ?? 0)" @click="showAll"
+                  :disabled="loadingMore" class="text-xs text-blue-600 hover:underline disabled:opacity-50">
+                  Tout afficher ({{ assets.total }})
+                </button>
+                <span v-if="assets.last_page > 1" class="text-xs text-gray-400">Page {{ assets.current_page }} / {{ assets.last_page }}</span>
+              </div>
             </div>
             <!-- Barre de progression -->
-            <div class="w-full bg-gray-200 rounded-full h-1.5">
+            <div class="w-full bg-gray-200 rounded-full h-1.5 mb-3">
               <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
                 :style="{ width: assets.total > 0 ? ((assets.to ?? assets.data.length) / assets.total * 100) + '%' : '100%' }" />
             </div>
-            <div v-if="assets.next_page_url" class="mt-3 flex justify-center">
+            <!-- Navigation par pages si plusieurs pages -->
+            <div v-if="assets.last_page > 1" class="flex items-center justify-center gap-1 flex-wrap">
+              <button @click="goToPage(assets.current_page - 1)" :disabled="assets.current_page <= 1"
+                class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                ← Préc.
+              </button>
+              <template v-for="(p, idx) in visiblePages" :key="p">
+                <span v-if="idx > 0 && p - visiblePages[idx-1] > 1" class="text-gray-300 text-xs px-1">…</span>
+                <button @click="goToPage(p)"
+                  :class="['px-3 py-1.5 text-xs rounded-lg border transition',
+                    p === assets.current_page
+                      ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                      : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50']">
+                  {{ p }}
+                </button>
+              </template>
+              <button @click="goToPage(assets.current_page + 1)" :disabled="assets.current_page >= assets.last_page"
+                class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                Suiv. →
+              </button>
+            </div>
+            <!-- Voir plus si une seule page incomplète -->
+            <div v-else-if="assets.next_page_url" class="flex justify-center">
               <button @click="loadMore" :disabled="loadingMore"
                 class="flex items-center gap-2 px-5 py-2 bg-white border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 transition shadow-sm disabled:opacity-50">
                 <span v-if="loadingMore" class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 {{ loadingMore ? 'Chargement…' : `Voir ${Math.min(24, assets.total - (assets.to ?? 0))} de plus` }}
               </button>
             </div>
-            <p v-else class="mt-2 text-center text-xs text-gray-400">✓ Tous les équipements sont affichés</p>
+            <p v-else-if="assets.last_page <= 1" class="text-center text-xs text-gray-400">✓ Tous les équipements sont affichés</p>
           </div>
         </div>
 
-        <!-- Voir plus (grille) -->
+        <!-- Pagination (grille) -->
         <div v-if="viewMode === 'grid'" class="mt-4 space-y-2">
           <div class="flex items-center justify-between text-sm text-gray-500">
-            <span>{{ assets.to ?? assets.data.length }} sur {{ assets.total }} équipement(s)</span>
-            <button v-if="assets.total > (assets.to ?? 0)" @click="showAll"
-              :disabled="loadingMore"
-              class="text-xs text-blue-600 hover:underline disabled:opacity-50">
-              Tout afficher ({{ assets.total }})
-            </button>
+            <span>{{ assets.from ?? 1 }}–{{ assets.to ?? assets.data.length }} sur {{ assets.total }} équipement(s)</span>
+            <span v-if="assets.last_page > 1" class="text-xs text-gray-400">Page {{ assets.current_page }} / {{ assets.last_page }}</span>
           </div>
           <div class="w-full bg-gray-200 rounded-full h-1.5">
             <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
               :style="{ width: assets.total > 0 ? ((assets.to ?? assets.data.length) / assets.total * 100) + '%' : '100%' }" />
           </div>
-          <div v-if="assets.next_page_url" class="flex justify-center pt-1">
+          <div v-if="assets.last_page > 1" class="flex items-center justify-center gap-1 flex-wrap pt-1">
+            <button @click="goToPage(assets.current_page - 1)" :disabled="assets.current_page <= 1"
+              class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition">
+              ← Préc.
+            </button>
+            <template v-for="(p, idx) in visiblePages" :key="p">
+              <span v-if="idx > 0 && p - visiblePages[idx-1] > 1" class="text-gray-300 text-xs px-1">…</span>
+              <button @click="goToPage(p)"
+                :class="['px-3 py-1.5 text-xs rounded-lg border transition',
+                  p === assets.current_page
+                    ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50']">
+                {{ p }}
+              </button>
+            </template>
+            <button @click="goToPage(assets.current_page + 1)" :disabled="assets.current_page >= assets.last_page"
+              class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition">
+              Suiv. →
+            </button>
+          </div>
+          <div v-else-if="assets.next_page_url" class="flex justify-center pt-1">
             <button @click="loadMore" :disabled="loadingMore"
               class="flex items-center gap-2 px-5 py-2 bg-white border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 transition shadow-sm disabled:opacity-50">
               <span v-if="loadingMore" class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />

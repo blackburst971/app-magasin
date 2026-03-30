@@ -33,6 +33,9 @@ class HandleInertiaRequests extends Middleware
                         : ($request->user()->hasRole('professeur') ? 'Professeur'
                         : ($request->user()->hasRole('personnel')  ? 'Personnel'
                         : 'Étudiant')),
+                    'avatar_url'     => $request->user()->avatar
+                        ? \Illuminate\Support\Facades\Storage::disk('public')->url($request->user()->avatar)
+                        : null,
                 ] : null,
             ],
             'tabSettings' => fn () => $request->user() ? [
