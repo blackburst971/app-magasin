@@ -134,7 +134,16 @@ if (-not $gitPath) {
 $hashBefore = & git rev-parse --short HEAD
 if ($LASTEXITCODE -ne 0) { Fail "Impossible de lire le commit courant. Depot Git valide ?" }
 
-# Pull (le .env est dans .gitignore donc git ne le touche jamais)
+# Annuler les modifications locales sur les fichiers traces (build, scripts)
+# Le .env est dans .gitignore et ne sera jamais touche
+& git reset --hard HEAD
+if ($LASTEXITCODE -ne 0) { Warn "git reset --hard a echoue (non bloquant)" }
+
+# Supprimer les fichiers non traces qui pourraient bloquer le pull (ex: anciens assets de build)
+& git clean -fd -- public/build/
+if ($LASTEXITCODE -ne 0) { Warn "git clean public/build/ a echoue (non bloquant)" }
+
+# Pull depuis GitHub
 & git pull origin main
 if ($LASTEXITCODE -ne 0) {
     Fail "git pull a echoue. Verifiez la connectivite et les droits GitHub."
