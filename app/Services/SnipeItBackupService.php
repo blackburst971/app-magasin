@@ -125,6 +125,12 @@ class SnipeItBackupService
             $r = $this->importModels($sqlData['models'] ?? [], $extractDir, $withImages);
             $stats['models'] = $r;
             $errors = array_merge($errors, $r['errors']);
+
+            // Propager les images des modèles vers TOUS les équipements liés sans image
+            // (même si les assets ne sont pas importés dans cette session)
+            if ($withImages) {
+                $this->propagateModelImagesToAssets();
+            }
         }
 
         // 4. Equipements
@@ -136,7 +142,7 @@ class SnipeItBackupService
             $stats['assets'] = $r;
             $errors = array_merge($errors, $r['errors']);
 
-            // Propager les images des modèles vers les équipements sans image
+            // Re-propager après l'import des assets (les nouveaux assets créés n'ont pas d'image propre)
             if ($withImages) {
                 $this->propagateModelImagesToAssets();
             }

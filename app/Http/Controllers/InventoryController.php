@@ -51,10 +51,13 @@ class InventoryController extends Controller
                 'asset_tag'  => $a->asset_tag,
                 'serial'     => $a->serial,
                 'status'     => $a->status,
+                'location'   => $a->location,
                 'model_name' => $a->equipmentModel?->name,
                 'image'      => $a->image
                     ? \Illuminate\Support\Facades\Storage::disk('public')->url($a->image)
-                    : null,
+                    : ($a->equipmentModel?->image
+                        ? \Illuminate\Support\Facades\Storage::disk('public')->url($a->equipmentModel->image)
+                        : null),
             ]);
 
         $models = EquipmentModel::whereIn('id', $modelIds)->get(['id', 'name']);

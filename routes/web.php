@@ -77,6 +77,8 @@ Route::middleware('auth')->group(function () {
         Route::delete('/assets/{asset}', [AssetController::class, 'destroy'])->name('assets.destroy');
         Route::post('/assets/{asset}/generate-qr', [AssetController::class, 'generateQr'])->name('assets.generate-qr');
         Route::patch('/assets/{asset}/toggle-reservable', [AssetController::class, 'toggleReservable'])->name('assets.toggle-reservable');
+        Route::patch('/assets/{asset}/toggle-scratch', [AssetController::class, 'toggleScratch'])->name('assets.toggle-scratch');
+        Route::patch('/assets/{asset}/toggle-belge', [AssetController::class, 'toggleBelge'])->name('assets.toggle-belge');
         Route::post('/assets/{asset}/duplicate', [AssetController::class, 'duplicate'])->name('assets.duplicate');
         Route::post('/assets/{asset}/link-accessory', [AssetController::class, 'linkAccessory'])->name('assets.link-accessory');
         Route::delete('/assets/{asset}/unlink-accessory', [AssetController::class, 'unlinkAccessory'])->name('assets.unlink-accessory');

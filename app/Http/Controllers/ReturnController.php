@@ -58,6 +58,8 @@ class ReturnController extends Controller
                     'name'                => $a->name,
                     'asset_tag'           => $a->asset_tag,
                     'qr_code'             => $a->qr_code,
+                    'has_scratch'         => (bool) $a->has_scratch,
+                    'has_belge'           => (bool) $a->has_belge,
                     'returned_at'         => $a->pivot->returned_at,
                     'is_missing'          => (bool) $a->pivot->is_missing,
                     'returned_by_user_id' => $a->pivot->returned_by_user_id,

@@ -406,6 +406,20 @@ class AssetController extends Controller
         return response()->json(['is_reservable' => $asset->is_reservable]);
     }
 
+    /** Toggle has_scratch (velcro/scratch de câblage) — admin only */
+    public function toggleScratch(Asset $asset)
+    {
+        $asset->update(['has_scratch' => !$asset->has_scratch]);
+        return response()->json(['has_scratch' => $asset->has_scratch]);
+    }
+
+    /** Toggle has_belge (sacoche/housse de transport) — admin only */
+    public function toggleBelge(Asset $asset)
+    {
+        $asset->update(['has_belge' => !$asset->has_belge]);
+        return response()->json(['has_belge' => $asset->has_belge]);
+    }
+
     public function destroy(Asset $asset)
     {
         $asset->delete();

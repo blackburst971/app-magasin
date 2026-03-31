@@ -109,8 +109,8 @@ async function scanReturn() {
 
   } catch (err) {
     playSound('scan_error')
-    // En cas d'erreur, remettre le tag pour que l'opérateur puisse réessayer
-    scanTag.value = tag
+    // NE PAS restaurer scanTag.value : cela déclencherait le watch → boucle infinie de validation
+    // L'opérateur voit le message d'erreur et peut re-scanner
     scanResult.value = {
       type:    'error',
       message: err.response?.data?.error ?? 'Erreur lors du scan',
@@ -569,6 +569,18 @@ function pendingCount(reservation) {
                   <div class="min-w-0 flex-1">
                     <p class="font-semibold truncate">{{ asset.name }}</p>
                     <p class="text-xs font-mono opacity-60">{{ asset.asset_tag }}</p>
+                    <!-- Badges scratch / belge (section retard) -->
+                    <div v-if="(asset.has_scratch || asset.has_belge) && !asset.returned_at && !asset.is_missing"
+                         class="flex flex-wrap gap-1 mt-1.5">
+                      <span v-if="asset.has_scratch"
+                            class="inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-400">
+                        🪢 Scratch
+                      </span>
+                      <span v-if="asset.has_belge"
+                            class="inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-400">
+                        👜 Belge
+                      </span>
+                    </div>
                     <p v-if="asset.returned_at" class="text-xs text-green-600 mt-0.5">✓ Retourné</p>
                     <p v-else-if="asset.is_missing" class="text-xs text-gray-400 mt-0.5">🚫 Signalé manquant</p>
                     <p v-else-if="asset.qr_code" class="text-xs text-blue-700 font-medium mt-0.5">
@@ -679,6 +691,18 @@ function pendingCount(reservation) {
                   <div class="min-w-0 flex-1">
                     <p class="font-semibold truncate">{{ asset.name }}</p>
                     <p class="text-xs font-mono opacity-60">{{ asset.asset_tag }}</p>
+                    <!-- Badges scratch / belge (section actives) -->
+                    <div v-if="(asset.has_scratch || asset.has_belge) && !asset.returned_at && !asset.is_missing"
+                         class="flex flex-wrap gap-1 mt-1.5">
+                      <span v-if="asset.has_scratch"
+                            class="inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-400">
+                        🪢 Scratch
+                      </span>
+                      <span v-if="asset.has_belge"
+                            class="inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-400">
+                        👜 Belge
+                      </span>
+                    </div>
                     <p v-if="asset.returned_at" class="text-xs text-green-600 mt-0.5">✓ Retourné</p>
                     <p v-else-if="asset.is_missing" class="text-xs text-gray-400 mt-0.5">🚫 Signalé manquant</p>
                     <p v-else-if="asset.qr_code" class="text-xs text-blue-600 font-medium mt-0.5">

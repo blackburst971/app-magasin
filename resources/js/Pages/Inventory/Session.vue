@@ -2,7 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
-import { CheckIcon, XMarkIcon, ClipboardDocumentCheckIcon } from '@heroicons/vue/24/outline'
+import { CheckIcon, XMarkIcon, ClipboardDocumentCheckIcon, PrinterIcon } from '@heroicons/vue/24/outline'
 import { useSound } from '@/composables/useSound'
 
 const { playSound } = useSound()
@@ -80,6 +80,92 @@ function resetSession() {
   scanned.value = {}
   scanError.value = ''
 }
+
+// ─── Impression PDF inventaire ────────────────────────────────────────────────
+function printInventory(mode = 'missing') {
+  const now    = new Date().toLocaleString('fr-FR')
+  const models = props.modelNames.join(', ')
+
+  let printAssets, title, subtitle
+  if (mode === 'missing') {
+    printAssets = allMissing.value
+    title       = 'Inventaire — Équipements manquants'
+    subtitle    = `${printAssets.length} équipement(s) manquant(s) sur ${props.assets.length} au total`
+  } else {
+    printAssets = [...allScanned.value, ...allMissing.value, ...allPending.value]
+    title       = 'Inventaire — Liste complète'
+    subtitle    = `${scannedCount.value} présents · ${missingCount.value} manquants · ${remainingCount.value} non traités`
+  }
+
+  if (mode === 'missing' && printAssets.length === 0) {
+    alert('Aucun équipement manquant à imprimer.')
+    return
+  }
+
+  const statusLabel = {
+    true:      '<span style="color:#16a34a;font-weight:600">✓ Présent</span>',
+    false:     '<span style="color:#dc2626;font-weight:600">✗ Manquant</span>',
+    undefined: '<span style="color:#9ca3af">— À vérifier</span>',
+  }
+
+  const rows = printAssets.map(a => {
+    const s = scanned.value[a.id]
+    const statusCell = mode === 'full'
+      ? `<td style="text-align:center">${statusLabel[String(s)] ?? statusLabel['undefined']}</td>`
+      : `<td style="width:80px;border:1px solid #ccc;"></td>`
+    return `
+      <tr>
+        <td>${a.name}</td>
+        <td style="font-family:monospace">${a.asset_tag}</td>
+        <td style="font-family:monospace">${a.serial || '—'}</td>
+        <td>${a.model_name || '—'}</td>
+        <td>${a.location || '—'}</td>
+        ${statusCell}
+      </tr>`
+  }).join('')
+
+  const lastColHeader = mode === 'missing' ? 'Retrouvé ✓' : 'Statut'
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; font-size: 12px; margin: 24px; color: #111; }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .meta { color: #555; font-size: 11px; margin: 0 0 4px; }
+    .stats { font-size: 11px; background: #f3f4f6; padding: 6px 10px; border-radius: 4px; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #e5e7eb; text-align: left; padding: 6px 8px; border: 1px solid #ccc; font-size: 11px; white-space: nowrap; }
+    td { padding: 5px 8px; border: 1px solid #ddd; vertical-align: middle; }
+    tr:nth-child(even) td { background: #f9fafb; }
+    @media print { @page { margin: 15mm; } }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p class="meta">Modèles : ${models} &nbsp;·&nbsp; Imprimé le ${now}</p>
+  <p class="stats">${subtitle}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Nom</th><th>Tag</th><th>N° Série</th><th>Modèle</th><th>Emplacement</th><th>${lastColHeader}</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`
+
+  const w = window.open('', '_blank', 'width=900,height=650')
+  if (!w) { alert('Veuillez autoriser les popups pour imprimer.'); return }
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 400)
+}
 </script>
 
 <template>
@@ -98,9 +184,25 @@ function resetSession() {
           </h1>
           <p class="text-sm text-gray-500">{{ modelNames.join(', ') }}</p>
         </div>
-        <button @click="resetSession" class="text-xs text-gray-400 hover:text-red-500 border border-gray-200 px-3 py-1.5 rounded-lg transition">
-          Réinitialiser
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- Bouton imprimer manquants -->
+          <button @click="printInventory('missing')"
+            :disabled="allMissing.length === 0"
+            :title="allMissing.length === 0 ? 'Aucun équipement manquant' : `Imprimer les ${allMissing.length} manquant(s)`"
+            class="flex items-center gap-1.5 text-xs bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed">
+            <PrinterIcon class="w-3.5 h-3.5" />
+            Manquants ({{ allMissing.length }})
+          </button>
+          <!-- Bouton imprimer inventaire complet -->
+          <button @click="printInventory('full')"
+            class="flex items-center gap-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg transition">
+            <PrinterIcon class="w-3.5 h-3.5" />
+            Imprimer tout
+          </button>
+          <button @click="resetSession" class="text-xs text-gray-400 hover:text-red-500 border border-gray-200 px-3 py-1.5 rounded-lg transition">
+            Réinitialiser
+          </button>
+        </div>
       </div>
 
       <!-- Progression -->
@@ -204,8 +306,13 @@ function resetSession() {
 
       <!-- Équipements manquants -->
       <div v-if="allMissing.length > 0" class="bg-white rounded-xl border border-red-200 shadow-sm mb-4">
-        <div class="px-4 py-3 border-b border-red-200 bg-red-50 rounded-t-xl">
+        <div class="px-4 py-3 border-b border-red-200 bg-red-50 rounded-t-xl flex items-center justify-between">
           <h3 class="font-medium text-red-800 text-sm">⚠ Manquants / Absents ({{ allMissing.length }})</h3>
+          <button @click="printInventory('missing')"
+            class="flex items-center gap-1.5 text-xs bg-white hover:bg-red-50 text-red-700 border border-red-300 px-2.5 py-1 rounded-lg transition">
+            <PrinterIcon class="w-3.5 h-3.5" />
+            Imprimer liste
+          </button>
         </div>
         <div class="divide-y">
           <div v-for="asset in allMissing" :key="asset.id"

@@ -33,6 +33,8 @@ class Asset extends Model
         'parent_asset_id',
         'checked_out_to_user_id',
         'expected_return_at',
+        'has_scratch',
+        'has_belge',
     ];
 
     protected $casts = [
@@ -41,6 +43,8 @@ class Asset extends Model
         'is_reservable'      => 'boolean',
         'expected_return_at' => 'datetime',
         'custom_fields'      => 'array',
+        'has_scratch'        => 'boolean',
+        'has_belge'          => 'boolean',
     ];
 
     public function category()

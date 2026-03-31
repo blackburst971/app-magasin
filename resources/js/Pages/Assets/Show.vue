@@ -668,6 +668,49 @@
                         </Link>
                     </div>
 
+                    <!-- ── Admin : Configuration retour (scratch / belge) ── -->
+                    <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm border p-5">
+                        <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                            ↩ Retour attendu avec
+                        </h2>
+                        <div class="space-y-3">
+                            <!-- Scratch -->
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-800">🪢 Scratch / Velcro</p>
+                                    <p class="text-xs text-gray-400">Attaches velcro pour câbles</p>
+                                </div>
+                                <button @click="toggleScratch"
+                                    :class="localHasScratch
+                                        ? 'bg-indigo-600 hover:bg-indigo-700'
+                                        : 'bg-gray-200 hover:bg-gray-300'"
+                                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0">
+                                    <span :class="localHasScratch ? 'translate-x-6' : 'translate-x-1'"
+                                        class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform" />
+                                </button>
+                            </div>
+                            <!-- Belge -->
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-800">👜 Belge / Sacoche</p>
+                                    <p class="text-xs text-gray-400">Housse ou sacoche de transport</p>
+                                </div>
+                                <button @click="toggleBelge"
+                                    :class="localHasBelge
+                                        ? 'bg-indigo-600 hover:bg-indigo-700'
+                                        : 'bg-gray-200 hover:bg-gray-300'"
+                                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0">
+                                    <span :class="localHasBelge ? 'translate-x-6' : 'translate-x-1'"
+                                        class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform" />
+                                </button>
+                            </div>
+                        </div>
+                        <p v-if="localHasScratch || localHasBelge"
+                           class="mt-3 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
+                            Affiché sur la page retours pour rappel à l'admin.
+                        </p>
+                    </div>
+
                     <!-- ── Admin : QR Code ──────────────────────────────── -->
                     <template v-if="isAdmin">
                         <div class="bg-white rounded-xl shadow-sm p-6 text-center">
@@ -706,6 +749,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import StatusBadge from '@/Components/StatusBadge.vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
+import axios from 'axios'
 import { ArrowLeftIcon, ClockIcon, QrCodeIcon, DocumentIcon, ArrowDownTrayIcon, BellIcon, ShoppingCartIcon, LinkIcon, PaperClipIcon, WrenchScrewdriverIcon, PencilIcon, PlusIcon, TrashIcon, PhotoIcon, XMarkIcon, CheckIcon as CheckIconSolid } from '@heroicons/vue/24/outline'
 import { ref, onMounted, computed } from 'vue'
 import JsBarcode from 'jsbarcode'
@@ -730,6 +774,28 @@ const props = defineProps({
 
 const isAdmin = computed(() => page.props.auth?.user?.is_admin)
 const cart    = useCartStore()
+
+// ── État local scratch / belge (mise à jour optimiste) ───────────────────────
+const localHasScratch = ref(props.asset.has_scratch ?? false)
+const localHasBelge   = ref(props.asset.has_belge ?? false)
+
+async function toggleScratch() {
+    localHasScratch.value = !localHasScratch.value
+    try {
+        await axios.patch(route('assets.toggle-scratch', props.asset.id))
+    } catch {
+        localHasScratch.value = !localHasScratch.value // rollback
+    }
+}
+
+async function toggleBelge() {
+    localHasBelge.value = !localHasBelge.value
+    try {
+        await axios.patch(route('assets.toggle-belge', props.asset.id))
+    } catch {
+        localHasBelge.value = !localHasBelge.value // rollback
+    }
+}
 
 function goBack() {
     if (window.history.length > 1) {

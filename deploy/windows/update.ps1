@@ -9,10 +9,10 @@
 #    0. Sauvegarde automatique (BDD + fichiers) AVANT toute modification
 #    1. Git pull (recupere les nouveaux fichiers depuis GitHub)
 #    2. Composer install (nouvelles dependances PHP si besoin)
-#    3. Migrations base de donnees
-#    4. Reconstruction des caches Laravel
-#    5. Redemarrage du queue worker
-#    (Pas de npm/vite - les assets compiles sont inclus dans git)
+#    3. Build des assets frontend (node + vite)
+#    4. Migrations base de donnees
+#    5. Reconstruction des caches Laravel
+#    6. Redemarrage du queue worker
 # ==============================================================================
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -46,7 +46,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 # ==============================================================================
 # ETAPE 0 — Sauvegarde automatique de securite AVANT toute modification
 # ==============================================================================
-Step "0/7" "Sauvegarde automatique de securite"
+Step "0/8" "Sauvegarde automatique de securite"
 
 $BACKUP_DIR  = "$APP_DIR\storage\app\backups"
 $DB_PATH     = "$APP_DIR\database\database.sqlite"
@@ -105,7 +105,7 @@ try {
 # ==============================================================================
 # ETAPE 1 — Mode maintenance
 # ==============================================================================
-Step "1/7" "Mode maintenance ON"
+Step "1/8" "Mode maintenance ON"
 
 Set-Location $APP_DIR
 & php artisan down --render="errors.503" --retry=60 2>$null
@@ -115,7 +115,7 @@ OK "Application en maintenance"
 # ==============================================================================
 # ETAPE 2 — Git pull
 # ==============================================================================
-Step "2/7" "Recuperation des mises a jour (git pull)"
+Step "2/8" "Recuperation des mises a jour (git pull)"
 
 # Verifier que git est disponible
 $_gitObj = Get-Command git -ErrorAction SilentlyContinue
@@ -154,7 +154,7 @@ OK "Dernier commit : $lastCommit"
 # ==============================================================================
 # ETAPE 3 — Dependances PHP
 # ==============================================================================
-Step "3/7" "Mise a jour des dependances PHP"
+Step "3/8" "Mise a jour des dependances PHP"
 
 & php artisan clear-compiled 2>$null
 & php artisan package:discover --ansi
@@ -162,17 +162,80 @@ Step "3/7" "Mise a jour des dependances PHP"
 OK "Composer OK"
 
 # ==============================================================================
-# ETAPE 4 — Migrations base de donnees
+# ETAPE 4 — Build des assets frontend (Vite)
 # ==============================================================================
-Step "4/7" "Migrations base de donnees"
+Step "4/8" "Build des assets frontend (Vite)"
+
+# Recherche de node.exe dans les emplacements courants
+$nodePath = $null
+$nodeCandidates = @(
+    "C:\Program Files\nodejs\node.exe",
+    "C:\Program Files (x86)\nodejs\node.exe",
+    "$env:APPDATA\nvm\nodejs\node.exe",
+    "$env:ProgramFiles\nvm\nodejs\node.exe"
+)
+
+# Chercher aussi dans le PATH
+$_nodeObj = Get-Command node -ErrorAction SilentlyContinue
+if ($_nodeObj) { $nodePath = $_nodeObj.Source }
+
+if (-not $nodePath) {
+    foreach ($c in $nodeCandidates) {
+        if (Test-Path $c) { $nodePath = $c; break }
+    }
+}
+
+if (-not $nodePath) {
+    Warn "node.exe introuvable - le build Vite est ignore (assets du depot utilises)."
+    Warn "Installez Node.js LTS depuis https://nodejs.org/ pour activer le build automatique."
+} else {
+    $nodeVersion = & "$nodePath" --version 2>$null
+    OK "Node.js trouve : $nodePath ($nodeVersion)"
+
+    # Installer les dependances npm si node_modules absent ou package.json plus recent
+    if (-not (Test-Path "node_modules")) {
+        Warn "node_modules absent - installation des dependances npm..."
+        & "$nodePath" "$APP_DIR\node_modules\.bin\npm" install --prefer-offline 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            # Fallback: chercher npm.cmd
+            $npmPath = Join-Path (Split-Path $nodePath) "npm.cmd"
+            if (Test-Path $npmPath) {
+                & cmd /c "`"$npmPath`" install --prefer-offline"
+            }
+        }
+    }
+
+    $viteBin = "$APP_DIR\node_modules\.bin\vite"
+    if (-not (Test-Path "$viteBin.cmd") -and -not (Test-Path $viteBin)) {
+        Warn "vite introuvable dans node_modules - lancez 'npm install' manuellement."
+    } else {
+        # Sur Windows, vite est un .cmd
+        $viteCmd = if (Test-Path "$viteBin.cmd") { "$viteBin.cmd" } else { $viteBin }
+        & "$nodePath" "$APP_DIR\node_modules\.bin\vite" build
+        if ($LASTEXITCODE -ne 0) {
+            # Fallback via .cmd direct
+            & cmd /c "`"$viteCmd`" build"
+        }
+        if ($LASTEXITCODE -eq 0) {
+            OK "Assets Vite construits"
+        } else {
+            Warn "Le build Vite a echoue - les anciens assets resteront en place."
+        }
+    }
+}
+
+# ==============================================================================
+# ETAPE 5 — Migrations base de donnees
+# ==============================================================================
+Step "5/8" "Migrations base de donnees"
 
 & php artisan migrate --force
 OK "Migrations OK"
 
 # ==============================================================================
-# ETAPE 5 — Reconstruction des caches
+# ETAPE 6 — Reconstruction des caches
 # ==============================================================================
-Step "5/7" "Reconstruction des caches"
+Step "6/8" "Reconstruction des caches"
 
 & php artisan config:cache
 & php artisan route:cache
@@ -187,9 +250,9 @@ if (-not (Test-Path "public\storage")) {
 }
 
 # ==============================================================================
-# ETAPE 6 — Redemarrage des services
+# ETAPE 7 — Redemarrage des services
 # ==============================================================================
-Step "6/7" "Redemarrage des services"
+Step "7/8" "Redemarrage des services"
 
 Stop-Service -Name "AppMagasinWorker" -Force -ErrorAction SilentlyContinue
 Start-Service -Name "AppMagasinWorker" -ErrorAction SilentlyContinue
@@ -209,7 +272,7 @@ OK "Application remise en ligne"
 # ==============================================================================
 # ETAPE 7 — Confirmation de la sauvegarde disponible
 # ==============================================================================
-Step "7/7" "Verification de la sauvegarde"
+Step "8/8" "Verification de la sauvegarde"
 
 if (Test-Path $backupPath) {
     $finalSize = [math]::Round((Get-Item $backupPath).Length / 1MB, 1)
