@@ -194,6 +194,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/import/snipe-backup/analyze', [SnipeItBackupController::class, 'analyze'])->name('import.snipe-backup.analyze');
         Route::post('/import/snipe-backup/import', [SnipeItBackupController::class, 'import'])->name('import.snipe-backup.import');
         Route::post('/import/snipe-backup/cancel', [SnipeItBackupController::class, 'cancel'])->name('import.snipe-backup.cancel');
+        Route::post('/import/snipe-backup/sync-images', [SnipeItBackupController::class, 'syncImages'])->name('import.snipe-backup.sync-images');
     });
 
     // ─── Consommables ────────────────────────────────────────────────────

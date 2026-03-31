@@ -94,6 +94,23 @@ const reset = () => {
   options.value      = { manufacturers: true, categories: true, models: true, assets: true, licenses: false, users: false, images: true }
 }
 
+// ─── Synchronisation images ───────────────────────────────────────────────
+const syncingImages  = ref(false)
+const syncImagesDone = ref(null) // { updated: N }
+
+const syncImages = async () => {
+  syncingImages.value  = true
+  syncImagesDone.value = null
+  try {
+    const { data } = await axios.post(route('import.snipe-backup.sync-images'))
+    syncImagesDone.value = data
+  } catch (e) {
+    syncImagesDone.value = { error: e.response?.data?.error ?? 'Erreur' }
+  } finally {
+    syncingImages.value = false
+  }
+}
+
 // ─── Calculs affichage résultats ──────────────────────────────────────────
 const totalImported = computed(() => {
   if (!importResult.value) return 0
@@ -332,6 +349,21 @@ const resultRows = computed(() => {
           <a href="/models" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-medium text-center transition">
             Voir les modèles →
           </a>
+        </div>
+
+        <!-- Synchronisation images post-import -->
+        <div class="mt-4 border-t pt-4">
+          <p class="text-xs text-gray-500 mb-2">Si des équipements manquent encore d'image, forcez la synchronisation depuis les modèles :</p>
+          <button @click="syncImages" :disabled="syncingImages"
+            class="w-full border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50">
+            {{ syncingImages ? 'Synchronisation…' : '🖼️ Synchroniser les images modèles → équipements' }}
+          </button>
+          <p v-if="syncImagesDone && !syncImagesDone.error" class="text-xs text-green-700 mt-1.5 text-center">
+            ✓ {{ syncImagesDone.updated }} équipement(s) mis à jour
+          </p>
+          <p v-if="syncImagesDone?.error" class="text-xs text-red-600 mt-1.5 text-center">
+            {{ syncImagesDone.error }}
+          </p>
         </div>
       </div>
     </div>

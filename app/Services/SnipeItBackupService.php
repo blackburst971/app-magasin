@@ -175,6 +175,22 @@ class SnipeItBackupService
         }
     }
 
+    /**
+     * API publique : propage les images modèles vers équipements sans image.
+     * Retourne le nombre d'équipements mis à jour.
+     */
+    public function propagateImages(): int
+    {
+        $updated = 0;
+        EquipmentModel::whereNotNull('image')->where('image', '!=', '')->get()->each(function ($model) use (&$updated) {
+            $count = $model->assets()
+                ->where(fn($q) => $q->whereNull('image')->orWhere('image', ''))
+                ->update(['image' => $model->image]);
+            $updated += $count;
+        });
+        return $updated;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // ETAPES D'IMPORT
     // ─────────────────────────────────────────────────────────────────────
@@ -273,7 +289,8 @@ class SnipeItBackupService
                     if (!$existing->manufacturer_id && $mfrId) $upd['manufacturer_id'] = $mfrId;
                     if (!$existing->category_id && $catId)     $upd['category_id'] = $catId;
                     if (!$existing->manufacturer && $mfrName)  $upd['manufacturer'] = $mfrName;
-                    if (!$existing->image && $imageStorePath)  $upd['image'] = $imageStorePath;
+                    // Toujours mettre à jour l'image si le backup en fournit une (qu'elle existait ou non)
+                    if ($imageStorePath)  $upd['image'] = $imageStorePath;
                     if ($upd) $existing->update($upd);
                     $this->idMaps['models'][$row['id']] = $existing->id;
                     $updated++;
@@ -436,11 +453,14 @@ class SnipeItBackupService
 
     /**
      * Propage l'image du modèle vers tous les équipements liés qui n'ont pas d'image.
+     * Gère à la fois NULL et chaîne vide.
      */
     private function propagateModelImagesToAssets(): void
     {
-        EquipmentModel::whereNotNull('image')->get()->each(function ($model) {
-            $model->assets()->whereNull('image')->update(['image' => $model->image]);
+        EquipmentModel::whereNotNull('image')->where('image', '!=', '')->get()->each(function ($model) {
+            $model->assets()
+                ->where(fn($q) => $q->whereNull('image')->orWhere('image', ''))
+                ->update(['image' => $model->image]);
         });
     }
 
@@ -713,7 +733,14 @@ class SnipeItBackupService
 
     private function copyImage(string $extractDir, string $snipeImageName, string $destSubDir): ?string
     {
-        $filename = basename(str_replace('\\', '/', $snipeImageName));
+        // Normaliser : remplacer les \ par /, supprimer préfixe "public/" si présent
+        $normalized = str_replace('\\', '/', trim($snipeImageName));
+        $normalized = ltrim($normalized, '/');
+        // Snipe-IT stocke parfois "public/filename.jpg" ou "uploads/models/filename.jpg"
+        if (str_starts_with($normalized, 'public/')) {
+            $normalized = substr($normalized, 7);
+        }
+        $filename = basename($normalized);
         if (empty($filename)) return null;
 
         // Si le fichier existe déjà dans notre storage, ne pas re-copier
@@ -721,6 +748,7 @@ class SnipeItBackupService
             return $destSubDir . '/' . $filename;
         }
 
+        // Chercher le fichier dans le ZIP extrait (correspondance flexible)
         $found = $this->findFileRecursive($extractDir, $filename);
         if (!$found) return null;
 
@@ -732,20 +760,35 @@ class SnipeItBackupService
 
     /**
      * Recherche un fichier par son nom (basename) dans toute l'arborescence.
-     * Gère le cas macOS où les \ du ZIP deviennent partie du nom de fichier.
+     * - Correspondance exacte (Linux/Windows)
+     * - Insensible à la casse (ex: .JPG vs .jpg)
+     * - Gère le cas macOS où les \ du ZIP deviennent partie du nom de fichier
+     * - Correspondance partielle : si le nom en DB contient un préfixe de chemin
      */
     private function findFileRecursive(string $dir, string $filename): ?string
     {
+        $filenameLower = strtolower($filename);
+
         $it = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
         );
         foreach ($it as $f) {
             if (!$f->isFile()) continue;
-            $fname = $f->getFilename();
-            // Correspondance exacte (Windows / Linux)
+            $fname      = $f->getFilename();
+            $fnameLower = strtolower($fname);
+
+            // 1. Correspondance exacte (sensible à la casse)
             if ($fname === $filename) return $f->getPathname();
-            // Cas macOS : le \ du ZIP devient partie du nom, ex: "models\assetmodel-image-1.jpg"
+
+            // 2. Correspondance insensible à la casse
+            if ($fnameLower === $filenameLower) return $f->getPathname();
+
+            // 3. Cas macOS/Windows : le \ du ZIP devient partie du nom
+            //    ex: "models\assetmodel-image-1.jpg" — on cherche "assetmodel-image-1.jpg"
             if (str_ends_with($fname, '\\' . $filename) || str_ends_with($fname, '/' . $filename)) {
+                return $f->getPathname();
+            }
+            if (str_ends_with($fnameLower, '\\' . $filenameLower) || str_ends_with($fnameLower, '/' . $filenameLower)) {
                 return $f->getPathname();
             }
         }

@@ -64,6 +64,21 @@ class SnipeItBackupController extends Controller
     }
 
     /**
+     * Propage les images des modèles vers les équipements sans image.
+     * Utile pour corriger les équipements importés avant que les images soient disponibles.
+     */
+    public function syncImages()
+    {
+        try {
+            $service = new SnipeItBackupService();
+            $count   = $service->propagateImages();
+            return response()->json(['updated' => $count]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Annule l'import et nettoie les fichiers temporaires.
      */
     public function cancel(Request $request)
