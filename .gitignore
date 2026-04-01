@@ -2,6 +2,9 @@
 /node_modules
 /bootstrap/cache/packages.php
 /bootstrap/cache/services.php
+/bootstrap/cache/config.php
+/bootstrap/cache/routes-v7.php
+/bootstrap/cache/events.php
 # public/build intentionnellement inclus dans git (déploiement sans npm sur le serveur)
 /public/hot
 /public/storage
