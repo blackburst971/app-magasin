@@ -53,7 +53,15 @@
                             </div>
                             <div>
                                 <dt class="text-xs text-gray-500">Modèle</dt>
-                                <dd class="font-medium text-gray-900 mt-0.5">{{ asset.model || '—' }}</dd>
+                                <dd class="font-medium text-gray-900 mt-0.5">
+                                    <Link v-if="asset.model && isAdmin"
+                                          :href="route('models.index')"
+                                          class="text-indigo-600 hover:text-indigo-800 hover:underline">
+                                        {{ asset.model.name }}
+                                    </Link>
+                                    <span v-else-if="asset.model">{{ asset.model.name }}</span>
+                                    <span v-else>—</span>
+                                </dd>
                             </div>
                             <div>
                                 <dt class="text-xs text-gray-500">Fabricant</dt>

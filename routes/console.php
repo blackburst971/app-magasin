@@ -25,3 +25,9 @@ Schedule::command('app:check-low-stock')
     ->dailyAt('08:00')
     ->withoutOverlapping()
     ->runInBackground();
+
+// Rappels de tâches To-Do — toutes les minutes
+Schedule::command('app:check-todo-reminders')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();

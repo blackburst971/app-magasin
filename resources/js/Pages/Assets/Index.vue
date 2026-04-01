@@ -1151,7 +1151,13 @@ function executeBulkReserve() {
               <label for="bulk-location" class="block text-sm font-medium text-gray-700 cursor-pointer mb-1">Emplacement</label>
               <input v-model="bulkEditForm.location" :disabled="!bulkEditForm.updateLocation"
                      type="text" placeholder="Salle, armoire, local…"
+                     list="bulk-locations-list"
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-40 disabled:bg-gray-50" />
+              <datalist id="bulk-locations-list">
+                <option v-for="loc in locations" :key="loc.location" :value="loc.location">
+                  {{ loc.location }} ({{ loc.asset_count }})
+                </option>
+              </datalist>
             </div>
           </div>
 

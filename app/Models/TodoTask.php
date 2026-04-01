@@ -10,10 +10,13 @@ class TodoTask extends Model
         'project_id', 'parent_task_id', 'title', 'description',
         'due_date', 'priority', 'status', 'position',
         'assigned_to', 'created_by',
+        'reminder_at', 'reminder_channel', 'reminder_sent_at',
     ];
 
     protected $casts = [
-        'due_date' => 'date',
+        'due_date'          => 'date',
+        'reminder_at'       => 'datetime',
+        'reminder_sent_at'  => 'datetime',
     ];
 
     public function project()
@@ -44,5 +47,10 @@ class TodoTask extends Model
     public function labels()
     {
         return $this->belongsToMany(TodoLabel::class, 'todo_task_labels', 'task_id', 'label_id');
+    }
+
+    public function reservations()
+    {
+        return $this->belongsToMany(\App\Models\Reservation::class, 'todo_task_reservations', 'task_id', 'reservation_id');
     }
 }

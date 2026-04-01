@@ -7,16 +7,18 @@ import {
   CalendarDaysIcon, FlagIcon, TagIcon,
   Squares2X2Icon, ListBulletIcon,
   ChevronRightIcon, ChevronDownIcon,
+  BellIcon, LinkIcon,
 } from '@heroicons/vue/24/outline'
 import { CheckCircleIcon } from '@heroicons/vue/24/solid'
 
 // ── Props ────────────────────────────────────────────────────────────────────
 const props = defineProps({
-  projects: Array,
-  labels:   Array,
-  users:    Array,
-  isAdmin:  Boolean,
-  myUserId: Number,
+  projects:     Array,
+  labels:       Array,
+  users:        Array,
+  reservations: Array,
+  isAdmin:      Boolean,
+  myUserId:     Number,
 })
 
 // ── État ─────────────────────────────────────────────────────────────────────
@@ -38,7 +40,8 @@ const detailTask       = ref(null)
 const parentTaskId     = ref(null)
 
 const projectForm = ref({ name: '', color: '#6366f1', description: '', is_shared: false })
-const taskForm    = ref({ title: '', description: '', due_date: '', priority: 'none', status: 'todo', assigned_to: null, label_ids: [] })
+const taskForm    = ref({ title: '', description: '', due_date: '', priority: 'none', status: 'todo', assigned_to: null, label_ids: [], reservation_ids: [], reminder_at: '', reminder_channel: 'notification' })
+const reservationSearch = ref('')
 const labelForm   = ref({ name: '', color: '#64748b' })
 
 // ── Constantes ───────────────────────────────────────────────────────────────
@@ -129,7 +132,8 @@ async function deleteProject(project, e) {
 function openCreateTask(status = 'todo', parentId = null) {
   editingTask.value = null
   parentTaskId.value = parentId
-  taskForm.value = { title: '', description: '', due_date: '', priority: 'none', status, assigned_to: null, label_ids: [] }
+  taskForm.value = { title: '', description: '', due_date: '', priority: 'none', status, assigned_to: null, label_ids: [], reservation_ids: [], reminder_at: '', reminder_channel: 'notification' }
+  reservationSearch.value = ''
   showTaskModal.value = true
 }
 
@@ -141,7 +145,11 @@ function openEditTask(task) {
     priority: task.priority, status: task.status,
     assigned_to: task.assigned_to?.id ?? null,
     label_ids: task.labels.map(l => l.id),
+    reservation_ids: (task.reservations ?? []).map(r => r.id),
+    reminder_at: task.reminder_at ?? '',
+    reminder_channel: task.reminder_channel ?? 'notification',
   }
+  reservationSearch.value = ''
   showTaskModal.value = true
 }
 
@@ -244,6 +252,21 @@ function toggleLabel(id) {
   const i = ids.indexOf(id)
   if (i === -1) ids.push(id); else ids.splice(i, 1)
 }
+
+function toggleReservation(id) {
+  const ids = taskForm.value.reservation_ids
+  const i = ids.indexOf(id)
+  if (i === -1) ids.push(id); else ids.splice(i, 1)
+}
+
+const filteredReservations = computed(() => {
+  const q = reservationSearch.value.toLowerCase()
+  return (props.reservations ?? []).filter(r =>
+    !q ||
+    r.title.toLowerCase().includes(q) ||
+    (r.user_name ?? '').toLowerCase().includes(q)
+  )
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
@@ -427,6 +450,9 @@ function initials(name) {
                       :title="task.assigned_to.name">
                       {{ initials(task.assigned_to.name) }}
                     </span>
+                    <!-- Icônes rapides -->
+                    <BellIcon v-if="task.reminder_at" class="h-3.5 w-3.5 shrink-0 text-amber-400" title="Rappel configuré" />
+                    <LinkIcon v-if="task.reservations && task.reservations.length" class="h-3.5 w-3.5 shrink-0 text-indigo-400" :title="`${task.reservations.length} réservation(s) liée(s)`" />
                     <!-- Sous-tâches toggle -->
                     <button v-if="task.subtasks.length"
                       @click.stop="toggleExpand(task.id)"
@@ -545,6 +571,8 @@ function initials(name) {
                     <span v-if="task.subtasks.length" class="text-xs text-gray-400">
                       ↳ {{ task.subtasks.filter(s => s.status === 'done').length }}/{{ task.subtasks.length }}
                     </span>
+                    <BellIcon v-if="task.reminder_at" class="h-3.5 w-3.5 text-amber-400" title="Rappel configuré" />
+                    <LinkIcon v-if="task.reservations && task.reservations.length" class="h-3.5 w-3.5 text-indigo-400" :title="`${task.reservations.length} réservation(s) liée(s)`" />
                     <span v-if="task.assigned_to"
                       class="ml-auto w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center"
                       :title="task.assigned_to.name">
@@ -691,6 +719,57 @@ function initials(name) {
                 </button>
               </div>
             </div>
+
+            <!-- Réservations liées -->
+            <div v-if="reservations && reservations.length">
+              <label class="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <LinkIcon class="h-3.5 w-3.5 text-gray-400" /> Réservations liées
+              </label>
+              <input v-model="reservationSearch" type="text" placeholder="Rechercher une réservation…"
+                class="w-full border rounded-lg px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <div class="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-1">
+                <label v-for="r in filteredReservations" :key="r.id"
+                  class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-indigo-50 transition"
+                  :class="taskForm.reservation_ids.includes(r.id) ? 'bg-indigo-50' : ''">
+                  <input type="checkbox" :value="r.id" v-model="taskForm.reservation_ids"
+                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                  <span class="flex-1 min-w-0">
+                    <span class="text-sm font-medium text-gray-800 truncate block">{{ r.title }}</span>
+                    <span class="text-xs text-gray-400">{{ r.start_date }} → {{ r.end_date }}
+                      <span v-if="r.user_name" class="ml-1">· {{ r.user_name }}</span>
+                    </span>
+                  </span>
+                </label>
+                <p v-if="!filteredReservations.length" class="text-xs text-gray-400 text-center py-2">Aucune réservation trouvée</p>
+              </div>
+            </div>
+
+            <!-- Rappel -->
+            <div class="border rounded-xl p-3 space-y-3 bg-amber-50/50">
+              <label class="block text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                <BellIcon class="h-4 w-4 text-amber-500" /> Rappel
+              </label>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Date et heure</label>
+                  <input v-model="taskForm.reminder_at" type="datetime-local"
+                    class="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Canal</label>
+                  <select v-model="taskForm.reminder_channel" :disabled="!taskForm.reminder_at"
+                    class="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-40">
+                    <option value="notification">Notification</option>
+                    <option value="email">Email</option>
+                    <option value="both">Les deux</option>
+                  </select>
+                </div>
+              </div>
+              <p v-if="!taskForm.reminder_at" class="text-xs text-gray-400 italic">
+                Laissez vide pour ne pas envoyer de rappel.
+              </p>
+            </div>
+
             <div class="flex gap-3 pt-1">
               <button type="button" @click="showTaskModal = false"
                 class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50 transition">Annuler</button>
@@ -777,6 +856,36 @@ function initials(name) {
                   class="px-2.5 py-0.5 rounded-full text-white text-xs font-medium"
                   :style="{ background: l.color }">
                   {{ l.name }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Réservations liées -->
+            <div v-if="detailTask.reservations && detailTask.reservations.length">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <LinkIcon class="h-3.5 w-3.5" /> Réservations liées
+              </p>
+              <div class="space-y-1.5">
+                <a v-for="r in detailTask.reservations" :key="r.id"
+                  :href="route('reservations.show', r.id)"
+                  class="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 transition text-sm text-indigo-800">
+                  <LinkIcon class="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                  <span class="flex-1 font-medium truncate">{{ r.title }}</span>
+                  <span class="text-xs text-indigo-400 shrink-0">{{ r.start_date }} → {{ r.end_date }}</span>
+                </a>
+              </div>
+            </div>
+
+            <!-- Rappel -->
+            <div v-if="detailTask.reminder_at">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <BellIcon class="h-3.5 w-3.5" /> Rappel
+              </p>
+              <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-sm text-amber-800">
+                <BellIcon class="h-4 w-4 text-amber-500 shrink-0" />
+                <span>{{ new Date(detailTask.reminder_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) }}</span>
+                <span class="text-xs text-amber-500 ml-auto">
+                  {{ detailTask.reminder_channel === 'email' ? 'Email' : detailTask.reminder_channel === 'both' ? 'Notification + Email' : 'Notification' }}
                 </span>
               </div>
             </div>

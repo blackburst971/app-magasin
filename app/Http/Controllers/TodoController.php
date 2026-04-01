@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Reservation;
 use App\Models\Setting;
 use App\Models\TodoLabel;
 use App\Models\TodoProject;
@@ -64,12 +65,28 @@ class TodoController extends Controller
             ? User::orderBy('name')->get(['id', 'name', 'email'])
             : collect([]);
 
+        // Réservations récentes/à venir (60 jours passés + 60 jours futurs) pour le picker
+        $reservations = Reservation::with('user:id,name')
+            ->where('start_date', '>=', now()->subDays(60))
+            ->where('start_date', '<=', now()->addDays(60))
+            ->whereIn('status', ['approved', 'active', 'pending'])
+            ->orderBy('start_date')
+            ->get()
+            ->map(fn($r) => [
+                'id'         => $r->id,
+                'title'      => $r->title,
+                'start_date' => $r->start_date->format('d/m/Y'),
+                'end_date'   => $r->end_date->format('d/m/Y'),
+                'user_name'  => $r->user?->name,
+            ]);
+
         return Inertia::render('Todo/Index', [
-            'projects'  => $projects,
-            'labels'    => $labels,
-            'users'     => $users,
-            'isAdmin'   => $isAdmin,
-            'myUserId'  => $user->id,
+            'projects'     => $projects,
+            'labels'       => $labels,
+            'users'        => $users,
+            'reservations' => $reservations,
+            'isAdmin'      => $isAdmin,
+            'myUserId'     => $user->id,
         ]);
     }
 
@@ -146,7 +163,7 @@ class TodoController extends Controller
         $this->authorizeProject($todoProject);
 
         $tasks = $todoProject->allTasks()
-            ->with(['labels:id,name,color', 'assignedTo:id,name', 'subtasks'])
+            ->with(['labels:id,name,color', 'assignedTo:id,name', 'subtasks', 'reservations:id,title,start_date,end_date'])
             ->whereNull('parent_task_id')
             ->orderBy('position')
             ->get()
@@ -165,15 +182,19 @@ class TodoController extends Controller
         $this->authorizeProject($todoProject);
 
         $data = $request->validate([
-            'title'          => 'required|string|max:500',
-            'description'    => 'nullable|string|max:5000',
-            'due_date'       => 'nullable|date',
-            'priority'       => 'in:none,low,medium,high,urgent',
-            'status'         => 'in:todo,in_progress,done',
-            'parent_task_id' => 'nullable|exists:todo_tasks,id',
-            'assigned_to'    => 'nullable|exists:users,id',
-            'label_ids'      => 'nullable|array',
-            'label_ids.*'    => 'exists:todo_labels,id',
+            'title'            => 'required|string|max:500',
+            'description'      => 'nullable|string|max:5000',
+            'due_date'         => 'nullable|date',
+            'priority'         => 'in:none,low,medium,high,urgent',
+            'status'           => 'in:todo,in_progress,done',
+            'parent_task_id'   => 'nullable|exists:todo_tasks,id',
+            'assigned_to'      => 'nullable|exists:users,id',
+            'label_ids'        => 'nullable|array',
+            'label_ids.*'      => 'exists:todo_labels,id',
+            'reservation_ids'  => 'nullable|array',
+            'reservation_ids.*'=> 'exists:reservations,id',
+            'reminder_at'      => 'nullable|date',
+            'reminder_channel' => 'nullable|in:notification,email,both',
         ]);
 
         $data['project_id']  = $todoProject->id;
@@ -182,15 +203,19 @@ class TodoController extends Controller
             ->where('parent_task_id', $data['parent_task_id'] ?? null)
             ->max('position') + 1;
 
-        $labelIds = $data['label_ids'] ?? [];
-        unset($data['label_ids']);
+        $labelIds       = $data['label_ids'] ?? [];
+        $reservationIds = $data['reservation_ids'] ?? [];
+        unset($data['label_ids'], $data['reservation_ids']);
 
         $task = TodoTask::create($data);
         if ($labelIds) {
             $task->labels()->sync($labelIds);
         }
+        if ($reservationIds) {
+            $task->reservations()->sync($reservationIds);
+        }
 
-        $task->load(['labels:id,name,color', 'assignedTo:id,name', 'subtasks']);
+        $task->load(['labels:id,name,color', 'assignedTo:id,name', 'subtasks', 'reservations:id,title,start_date,end_date']);
 
         return response()->json($this->formatTask($task));
     }
@@ -201,24 +226,37 @@ class TodoController extends Controller
         $this->authorizeProject($todoTask->project);
 
         $data = $request->validate([
-            'title'       => 'sometimes|required|string|max:500',
-            'description' => 'nullable|string|max:5000',
-            'due_date'    => 'nullable|date',
-            'priority'    => 'sometimes|in:none,low,medium,high,urgent',
-            'status'      => 'sometimes|in:todo,in_progress,done',
-            'position'    => 'sometimes|integer',
-            'assigned_to' => 'nullable|exists:users,id',
-            'label_ids'   => 'nullable|array',
-            'label_ids.*' => 'exists:todo_labels,id',
+            'title'            => 'sometimes|required|string|max:500',
+            'description'      => 'nullable|string|max:5000',
+            'due_date'         => 'nullable|date',
+            'priority'         => 'sometimes|in:none,low,medium,high,urgent',
+            'status'           => 'sometimes|in:todo,in_progress,done',
+            'position'         => 'sometimes|integer',
+            'assigned_to'      => 'nullable|exists:users,id',
+            'label_ids'        => 'nullable|array',
+            'label_ids.*'      => 'exists:todo_labels,id',
+            'reservation_ids'  => 'nullable|array',
+            'reservation_ids.*'=> 'exists:reservations,id',
+            'reminder_at'      => 'nullable|date',
+            'reminder_channel' => 'nullable|in:notification,email,both',
         ]);
 
         if (array_key_exists('label_ids', $data)) {
             $todoTask->labels()->sync($data['label_ids'] ?? []);
             unset($data['label_ids']);
         }
+        if (array_key_exists('reservation_ids', $data)) {
+            $todoTask->reservations()->sync($data['reservation_ids'] ?? []);
+            unset($data['reservation_ids']);
+        }
+
+        // Réinitialiser reminder_sent_at si le rappel a changé
+        if (array_key_exists('reminder_at', $data)) {
+            $data['reminder_sent_at'] = null;
+        }
 
         $todoTask->update($data);
-        $todoTask->load(['labels:id,name,color', 'assignedTo:id,name', 'subtasks']);
+        $todoTask->load(['labels:id,name,color', 'assignedTo:id,name', 'subtasks', 'reservations:id,title,start_date,end_date']);
 
         return response()->json($this->formatTask($todoTask));
     }
@@ -275,18 +313,26 @@ class TodoController extends Controller
     private function formatTask(TodoTask $t): array
     {
         return [
-            'id'             => $t->id,
-            'project_id'     => $t->project_id,
-            'parent_task_id' => $t->parent_task_id,
-            'title'          => $t->title,
-            'description'    => $t->description,
-            'due_date'       => $t->due_date?->format('Y-m-d'),
-            'priority'       => $t->priority,
-            'status'         => $t->status,
-            'position'       => $t->position,
-            'assigned_to'    => $t->assignedTo ? ['id' => $t->assignedTo->id, 'name' => $t->assignedTo->name] : null,
-            'labels'         => $t->labels->map(fn($l) => ['id' => $l->id, 'name' => $l->name, 'color' => $l->color])->values(),
-            'subtasks'       => $t->subtasks->map(fn($s) => $this->formatTask($s))->values(),
+            'id'               => $t->id,
+            'project_id'       => $t->project_id,
+            'parent_task_id'   => $t->parent_task_id,
+            'title'            => $t->title,
+            'description'      => $t->description,
+            'due_date'         => $t->due_date?->format('Y-m-d'),
+            'reminder_at'      => $t->reminder_at?->format('Y-m-d\TH:i'),
+            'reminder_channel' => $t->reminder_channel,
+            'priority'         => $t->priority,
+            'status'           => $t->status,
+            'position'         => $t->position,
+            'assigned_to'      => $t->assignedTo ? ['id' => $t->assignedTo->id, 'name' => $t->assignedTo->name] : null,
+            'labels'           => $t->labels->map(fn($l) => ['id' => $l->id, 'name' => $l->name, 'color' => $l->color])->values(),
+            'subtasks'         => $t->subtasks->map(fn($s) => $this->formatTask($s))->values(),
+            'reservations'     => ($t->relationLoaded('reservations') ? $t->reservations : collect())->map(fn($r) => [
+                'id'         => $r->id,
+                'title'      => $r->title,
+                'start_date' => $r->start_date->format('d/m/Y'),
+                'end_date'   => $r->end_date->format('d/m/Y'),
+            ])->values(),
         ];
     }
 }

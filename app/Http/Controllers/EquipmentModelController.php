@@ -182,6 +182,18 @@ class EquipmentModelController extends Controller
 
     public function destroy(EquipmentModel $model)
     {
+        // Supprimer les images et fichiers physiques de chaque équipement lié
+        foreach ($model->assets as $asset) {
+            if ($asset->image && !str_starts_with($asset->image, 'http')) {
+                Storage::disk('public')->delete($asset->image);
+            }
+        }
+
+        // Supprimer tous les équipements liés à ce modèle
+        $deletedCount = $model->assets()->count();
+        $model->assets()->delete();
+
+        // Supprimer l'image du modèle
         if ($model->image && !str_starts_with($model->image, 'http')) {
             Storage::disk('public')->delete($model->image);
         }
@@ -194,7 +206,11 @@ class EquipmentModelController extends Controller
 
         $model->delete();
 
-        return back()->with('success', 'Modèle supprimé.');
+        $msg = $deletedCount > 0
+            ? "Modèle supprimé avec {$deletedCount} équipement(s) associé(s)."
+            : 'Modèle supprimé.';
+
+        return back()->with('success', $msg);
     }
 
     // ─── DOCUMENTS PDF ────────────────────────────────────────────────────

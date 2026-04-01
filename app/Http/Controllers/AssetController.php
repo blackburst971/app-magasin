@@ -237,7 +237,7 @@ class AssetController extends Controller
                 'status_label'       => $asset->status_label,
                 'image_url'          => $this->getImageUrl($asset->image),
                 'qr_code_url'        => $asset->qr_code ? Storage::url($asset->qr_code) : null,
-                'model'              => $asset->equipmentModel?->name,
+                'model'              => $asset->equipmentModel ? ['id' => $asset->equipmentModel->id, 'name' => $asset->equipmentModel->name] : null,
                 'supplier'           => $asset->supplier ? ['name' => $asset->supplier->name] : null,
                 'parent_asset'       => $asset->parentAsset ? ['id' => $asset->parentAsset->id, 'name' => $asset->parentAsset->name] : null,
                 'public_description' => $asset->public_description,
