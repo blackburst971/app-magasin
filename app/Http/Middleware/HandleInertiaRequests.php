@@ -80,7 +80,7 @@ class HandleInertiaRequests extends Middleware
 
             // To-Do List : activée pour tous ou seulement les admins
             'todoEnabled' => fn () => $request->user()
-                ? ($request->user()->is_admin || \App\Models\Setting::get('todo_enabled', 'false') === 'true')
+                ? ($request->user()->hasRole('admin') || \App\Models\Setting::get('todo_enabled', 'false') === 'true')
                 : false,
 
             // Statuts d'équipements partagés globalement (mis en cache)

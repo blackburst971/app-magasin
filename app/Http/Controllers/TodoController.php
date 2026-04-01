@@ -20,7 +20,7 @@ class TodoController extends Controller
     private function checkAccess(): void
     {
         $user = Auth::user();
-        if (!$user->is_admin && Setting::get('todo_enabled', 'false') !== 'true') {
+        if (!$user->hasRole('admin') && Setting::get('todo_enabled', 'false') !== 'true') {
             abort(403, 'La liste de tâches n\'est pas activée.');
         }
     }
@@ -34,7 +34,7 @@ class TodoController extends Controller
         $this->checkAccess();
 
         $user    = Auth::user();
-        $isAdmin = $user->is_admin;
+        $isAdmin = $user->hasRole('admin');
 
         // Projets : les siens + les projets partagés
         $projects = TodoProject::where(function ($q) use ($user, $isAdmin) {
@@ -266,7 +266,7 @@ class TodoController extends Controller
     private function authorizeProject(TodoProject $project): void
     {
         $user = Auth::user();
-        if ($user->is_admin) return;
+        if ($user->hasRole('admin')) return;
         if ($project->created_by !== $user->id && !$project->is_shared) {
             abort(403);
         }
