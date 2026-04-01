@@ -78,6 +78,11 @@ class HandleInertiaRequests extends Middleware
                 'school_name' => \App\Models\Setting::get('school_name', config('app.name')),
             ],
 
+            // To-Do List : activée pour tous ou seulement les admins
+            'todoEnabled' => fn () => $request->user()
+                ? ($request->user()->is_admin || \App\Models\Setting::get('todo_enabled', 'false') === 'true')
+                : false,
+
             // Statuts d'équipements partagés globalement (mis en cache)
             'assetStatuses' => fn () => $request->user()
                 ? \App\Models\AssetStatus::allCached()->map(fn($s) => [

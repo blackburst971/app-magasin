@@ -65,6 +65,8 @@ class SettingsController extends Controller
             'calendar_visibility_professeur' => 'calendar',
             'calendar_visibility_etudiant'   => 'calendar',
             'calendar_visibility_personnel'  => 'calendar',
+            // Fonctionnalités optionnelles
+            'todo_enabled'                   => 'features',
         ];
 
         foreach ($request->all() as $key => $value) {

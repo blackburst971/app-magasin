@@ -78,6 +78,8 @@ const form = useForm({
   'sounds.notification_kit':     props.settings?.sounds?.['sounds.notification_kit']     ?? 'ding',
   'sounds.scan_success':         props.settings?.sounds?.['sounds.scan_success']         ?? 'beep',
   'sounds.scan_error':           props.settings?.sounds?.['sounds.scan_error']           ?? 'buzz',
+  // Fonctionnalités optionnelles
+  todo_enabled: props.settings?.features?.todo_enabled ?? 'false',
 })
 
 const submit = () => form.post(route('settings.update'))
@@ -691,6 +693,27 @@ function sendTestEmail() {
                       :class="form[section.key] === 'true' ? 'translate-x-6' : 'translate-x-1'" />
               </button>
             </label>
+          </div>
+        </div>
+
+        <!-- ── Fonctionnalités optionnelles ─────────────────────────────── -->
+        <div class="bg-white rounded-xl shadow-sm border p-6">
+          <h2 class="text-base font-semibold text-gray-800 mb-4">🧩 Fonctionnalités optionnelles</h2>
+          <p class="text-sm text-gray-500 mb-5">
+            Activez ou désactivez des modules pour les utilisateurs non-administrateurs.
+            Les administrateurs y ont toujours accès.
+          </p>
+          <div class="flex items-center justify-between py-3 border-b last:border-0">
+            <div>
+              <p class="font-medium text-gray-800 text-sm">✅ Liste de tâches (To-Do)</p>
+              <p class="text-xs text-gray-500 mt-0.5">Permet aux utilisateurs de créer des projets et gérer leurs tâches (vue liste + kanban)</p>
+            </div>
+            <button type="button" @click="form.todo_enabled = form.todo_enabled === 'true' ? 'false' : 'true'"
+              class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+              :class="form.todo_enabled === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+              <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="form.todo_enabled === 'true' ? 'translate-x-5' : 'translate-x-0'" />
+            </button>
           </div>
         </div>
 

@@ -18,6 +18,7 @@ import {
   KeyIcon, ComputerDesktopIcon, BuildingOfficeIcon,
   MagnifyingGlassIcon, ArchiveBoxXMarkIcon,
   ClipboardDocumentCheckIcon, SparklesIcon,
+  CheckCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -125,6 +126,7 @@ const currentTabParam = computed(() => {
 })
 
 const isSupervisor = computed(() => page.props.isSupervisor ?? false)
+const todoEnabled  = computed(() => page.props.todoEnabled ?? false)
 
 const navItems = computed(() => {
   const onA = route().current('assets.*')
@@ -146,6 +148,11 @@ const navItems = computed(() => {
   items.push({ name: 'Calendrier', href: route('calendar.index'),      icon: CalendarDaysIcon,       current: route().current('calendar.*') })
   items.push({ name: 'Salles',     href: route('rooms.index'),         icon: BuildingOfficeIcon,     current: route().current('rooms.*') || route().current('room-reservations.*') })
   items.push({ name: 'Kits',       href: route('kits.index'),          icon: ArchiveBoxIcon,         current: route().current('kits.*') })
+
+  // To-Do List (admin toujours, autres utilisateurs si activé)
+  if (todoEnabled.value) {
+    items.push({ name: 'To-Do List', href: route('todo.index'), icon: CheckCircleIcon, current: route().current('todo.*') })
+  }
 
   if (!isAdmin.value) {
     items.push({ name: 'Mes réservations', href: route('reservations.index'), icon: ClipboardDocumentListIcon, current: route().current('reservations.*') })

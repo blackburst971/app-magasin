@@ -26,6 +26,7 @@ use App\Http\Controllers\ConsommableRequestController;
 use App\Http\Controllers\RoomController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\TodoController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -430,6 +431,18 @@ Route::middleware('auth')->group(function () {
         Route::post('/room-reservations/{roomReservation}/approve', [RoomController::class, 'approveReservation'])->name('room-reservations.approve');
         Route::post('/room-reservations/{roomReservation}/reject', [RoomController::class, 'rejectReservation'])->name('room-reservations.reject');
     });
+
+    // ─── To-Do List ──────────────────────────────────────────────────────
+    Route::get('/todo', [TodoController::class, 'index'])->name('todo.index');
+    Route::post('/todo/projects', [TodoController::class, 'storeProject'])->name('todo.projects.store');
+    Route::put('/todo/projects/{todoProject}', [TodoController::class, 'updateProject'])->name('todo.projects.update');
+    Route::delete('/todo/projects/{todoProject}', [TodoController::class, 'destroyProject'])->name('todo.projects.destroy');
+    Route::get('/todo/projects/{todoProject}/tasks', [TodoController::class, 'tasks'])->name('todo.tasks.index');
+    Route::post('/todo/projects/{todoProject}/tasks', [TodoController::class, 'storeTask'])->name('todo.tasks.store');
+    Route::patch('/todo/tasks/{todoTask}', [TodoController::class, 'updateTask'])->name('todo.tasks.update');
+    Route::delete('/todo/tasks/{todoTask}', [TodoController::class, 'destroyTask'])->name('todo.tasks.destroy');
+    Route::post('/todo/labels', [TodoController::class, 'storeLabel'])->name('todo.labels.store');
+    Route::delete('/todo/labels/{todoLabel}', [TodoController::class, 'destroyLabel'])->name('todo.labels.destroy');
 
     // Notifications API (read-all MUST come before {id}/read to avoid param conflict)
     Route::get('/api/notifications', [App\Http\Controllers\NotificationController::class, 'index'])->name('notifications.index');
