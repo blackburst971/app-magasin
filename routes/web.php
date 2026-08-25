@@ -501,6 +501,10 @@ Route::middleware('auth')->group(function () {
     Route::delete('/todo/tasks/{todoTask}', [TodoController::class, 'destroyTask'])->name('todo.tasks.destroy');
     Route::post('/todo/labels', [TodoController::class, 'storeLabel'])->name('todo.labels.store');
     Route::delete('/todo/labels/{todoLabel}', [TodoController::class, 'destroyLabel'])->name('todo.labels.destroy');
+    // Rappels (reminders)
+    Route::post('/todo/tasks/{todoTask}/reminders', [TodoController::class, 'storeReminder'])->name('todo.reminders.store');
+    Route::patch('/todo/tasks/{todoTask}/reminders/{reminder}', [TodoController::class, 'updateReminder'])->name('todo.reminders.update');
+    Route::delete('/todo/tasks/{todoTask}/reminders/{reminder}', [TodoController::class, 'destroyReminder'])->name('todo.reminders.destroy');
 
     // ─── Commandes / Besoins en matériel ─────────────────────────────────
     Route::get('/procurement', [\App\Http\Controllers\ProcurementController::class, 'index'])->name('procurement.index');
