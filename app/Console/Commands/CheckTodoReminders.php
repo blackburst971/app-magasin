@@ -19,9 +19,15 @@ class CheckTodoReminders extends Command
             ->whereHas('task', fn($q) => $q->where('status', '!=', 'done'))
             ->get();
 
+        if ($reminders->isEmpty()) {
+            $this->info("Aucun rappel à envoyer.");
+            return;
+        }
+
         foreach ($reminders as $reminder) {
             $task = $reminder->task;
 
+            // Récupérer les utilisateurs à notifier
             $userIds = collect();
             if ($task->assigned_to) {
                 $userIds->push($task->assigned_to);
@@ -31,13 +37,20 @@ class CheckTodoReminders extends Command
             }
 
             $users = \App\Models\User::whereIn('id', $userIds->unique())->get();
+
+            // Envoyer les notifications
             foreach ($users as $user) {
                 $user->notify(new TodoTaskReminderNotification($task, $reminder));
             }
 
-            $reminder->update(['reminder_sent_at' => now()]);
+            // IMPORTANT : Marquer comme envoyé IMMÉDIATEMENT après l'envoi
+            // pour éviter les doublons lors de la prochaine exécution
+            $reminder->reminder_sent_at = now();
+            $reminder->save();
+
+            $this->info("Rappel envoyé pour la tâche #{$task->id} « {$task->title} » à {$users->count()} utilisateur(s)");
         }
 
-        $this->info("Rappels envoyés : {$reminders->count()}");
+        $this->info("Total : {$reminders->count()} rappel(s) envoyé(s)");
     }
 }
