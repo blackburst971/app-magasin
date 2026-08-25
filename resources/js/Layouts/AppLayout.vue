@@ -490,6 +490,12 @@ onUnmounted(() => {
                               class="text-xs text-orange-600 hover:underline">
                           Voir le stock
                         </Link>
+                        <Link v-if="notif.type === 'todo_reminder' && notif.task_id"
+                              :href="route('todo.index')"
+                              @click="closeDropdown"
+                              class="text-xs text-purple-600 hover:underline">
+                          Voir la tâche
+                        </Link>
                       </div>
                     </div>
                   </div>

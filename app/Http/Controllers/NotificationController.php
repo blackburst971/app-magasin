@@ -14,11 +14,15 @@ class NotificationController extends Controller
             'type' => $n->data['type'] ?? 'general',
             'message' => $n->data['message'] ?? '',
             'reservation_id' => $n->data['reservation_id'] ?? null,
+            'task_id' => $n->data['task_id'] ?? null,
+            'project_id' => $n->data['project_id'] ?? null,
             'read_at' => $n->read_at,
             'created_at' => $n->created_at,
         ]);
 
-        Auth::user()->unreadNotifications->markAsRead();
+        // NE PAS marquer comme lues automatiquement ici
+        // Les notifications seront marquées comme lues individuellement
+        // ou via markAllRead() quand l'utilisateur clique sur "Tout marquer comme lu"
 
         return response()->json($notifications);
     }
