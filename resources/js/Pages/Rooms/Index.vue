@@ -2,7 +2,8 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref, computed } from 'vue'
 import { router, usePage } from '@inertiajs/vue3'
-import { BuildingOfficeIcon, PlusIcon, PencilIcon, TrashIcon, CalendarDaysIcon, CheckCircleIcon, XCircleIcon, UserIcon } from '@heroicons/vue/24/outline'
+import { BuildingOfficeIcon, PlusIcon, PencilIcon, TrashIcon, CalendarDaysIcon, CheckCircleIcon, XCircleIcon, UserIcon, Squares2X2Icon, ListBulletIcon } from '@heroicons/vue/24/outline'
+import { useViewMode } from '@/composables/useViewMode'
 
 const page = usePage()
 
@@ -15,6 +16,9 @@ const props = defineProps({
 
 // ─── Onglet actif ─────────────────────────────────────────────────────────────
 const activeTab = ref('reservations') // 'reservations' | 'rooms'
+
+// ─── Vue grille / liste pour l'onglet Salles ──────────────────────────────────
+const viewMode = useViewMode('rooms_view', 'grid')
 
 // ─── Gestion salles (admin) ───────────────────────────────────────────────────
 const showRoomModal = ref(false)
@@ -276,7 +280,23 @@ const flash = computed(() => page.props.flash)
           </button>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Toolbar toggle grille/liste -->
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-sm text-gray-500">{{ rooms.length }} salle(s)</p>
+          <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button @click="viewMode = 'grid'" :title="'Vue grille'"
+              :class="['px-2.5 py-2 transition', viewMode === 'grid' ? 'bg-violet-600 text-white' : 'text-gray-500 hover:bg-gray-50']">
+              <Squares2X2Icon class="w-4 h-4" />
+            </button>
+            <button @click="viewMode = 'list'" :title="'Vue liste'"
+              :class="['px-2.5 py-2 transition border-l border-gray-200', viewMode === 'list' ? 'bg-violet-600 text-white' : 'text-gray-500 hover:bg-gray-50']">
+              <ListBulletIcon class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Vue grille -->
+        <div v-if="viewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div v-for="room in rooms" :key="room.id"
             class="bg-white rounded-xl border shadow-sm overflow-hidden">
             <!-- Header couleur -->
@@ -313,6 +333,50 @@ const flash = computed(() => page.props.flash)
                   </button>
                 </template>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vue liste -->
+        <div v-else class="bg-white rounded-xl border overflow-hidden">
+          <div v-if="rooms.length === 0" class="px-8 py-12 text-center text-gray-400">
+            <BuildingOfficeIcon class="w-10 h-10 mx-auto mb-2 opacity-30" />
+            <p class="text-sm">Aucune salle configurée</p>
+            <button v-if="isAdmin" @click="openCreateRoom()" class="mt-2 text-sm text-violet-600 underline">Ajouter une salle</button>
+          </div>
+          <div v-for="room in rooms" :key="room.id"
+            class="flex items-center gap-4 px-4 py-3 border-b last:border-0 hover:bg-gray-50 transition">
+            <!-- Color dot -->
+            <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: room.color }"></div>
+            <!-- Info -->
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-sm text-gray-900">{{ room.name }}</p>
+              <p class="text-xs text-gray-400">
+                <span v-if="room.location">📍 {{ room.location }}</span>
+                <span v-if="room.location && room.capacity"> · </span>
+                <span v-if="room.capacity">👥 {{ room.capacity }} pers.</span>
+              </p>
+            </div>
+            <!-- Description -->
+            <p v-if="room.description" class="text-xs text-gray-400 hidden md:block truncate max-w-[200px]">{{ room.description }}</p>
+            <!-- Badges -->
+            <span v-if="!room.is_reservable" class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex-shrink-0">Indisponible</span>
+            <!-- Actions -->
+            <div class="flex gap-1 flex-shrink-0">
+              <button @click="openCreateResv(room)" :disabled="!room.is_reservable"
+                class="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50">
+                Réserver
+              </button>
+              <template v-if="isAdmin">
+                <button @click="openEditRoom(room)"
+                  class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
+                  <PencilIcon class="w-4 h-4" />
+                </button>
+                <button @click="deleteRoom(room)"
+                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
+                  <TrashIcon class="w-4 h-4" />
+                </button>
+              </template>
             </div>
           </div>
         </div>

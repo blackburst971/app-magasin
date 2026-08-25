@@ -35,12 +35,14 @@ class AssetMovement extends Model
     public function getActionLabelAttribute(): string
     {
         return match($this->action) {
-            'checkout' => 'Retrait',
-            'return' => 'Retour',
-            'maintenance' => 'Maintenance',
-            'import' => 'Import',
-            'status_change' => 'Changement statut',
-            default => $this->action,
+            'checkout'       => 'Retrait',
+            'return'         => 'Retour',
+            'maintenance'    => 'Maintenance',
+            'import'         => 'Import',
+            'status_change'  => 'Changement statut',
+            'place_assigned' => 'Affectation lieu',
+            'place_returned' => 'Retour de lieu',
+            default          => $this->action,
         };
     }
 }

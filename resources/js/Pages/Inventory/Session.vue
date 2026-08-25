@@ -2,7 +2,8 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
-import { CheckIcon, XMarkIcon, ClipboardDocumentCheckIcon, PrinterIcon } from '@heroicons/vue/24/outline'
+import { CheckIcon, XMarkIcon, ClipboardDocumentCheckIcon, PrinterIcon, ArchiveBoxIcon } from '@heroicons/vue/24/outline'
+import BarcodeScanButton from '@/Components/BarcodeScanButton.vue'
 import { useSound } from '@/composables/useSound'
 
 const { playSound } = useSound()
@@ -10,6 +11,7 @@ const { playSound } = useSound()
 const props = defineProps({
   assets:     Array,
   modelNames: Array,
+  modelIds:   Array,
 })
 
 // Map assetId → scanned (true/false)
@@ -79,6 +81,46 @@ function resetSession() {
   if (!confirm('Réinitialiser la session ? Tous les scans seront perdus.')) return
   scanned.value = {}
   scanError.value = ''
+}
+
+// ─── Sauvegarde du rapport ────────────────────────────────────────────────────
+const showSaveModal = ref(false)
+const saveLabel     = ref('')
+const saveNotes     = ref('')
+const saving        = ref(false)
+
+function openSaveModal() {
+  saveLabel.value = ''
+  saveNotes.value = ''
+  showSaveModal.value = true
+}
+
+function saveReport() {
+  if (saving.value) return
+  saving.value = true
+
+  const items = props.assets.map(a => ({
+    asset_id:    a.id,
+    asset_tag:   a.asset_tag,
+    asset_name:  a.name,
+    model_name:  a.model_name ?? null,
+    location:    a.location ?? null,
+    serial:      a.serial ?? null,
+    scan_status: scanned.value[a.id] === true ? 'present'
+                 : scanned.value[a.id] === false ? 'missing'
+                 : 'pending',
+  }))
+
+  router.post(route('inventory.save-report'), {
+    label:       saveLabel.value.trim() || null,
+    model_names: props.modelNames,
+    notes:       saveNotes.value.trim() || null,
+    items,
+  }, {
+    onSuccess: () => { showSaveModal.value = false },
+    onError:   () => { saving.value = false },
+    onFinish:  () => { saving.value = false },
+  })
 }
 
 // ─── Impression PDF inventaire ────────────────────────────────────────────────
@@ -177,6 +219,9 @@ function printInventory(mode = 'missing') {
           <div class="flex items-center gap-2 mb-1">
             <button @click="router.get(route('inventory.index'))"
               class="text-sm text-gray-400 hover:text-gray-600 transition">← Retour</button>
+            <span class="text-gray-300">|</span>
+            <button @click="router.get(route('inventory.history'))"
+              class="text-sm text-blue-500 hover:text-blue-700 transition">📋 Historique</button>
           </div>
           <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ClipboardDocumentCheckIcon class="w-6 h-6 text-blue-600" />
@@ -184,7 +229,13 @@ function printInventory(mode = 'missing') {
           </h1>
           <p class="text-sm text-gray-500">{{ modelNames.join(', ') }}</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
+          <!-- Sauvegarder le rapport -->
+          <button @click="openSaveModal"
+            class="flex items-center gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition font-medium shadow-sm">
+            <ArchiveBoxIcon class="w-3.5 h-3.5" />
+            Sauvegarder le rapport
+          </button>
           <!-- Bouton imprimer manquants -->
           <button @click="printInventory('missing')"
             :disabled="allMissing.length === 0"
@@ -232,6 +283,9 @@ function printInventory(mode = 'missing') {
         </div>
         <div v-if="progress === 100" class="mt-3 flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
           ✅ Inventaire terminé ! {{ scannedCount }} présents, {{ missingCount }} manquants.
+          <button @click="openSaveModal" class="ml-auto text-xs bg-green-700 text-white px-3 py-1 rounded-lg hover:bg-green-800 transition font-medium">
+            Sauvegarder le rapport →
+          </button>
         </div>
       </div>
 
@@ -243,6 +297,10 @@ function printInventory(mode = 'missing') {
             autofocus autocomplete="off"
             placeholder="Scanner ou saisir le tag équipement…"
             class="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          <BarcodeScanButton
+            title="Scanner pour l'inventaire"
+            @scanned="(code) => { processTag(code) }"
+          />
           <button @click="() => { processTag(scanInput); scanInput = '' }"
             class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition">
             Valider
@@ -331,5 +389,57 @@ function printInventory(mode = 'missing') {
       </div>
 
     </div>
+
+    <!-- ═══ Modal Sauvegarder le rapport ═══ -->
+    <div v-if="showSaveModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg flex items-center gap-2">
+            <ArchiveBoxIcon class="w-5 h-5 text-green-600" />
+            Sauvegarder le rapport
+          </h3>
+          <button @click="showSaveModal = false" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+
+        <!-- Résumé -->
+        <div class="flex gap-3 mb-4">
+          <div class="flex-1 bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+            <div class="text-lg font-bold text-green-700">{{ scannedCount }}</div>
+            <div class="text-xs text-green-600">Présents</div>
+          </div>
+          <div class="flex-1 bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+            <div class="text-lg font-bold text-red-700">{{ missingCount }}</div>
+            <div class="text-xs text-red-600">Manquants</div>
+          </div>
+          <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+            <div class="text-lg font-bold text-gray-500">{{ remainingCount }}</div>
+            <div class="text-xs text-gray-400">Non traités</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Titre du rapport (optionnel)</label>
+            <input v-model="saveLabel" type="text" placeholder="Ex: Inventaire salle A — Septembre 2026"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Notes (optionnel)</label>
+            <textarea v-model="saveNotes" rows="3" placeholder="Observations, remarques…"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          </div>
+        </div>
+
+        <div class="flex gap-3 mt-4">
+          <button @click="showSaveModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
+          <button @click="saveReport" :disabled="saving"
+            class="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition">
+            {{ saving ? 'Sauvegarde…' : 'Sauvegarder' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
   </AppLayout>
 </template>

@@ -66,7 +66,19 @@
                             <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
                         </select>
 
-                        <!-- Checkbox -->
+                        <!-- Checkbox avec options (groupe) -->
+                        <div v-else-if="field.type === 'checkbox' && field.options && field.options.length > 0"
+                             class="space-y-2">
+                            <label v-for="opt in field.options" :key="opt"
+                                   class="flex items-center gap-2 cursor-pointer group">
+                                <input type="checkbox"
+                                       :checked="isChecked(field.id, opt)"
+                                       @change="toggleCheckbox(field.id, opt)"
+                                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4" />
+                                <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ opt }}</span>
+                            </label>
+                        </div>
+                        <!-- Checkbox simple (aucune option définie) -->
                         <label v-else-if="field.type === 'checkbox'" class="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox"
                                    v-model="responses[field.id]"
@@ -156,10 +168,21 @@ const loading = ref(false)
 
 // Pour les champs de type signature, stocker un objet {first_name, last_name}
 function getSignature(fieldId) {
-  if (!responses[fieldId] || typeof responses[fieldId] !== 'object') {
+  if (!responses[fieldId] || typeof responses[fieldId] !== 'object' || Array.isArray(responses[fieldId])) {
     responses[fieldId] = { first_name: '', last_name: '' }
   }
   return responses[fieldId]
+}
+
+// Checkbox à options multiples
+function isChecked(fieldId, opt) {
+  return Array.isArray(responses[fieldId]) && responses[fieldId].includes(opt)
+}
+function toggleCheckbox(fieldId, opt) {
+  if (!Array.isArray(responses[fieldId])) responses[fieldId] = []
+  const idx = responses[fieldId].indexOf(opt)
+  if (idx === -1) responses[fieldId].push(opt)
+  else responses[fieldId].splice(idx, 1)
 }
 
 function submit() {

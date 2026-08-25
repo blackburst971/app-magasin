@@ -16,6 +16,7 @@ use App\Mail\ReservationRejected;
 use App\Mail\CheckoutSummary;
 use App\Mail\ReservationAwaitingSupervisor;
 use App\Mail\ReservationReturned;
+use App\Mail\ReservationCancelledByAdmin;
 use App\Http\Controllers\WaitlistController;
 use App\Models\Maintenance;
 use Illuminate\Http\Request;
@@ -159,6 +160,7 @@ class ReservationController extends Controller
                 ]);
             }
         }
+
 
         // Check availability
         $start         = new \DateTime($data['start_date']);
@@ -334,6 +336,7 @@ class ReservationController extends Controller
         $count = 0;
 
         foreach ($reservations as $reservation) {
+            $previousStatus = $reservation->status;
             $updates = ['status' => $request->status];
             if ($request->admin_notes) $updates['admin_notes'] = $request->admin_notes;
             if ($request->status === 'approved' && $reservation->status !== 'approved') {
@@ -349,6 +352,21 @@ class ReservationController extends Controller
                 try { Mail::to($reservation->user->email)->send(new ReservationRejected($reservation)); } catch (\Exception $e) {}
             }
             $reservation->update($updates);
+
+            // Mettre à jour le statut des équipements
+            if ($request->status === 'approved' && $previousStatus !== 'approved') {
+                foreach ($reservation->assets as $asset) {
+                    if (in_array($asset->status, ['available', 'en_preparation'])) {
+                        $asset->update(['status' => 'reserved']);
+                    }
+                }
+            } elseif (in_array($request->status, ['cancelled', 'rejected']) && $previousStatus === 'approved') {
+                foreach ($reservation->assets as $asset) {
+                    if ($asset->status === 'reserved') {
+                        $asset->update(['status' => 'available']);
+                    }
+                }
+            }
             $count++;
         }
 
@@ -415,7 +433,23 @@ class ReservationController extends Controller
             try { Mail::to($reservation->user->email)->send(new ReservationRejected($reservation)); } catch (\Exception $e) {}
         }
 
+        $previousStatus = $reservation->status;
         $reservation->update($updates);
+
+        // Mettre à jour le statut des équipements selon la transition
+        if ($data['status'] === 'approved' && $previousStatus !== 'approved') {
+            foreach ($reservation->assets as $asset) {
+                if (in_array($asset->status, ['available', 'en_preparation'])) {
+                    $asset->update(['status' => 'reserved']);
+                }
+            }
+        } elseif (in_array($data['status'], ['cancelled', 'rejected']) && $previousStatus === 'approved') {
+            foreach ($reservation->assets as $asset) {
+                if ($asset->status === 'reserved') {
+                    $asset->update(['status' => 'available']);
+                }
+            }
+        }
 
         return back()->with('success', 'Réservation mise à jour.');
     }
@@ -442,6 +476,15 @@ class ReservationController extends Controller
             return $data;
         })->toArray();
 
+        $activeForm = CheckoutForm::where('is_active', true)->with('fields')->first();
+        // Vérifier si le formulaire actif a une réponse pour cette réservation
+        if ($activeForm) {
+            $hasResponse = \App\Models\CheckoutFormResponse::where('form_id', $activeForm->id)
+                ->where('reservation_id', $reservation->id)
+                ->exists();
+            $activeForm = array_merge($activeForm->toArray(), ['has_response' => $hasResponse]);
+        }
+
         return Inertia::render('Reservations/Show', [
             'reservation' => array_merge($reservation->toArray(), [
                 'assets'                       => $assetsWithImage,
@@ -458,7 +501,10 @@ class ReservationController extends Controller
             ]),
             'isAdmin'      => $isAdmin,
             'isSupervisor' => $isSupervisor,
-            'activeCheckoutForm' => CheckoutForm::where('is_active', true)->with('fields')->first(),
+            'checkoutForms' => $activeForm ? [$activeForm] : [],
+            'allUsers'      => $isAdmin
+                ? \App\Models\User::orderBy('name')->get(['id', 'name', 'email'])->toArray()
+                : [],
         ]);
     }
 
@@ -558,6 +604,13 @@ class ReservationController extends Controller
             'approved_at' => now(),
             'admin_notes' => $request->admin_notes,
         ]);
+
+        // Marquer les équipements comme "réservé" jusqu'au retrait effectif
+        foreach ($reservation->assets as $asset) {
+            if (in_array($asset->status, ['available', 'en_preparation'])) {
+                $asset->update(['status' => 'reserved']);
+            }
+        }
 
         try {
             Mail::to($reservation->user->email)->send(new ReservationConfirmed(
@@ -683,12 +736,25 @@ class ReservationController extends Controller
         $data = $request->validate([
             'condition'    => 'nullable|in:good,damaged,lost',
             'return_notes' => 'nullable|string|max:1000',
+            'scratch_lost' => 'nullable|boolean',
+            'belge_lost'   => 'nullable|boolean',
         ]);
 
         $condition    = $data['condition'] ?? 'good';
         $returnNotes  = $data['return_notes'] ?? null;
         $goodCondition = $condition === 'good';
         $isMissing     = $condition === 'lost';
+        $scratchLost   = $request->boolean('scratch_lost');
+        $belgeLost     = $request->boolean('belge_lost');
+
+        // Incorporer les notes d'accessoires manquants
+        $accessoryNotes = [];
+        if ($scratchLost) $accessoryNotes[] = 'Velcro/scratch manquant (déclaré perdu)';
+        if ($belgeLost)   $accessoryNotes[] = 'Belge manquant (déclaré perdu)';
+        if (!empty($accessoryNotes)) {
+            $lostStr     = implode(', ', $accessoryNotes);
+            $returnNotes = $returnNotes ? "{$lostStr} — {$returnNotes}" : $lostStr;
+        }
 
         // L'asset doit appartenir à cette réservation
         $pivot = $reservation->assets()->find($asset->id)?->pivot;
@@ -710,11 +776,14 @@ class ReservationController extends Controller
 
         // Si perdu → statut maintenance, sinon available
         $newStatus = $isMissing ? 'maintenance' : 'available';
-        $asset->update([
+        $assetUpdateData = [
             'status'                 => $newStatus,
             'checked_out_to_user_id' => null,
             'expected_return_at'     => null,
-        ]);
+        ];
+        if ($scratchLost) $assetUpdateData['has_scratch'] = false;
+        if ($belgeLost)   $assetUpdateData['has_belge']   = false;
+        $asset->update($assetUpdateData);
 
         $conditionLabel = match($condition) {
             'good'    => 'Bon état',
@@ -772,9 +841,41 @@ class ReservationController extends Controller
             abort(403);
         }
 
-        $reservation->update(['status' => 'cancelled']);
+        $isAdmin = $request->user()->hasRole('admin');
+        $reason  = null;
 
-        return back()->with('success', 'Réservation annulée.');
+        if ($isAdmin) {
+            $request->validate(['reason' => 'nullable|string|max:1000']);
+            $reason = $request->input('reason');
+        }
+
+        $previousStatus = $reservation->status;
+        $updateData     = ['status' => 'cancelled'];
+        if ($reason) {
+            $updateData['admin_notes'] = $reason;
+        }
+        $reservation->update($updateData);
+
+        // Libérer les équipements si la réservation était approuvée ou active
+        if (in_array($previousStatus, ['approved', 'active', 'en_preparation'])) {
+            foreach ($reservation->assets as $asset) {
+                if (in_array($asset->status, ['reserved', 'checked_out', 'en_preparation'])) {
+                    $asset->update([
+                        'status'                 => 'available',
+                        'checked_out_to_user_id' => null,
+                        'expected_return_at'     => null,
+                    ]);
+                }
+            }
+            // Notifier l'utilisateur si c'est un admin qui annule
+            if ($isAdmin) {
+                try {
+                    Mail::to($reservation->user->email)->send(new ReservationCancelledByAdmin($reservation));
+                } catch (\Exception $e) {}
+            }
+        }
+
+        return back()->with('success', 'Réservation annulée.' . ($reason ? ' Motif : ' . $reason : ''));
     }
 
     public function sendEmail(Reservation $reservation)

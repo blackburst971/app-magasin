@@ -41,15 +41,20 @@ class AdminController extends Controller
 
     public function storeUser(Request $request)
     {
+        // L'admin peut créer un utilisateur avec un email déjà existant (pour tests, doublons volontaires)
+        $allowDuplicate = (bool) $request->input('allow_duplicate_email', false);
+        $emailRule = $allowDuplicate ? 'required|email' : 'required|email|unique:users';
+
         $data = $request->validate([
-            'name'               => 'required|string|max:255',
-            'email'              => 'required|email|unique:users',
-            'password'           => 'required|string|min:8',
-            'department'         => 'nullable|string|max:255',
-            'phone'              => 'nullable|string|max:20',
-            'role'               => 'required|in:admin,professeur,personnel,user',
-            'supervisor_id'      => 'nullable|exists:users,id',
-            'send_credentials'   => 'nullable|boolean',
+            'name'                  => 'required|string|max:255',
+            'email'                 => $emailRule,
+            'password'              => 'required|string|min:8',
+            'department'            => 'nullable|string|max:255',
+            'phone'                 => 'nullable|string|max:20',
+            'role'                  => 'required|in:admin,professeur,personnel,user',
+            'supervisor_id'         => 'nullable|exists:users,id',
+            'send_credentials'      => 'nullable|boolean',
+            'allow_duplicate_email' => 'nullable|boolean',
         ]);
 
         $plainPassword = $data['password'];
@@ -120,6 +125,76 @@ class AdminController extends Controller
         return back()->with('success', 'Utilisateur supprimé.');
     }
 
+    public function bulkUpdateUsers(Request $request)
+    {
+        $request->validate([
+            'ids'             => 'required|array|min:1',
+            'ids.*'           => 'integer|exists:users,id',
+            'apply_role'      => 'nullable|boolean',
+            'role'            => 'nullable|in:admin,professeur,personnel,user',
+            'apply_supervisor'=> 'nullable|boolean',
+            'supervisor_id'   => 'nullable|integer|exists:users,id',
+            'apply_department'=> 'nullable|boolean',
+            'department'      => 'nullable|string|max:255',
+        ]);
+
+        $currentUserId = request()->user()->id;
+        $ids = array_values(array_filter($request->ids, fn($id) => (int)$id !== $currentUserId));
+
+        if (empty($ids)) {
+            return back()->with('error', 'Aucun utilisateur modifiable dans la sélection.');
+        }
+
+        $users = User::whereIn('id', $ids)->get();
+        $count = 0;
+
+        foreach ($users as $user) {
+            $updateData = [];
+
+            if ($request->boolean('apply_role') && $request->role) {
+                $user->syncRoles([$request->role]);
+            }
+
+            if ($request->boolean('apply_supervisor')) {
+                $supId = $request->supervisor_id ? (int)$request->supervisor_id : null;
+                if ($supId !== $user->id) {
+                    $updateData['supervisor_id'] = $supId;
+                }
+            }
+
+            if ($request->boolean('apply_department')) {
+                $updateData['department'] = $request->department ?: null;
+            }
+
+            if (!empty($updateData)) {
+                $user->update($updateData);
+            }
+            $count++;
+        }
+
+        return back()->with('success', "{$count} utilisateur(s) mis à jour.");
+    }
+
+    public function bulkDestroyUsers(Request $request)
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer|exists:users,id',
+        ]);
+
+        $currentUserId = request()->user()->id;
+        $ids = array_values(array_filter($request->ids, fn($id) => (int)$id !== $currentUserId));
+
+        if (empty($ids)) {
+            return back()->with('error', 'Impossible de supprimer votre propre compte.');
+        }
+
+        $count = User::whereIn('id', $ids)->count();
+        User::whereIn('id', $ids)->delete();
+
+        return back()->with('success', "{$count} utilisateur(s) supprimé(s).");
+    }
+
     public function changeRole(Request $request, User $user)
     {
         $request->validate(['role' => 'required|in:admin,professeur,personnel,user']);
@@ -129,7 +204,7 @@ class AdminController extends Controller
 
     public function updateUserAvatar(Request $request, User $user)
     {
-        $request->validate(['avatar' => 'required|image|mimes:jpeg,jpg,png,gif,webp|max:2048']);
+        $request->validate(['avatar' => 'required|image|mimes:jpeg,jpg,png,gif,webp,avif|max:2048']);
         if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
             Storage::disk('public')->delete($user->avatar);
         }

@@ -15,7 +15,15 @@ class OverdueReminderNotification extends Notification
 
     public function via($notifiable): array
     {
-        return ['mail'];
+        if (\App\Models\Setting::get('alert_overdue_enabled', 'true') !== 'true') {
+            return [];
+        }
+        $channel = \App\Models\Setting::get('alert_overdue_channel', 'email');
+        return match($channel) {
+            'notification' => ['database'],
+            'both'         => ['database', 'mail'],
+            default        => ['mail'],
+        };
     }
 
     public function toMail($notifiable): MailMessage
@@ -30,5 +38,15 @@ class OverdueReminderNotification extends Notification
             ->line("Date de retour prévue : " . $this->reservation->end_date->format('d/m/Y'))
             ->action('Voir la réservation', url('/reservations/' . $this->reservation->id))
             ->line('Merci de retourner le matériel dès que possible.');
+    }
+
+    public function toArray($notifiable): array
+    {
+        return [
+            'type'           => 'overdue_reminder',
+            'reservation_id' => $this->reservation->id,
+            'title'          => $this->reservation->title,
+            'message'        => "Retour en retard : {$this->reservation->title} (prévu le {$this->reservation->end_date->format('d/m/Y')})",
+        ];
     }
 }

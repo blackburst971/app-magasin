@@ -6,9 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class Kit extends Model
 {
-    protected $fillable = ['name', 'description', 'notes', 'image', 'status', 'is_reservable'];
+    protected $fillable = ['name', 'description', 'notes', 'condition_note', 'image', 'status', 'is_reservable', 'kit_category_id'];
 
     protected $casts = ['is_reservable' => 'boolean'];
+
+    public function category()
+    {
+        return $this->belongsTo(KitCategory::class, 'kit_category_id');
+    }
 
     /** Équipements composant ce kit */
     public function assets()

@@ -1,9 +1,10 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
 import { useSound } from '@/composables/useSound'
-import { CheckCircleIcon, ClockIcon, QrCodeIcon, UserIcon, CalendarIcon, ListBulletIcon, BoltIcon } from '@heroicons/vue/24/outline'
+import { CheckCircleIcon, ClockIcon, QrCodeIcon, UserIcon, CalendarIcon, ListBulletIcon, BoltIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
+import BarcodeScanButton from '@/Components/BarcodeScanButton.vue'
 import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/vue/24/solid'
 
 const { playSound } = useSound()
@@ -92,17 +93,80 @@ async function confirmAddToReservation() {
 }
 
 // ── Mode libre (attribution sans réservation, multi-scan) ───────────────────
-const freeMode          = ref(false)
-const freeScanInput     = ref('')
-const freeUserId        = ref('')
-const freeEndDate       = ref('')
-const freeTitle         = ref('')
-const freeScanError     = ref(null)       // erreur du scan en cours
-const freeScanning      = ref(false)      // chargement validation tag
-const freePendingAssets = ref([])         // [{ asset_tag, name, id }]
-const freeSubmitting    = ref(false)      // chargement lors de la validation finale
-const freeSubmitResult  = ref(null)       // { type, lines[] }
-const freeSendEmail     = ref(true)
+const freeMode             = ref(false)
+const freeScanInputEl      = ref(null)   // ref sur l'<input> de scan mode libre
+
+// Focus automatique sur l'input de scan dès l'ouverture du mode libre
+watch(freeMode, (val) => {
+  if (val) nextTick(() => freeScanInputEl.value?.focus())
+})
+const freeScanInput        = ref('')
+const freeUserId           = ref('')
+const freeEndDate          = ref('')
+const freeTitle            = ref('')
+const freeScanError        = ref(null)       // erreur du scan en cours
+const freeScanning         = ref(false)      // chargement validation tag
+const freePendingAssets    = ref([])         // [{ asset_tag, name, id }]
+const freePendingKits      = ref([])         // [{ id, name, assets: [{id, name, asset_tag, status}] }]
+const freeSubmitting       = ref(false)      // chargement lors de la validation finale
+const freeSubmitResult     = ref(null)       // { type, lines[] }
+const freeSendEmail        = ref(true)
+const freeParticipantIds   = ref([])         // IDs des participants supplémentaires
+const freeParticipantSearch = ref('')
+
+// ── Recherche de kits (mode libre) ──────────────────────────────────────────
+const freeKitSearch        = ref('')
+const freeKitResults       = ref([])   // [{ id, name, status, assets[] }]
+const freeKitSearching     = ref(false)
+let freeKitSearchTimer     = null
+
+async function searchKits(q) {
+  freeKitSearching.value = true
+  try {
+    const { data } = await axios.get(route('attribution.search-kits'), { params: { q } })
+    freeKitResults.value = data.kits.filter(k => !freePendingKits.value.some(pk => pk.id === k.id))
+  } catch {
+    freeKitResults.value = []
+  } finally {
+    freeKitSearching.value = false
+  }
+}
+
+function onKitSearchInput() {
+  clearTimeout(freeKitSearchTimer)
+  if (!freeKitSearch.value.trim()) {
+    freeKitResults.value = []
+    return
+  }
+  freeKitSearchTimer = setTimeout(() => searchKits(freeKitSearch.value.trim()), 250)
+}
+
+function addKit(kit) {
+  if (freePendingKits.value.some(k => k.id === kit.id)) return
+  freePendingKits.value.push(kit)
+  freeKitSearch.value = ''
+  freeKitResults.value = []
+}
+
+function removeKit(kitId) {
+  freePendingKits.value = freePendingKits.value.filter(k => k.id !== kitId)
+}
+
+const freeTotalItems = computed(() =>
+  freePendingAssets.value.length + freePendingKits.value.length
+)
+
+const freeParticipantCandidates = computed(() => {
+  const q = freeParticipantSearch.value.trim().toLowerCase()
+  const taken = new Set([Number(freeUserId.value) || 0, ...freeParticipantIds.value])
+  return props.users.filter(u => !taken.has(u.id) && (
+    !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+  )).slice(0, 8)
+})
+
+const freeParticipantObjects = computed(() =>
+  props.users.filter(u => freeParticipantIds.value.includes(u.id))
+)
 
 async function freeAddAsset() {
   const tag = freeScanInput.value.trim()
@@ -110,6 +174,7 @@ async function freeAddAsset() {
   if (freePendingAssets.value.some(a => a.asset_tag === tag)) {
     freeScanError.value = `${tag} est déjà dans la liste.`
     freeScanInput.value = ''
+    nextTick(() => freeScanInputEl.value?.focus())
     return
   }
   freeScanning.value = true
@@ -124,6 +189,7 @@ async function freeAddAsset() {
     playSound('scan_error')
   } finally {
     freeScanning.value = false
+    nextTick(() => freeScanInputEl.value?.focus())
   }
 }
 
@@ -132,31 +198,39 @@ function freeRemoveAsset(tag) {
 }
 
 function freeReset() {
-  freePendingAssets.value = []
-  freeScanInput.value     = ''
-  freeScanError.value     = null
-  freeSubmitResult.value  = null
-  freeTitle.value         = ''
+  freePendingAssets.value    = []
+  freePendingKits.value      = []
+  freeScanInput.value        = ''
+  freeScanError.value        = null
+  freeSubmitResult.value     = null
+  freeTitle.value            = ''
+  freeKitSearch.value        = ''
+  freeKitResults.value       = []
+  freeParticipantIds.value   = []
+  freeParticipantSearch.value = ''
 }
 
 async function freeSubmit() {
-  if (!freePendingAssets.value.length || !freeUserId.value || !freeEndDate.value) return
+  if (!freeTotalItems.value || !freeUserId.value || !freeEndDate.value) return
   freeSubmitting.value   = true
   freeSubmitResult.value = null
   try {
     const { data } = await axios.post(route('attribution.free-checkout-bulk'), {
       asset_tags:           freePendingAssets.value.map(a => a.asset_tag),
+      kit_ids:              freePendingKits.value.map(k => k.id),
       user_id:              freeUserId.value,
       end_date:             freeEndDate.value,
       title:                freeTitle.value || null,
       send_checkout_email:  freeSendEmail.value,
+      additional_user_ids:  freeParticipantIds.value,
     })
     playSound('scan_success')
     const lines = [
       `Réservation #${data.reservation_id} créée pour ${data.user}`,
       `Retour prévu : ${data.end_date}`,
-      `${data.assets.length} équipement(s) : ${data.assets.map(a => a.asset_tag).join(', ')}`,
     ]
+    if (data.kits?.length) lines.push(`Kit(s) : ${data.kits.map(k => k.name).join(', ')}`)
+    lines.push(`${data.assets.length} équipement(s) : ${data.assets.map(a => a.asset_tag).join(', ')}`)
     if (data.errors?.length) lines.push(`Avertissements : ${data.errors.join(', ')}`)
     if (data.checkout_email_sent) lines.push('Email récapitulatif envoyé')
     freeSubmitResult.value = {
@@ -166,6 +240,7 @@ async function freeSubmit() {
       pendingForms:  data.pending_forms ?? [],
     }
     freePendingAssets.value = []
+    freePendingKits.value   = []
     freeTitle.value         = ''
   } catch (err) {
     playSound('scan_error')
@@ -468,16 +543,115 @@ function formatDate(date) {
   return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+function formatTime(date) {
+  if (!date) return ''
+  const d = new Date(date)
+  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDateTime(date) {
+  if (!date) return '—'
+  const d = new Date(date)
+  const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return `${dateStr} ${timeStr}`
+}
+
 const totalPending = computed(() =>
   localReservations.value.filter(r => !r.all_checked_out).length
 )
+
+// ── Vue calendrier ──────────────────────────────────────────────────────────
+const viewMode     = ref('list') // 'list' | 'calendar'
+const calendarDate = ref(new Date())
+const selectedDate = ref(null)  // 'YYYY-MM-DD' | null
+
+const todayStr = computed(() => toDateStr(new Date()))
+
+function toDateStr(date) {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function prevMonth() {
+  const d = new Date(calendarDate.value)
+  d.setDate(1)
+  d.setMonth(d.getMonth() - 1)
+  calendarDate.value = d
+}
+function nextMonth() {
+  const d = new Date(calendarDate.value)
+  d.setDate(1)
+  d.setMonth(d.getMonth() + 1)
+  calendarDate.value = d
+}
+function goToToday() {
+  calendarDate.value = new Date()
+  selectedDate.value = todayStr.value
+}
+
+const calendarWeeks = computed(() => {
+  const year  = calendarDate.value.getFullYear()
+  const month = calendarDate.value.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const lastDay  = new Date(year, month + 1, 0)
+  // Monday-based offset
+  const startDow = (firstDay.getDay() + 6) % 7
+  const days = []
+  for (let i = 0; i < startDow; i++) {
+    const d = new Date(year, month, 1 - startDow + i)
+    days.push({ date: d, dateStr: toDateStr(d), inMonth: false })
+  }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(year, month, d)
+    days.push({ date, dateStr: toDateStr(date), inMonth: true })
+  }
+  while (days.length % 7 !== 0) {
+    const d = new Date(days[days.length-1].date)
+    d.setDate(d.getDate() + 1)
+    days.push({ date: d, dateStr: toDateStr(d), inMonth: false })
+  }
+  const weeks = []
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7))
+  return weeks
+})
+
+function reservationsForDay(dateStr) {
+  return localReservations.value.filter(r => {
+    const start = toDateStr(r.start_date)
+    const end   = toDateStr(r.end_date)
+    return dateStr >= start && dateStr <= end
+  })
+}
+
+const displayedReservations = computed(() => {
+  if (viewMode.value === 'calendar' && selectedDate.value) {
+    return localReservations.value.filter(r => {
+      const start = toDateStr(r.start_date)
+      const end   = toDateStr(r.end_date)
+      return selectedDate.value >= start && selectedDate.value <= end
+    })
+  }
+  return localReservations.value
+})
+
+function selectDay(dateStr) {
+  selectedDate.value = selectedDate.value === dateStr ? null : dateStr
+}
+
+function formatSelectedDate(dateStr) {
+  // Append noon to avoid timezone shifts when constructing Date
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  })
+}
 </script>
 
 <template>
   <AppLayout>
     <div>
       <!-- Header -->
-      <div class="flex items-center justify-between mb-6">
+      <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 class="text-2xl font-bold text-gray-900">Attribution — Sortie de matériel</h1>
           <p class="text-gray-500 text-sm mt-1">
@@ -486,6 +660,114 @@ const totalPending = computed(() =>
               {{ totalPending }} en attente d'attribution
             </span>
           </p>
+        </div>
+        <!-- Vue toggle -->
+        <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <button @click="viewMode = 'list'; selectedDate = null"
+            :class="['flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition',
+              viewMode === 'list' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-800']">
+            <ListBulletIcon class="w-4 h-4" />
+            Liste
+          </button>
+          <button @click="viewMode = 'calendar'"
+            :class="['flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition',
+              viewMode === 'calendar' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-800']">
+            <CalendarIcon class="w-4 h-4" />
+            Calendrier
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Vue calendrier ── -->
+      <div v-if="viewMode === 'calendar'" class="mb-6 bg-white rounded-xl shadow-sm border overflow-hidden">
+        <!-- Navigation mois -->
+        <div class="flex items-center justify-between px-5 py-3 border-b bg-gray-50">
+          <button @click="prevMonth"
+            class="p-1.5 rounded-lg hover:bg-gray-200 transition text-gray-600">
+            <ChevronLeftIcon class="w-4 h-4" />
+          </button>
+          <div class="flex items-center gap-3">
+            <h2 class="font-semibold text-gray-900 capitalize">
+              {{ calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }}
+            </h2>
+            <button @click="goToToday"
+              class="text-xs px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-100 transition text-gray-600">
+              Aujourd'hui
+            </button>
+          </div>
+          <button @click="nextMonth"
+            class="p-1.5 rounded-lg hover:bg-gray-200 transition text-gray-600">
+            <ChevronRightIcon class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- En-têtes jours -->
+        <div class="grid grid-cols-7 border-b bg-gray-50">
+          <div v-for="d in ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim']" :key="d"
+            class="py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            {{ d }}
+          </div>
+        </div>
+
+        <!-- Semaines -->
+        <div v-for="(week, wi) in calendarWeeks" :key="wi" class="grid grid-cols-7 divide-x">
+          <div v-for="day in week" :key="day.dateStr"
+            @click="selectDay(day.dateStr)"
+            class="min-h-[72px] p-1.5 border-b cursor-pointer transition select-none"
+            :class="[
+              !day.inMonth ? 'bg-gray-50/70' : '',
+              day.dateStr === selectedDate ? 'ring-2 ring-inset ring-blue-500 bg-blue-50' :
+              day.dateStr === todayStr ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50',
+            ]">
+            <!-- Numéro du jour -->
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="text-xs font-medium"
+                :class="[
+                  !day.inMonth ? 'text-gray-300' :
+                  day.dateStr === todayStr ? 'w-5 h-5 flex items-center justify-center bg-blue-600 text-white rounded-full text-[11px] font-bold' :
+                  'text-gray-700'
+                ]">
+                {{ day.date.getDate() }}
+              </span>
+            </div>
+            <!-- Réservations ce jour -->
+            <div class="space-y-0.5">
+              <div v-for="res in reservationsForDay(day.dateStr).slice(0, 3)" :key="res.id"
+                class="text-[10px] leading-snug px-1.5 py-0.5 rounded font-medium"
+                :class="res.all_checked_out
+                  ? 'bg-green-100 text-green-700'
+                  : toDateStr(res.start_date) === day.dateStr
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-blue-100 text-blue-700'"
+                :title="`${res.title} — ${res.user.name}\nDébut : ${formatDateTime(res.start_date)}\nFin : ${formatDateTime(res.end_date)}`">
+                <span class="flex items-center gap-0.5 min-w-0">
+                  <span class="truncate">{{ toDateStr(res.start_date) === day.dateStr ? '▶ ' : '' }}{{ res.title }}</span>
+                  <span v-if="toDateStr(res.start_date) === day.dateStr" class="shrink-0 opacity-80 ml-0.5">{{ formatTime(res.start_date) }}</span>
+                </span>
+              </div>
+              <div v-if="reservationsForDay(day.dateStr).length > 3"
+                class="text-[10px] text-gray-400 font-medium px-1">
+                +{{ reservationsForDay(day.dateStr).length - 3 }} autre(s)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bande info date sélectionnée -->
+        <div v-if="selectedDate" class="px-5 py-3 border-t bg-blue-50 flex items-center justify-between gap-3 flex-wrap text-sm">
+          <div class="text-blue-800">
+            <span class="font-semibold capitalize">{{ formatSelectedDate(selectedDate) }}</span>
+            <span class="ml-2 text-blue-600">
+              — {{ displayedReservations.length }} réservation(s) active(s)
+            </span>
+          </div>
+          <button @click="selectedDate = null"
+            class="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition">
+            ✕ Effacer le filtre
+          </button>
+        </div>
+        <div v-else class="px-5 py-2.5 border-t bg-gray-50 text-xs text-gray-400 text-center">
+          Cliquez sur un jour pour filtrer les réservations ci-dessous
         </div>
       </div>
 
@@ -533,17 +815,115 @@ const totalPending = computed(() =>
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
           </div>
 
+          <!-- Participants supplémentaires -->
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              👥 Participants supplémentaires
+              <span class="text-gray-400 font-normal">(optionnel — reçoivent les mêmes infos)</span>
+            </label>
+            <!-- Tags des participants déjà ajoutés -->
+            <div v-if="freeParticipantObjects.length" class="flex flex-wrap gap-1.5 mb-2">
+              <span v-for="u in freeParticipantObjects" :key="u.id"
+                class="inline-flex items-center gap-1 bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full border border-orange-200">
+                {{ u.name }}
+                <button @click="freeParticipantIds = freeParticipantIds.filter(id => id !== u.id)"
+                  class="hover:text-red-600 transition">✕</button>
+              </span>
+            </div>
+            <!-- Recherche -->
+            <div class="relative">
+              <input v-model="freeParticipantSearch" type="text"
+                placeholder="Rechercher un étudiant à ajouter…"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+              <div v-if="freeParticipantSearch.trim() && freeParticipantCandidates.length"
+                   class="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-44 overflow-y-auto">
+                <button v-for="u in freeParticipantCandidates" :key="u.id"
+                  @click="freeParticipantIds.push(u.id); freeParticipantSearch = ''"
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-orange-50 text-left transition">
+                  <span class="font-medium text-gray-900">{{ u.name }}</span>
+                  <span class="text-xs text-gray-500">{{ u.email }}</span>
+                </button>
+              </div>
+              <p v-else-if="freeParticipantSearch.trim()" class="mt-1 text-xs text-gray-400">Aucun utilisateur trouvé</p>
+            </div>
+          </div>
+
+          <!-- Zone de recherche de kits -->
+          <div class="border border-orange-200 rounded-xl p-3 bg-white">
+            <p class="text-xs font-semibold text-gray-700 mb-2">📦 Ajouter un kit</p>
+            <div class="relative">
+              <input
+                v-model="freeKitSearch"
+                @input="onKitSearchInput"
+                type="text"
+                placeholder="Rechercher un kit par nom…"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+              />
+              <span v-if="freeKitSearching" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">…</span>
+              <!-- Dropdown résultats -->
+              <div v-if="freeKitResults.length"
+                   class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                <button v-for="kit in freeKitResults" :key="kit.id"
+                  @click="addKit(kit)"
+                  class="w-full text-left px-4 py-3 hover:bg-orange-50 border-b last:border-0 transition">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <span class="font-medium text-gray-900 text-sm">{{ kit.name }}</span>
+                      <span class="ml-2 text-xs px-1.5 py-0.5 rounded-full font-medium"
+                        :class="kit.status === 'available' ? 'bg-green-100 text-green-700' :
+                                kit.status === 'partial'    ? 'bg-yellow-100 text-yellow-700' :
+                                                              'bg-red-100 text-red-700'">
+                        {{ kit.status === 'available' ? 'Complet' : kit.status === 'partial' ? 'Incomplet' : 'Indisponible' }}
+                      </span>
+                    </div>
+                    <span class="text-xs text-gray-400">{{ kit.assets.length }} équip.</span>
+                  </div>
+                  <div v-if="kit.assets.length" class="mt-1 text-xs text-gray-400 truncate">
+                    {{ kit.assets.map(a => a.asset_tag).join(', ') }}
+                  </div>
+                </button>
+              </div>
+              <p v-else-if="freeKitSearch.trim() && !freeKitSearching && !freeKitResults.length"
+                 class="mt-1 text-xs text-gray-400">Aucun kit réservable trouvé</p>
+            </div>
+
+            <!-- Kits sélectionnés -->
+            <div v-if="freePendingKits.length" class="mt-2 space-y-1.5">
+              <div v-for="kit in freePendingKits" :key="kit.id"
+                   class="flex items-start justify-between px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm">
+                <div>
+                  <p class="font-medium text-purple-900">📦 {{ kit.name }}</p>
+                  <p class="text-xs text-purple-500 mt-0.5">
+                    {{ kit.assets.length }} équipement(s) :
+                    {{ kit.assets.map(a => a.asset_tag).join(', ') }}
+                  </p>
+                </div>
+                <button @click="removeKit(kit.id)"
+                  class="text-red-500 hover:text-red-700 text-xs font-medium px-2 py-0.5 rounded hover:bg-red-50 transition flex-shrink-0 ml-2">
+                  ✕ Retirer
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Zone de scan -->
           <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Scanner un équipement (Entrée pour ajouter)</label>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Scanner un équipement individuel (Entrée pour ajouter)</label>
             <div class="flex gap-2">
               <input
+                ref="freeScanInputEl"
                 v-model="freeScanInput"
                 type="text"
                 placeholder="Tag d'équipement (ex: EQ-001)…"
                 :disabled="freeScanning"
                 @keydown.enter="freeAddAsset"
+                autocomplete="off"
+                autofocus
                 class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-orange-500 outline-none disabled:opacity-60"
+              />
+              <BarcodeScanButton
+                title="Scanner un équipement"
+                @scanned="(code) => { freeScanInput = code; freeAddAsset() }"
               />
               <button
                 @click="freeAddAsset"
@@ -560,10 +940,10 @@ const totalPending = computed(() =>
             </Transition>
           </div>
 
-          <!-- Liste des équipements en attente -->
+          <!-- Liste des équipements individuels en attente -->
           <div v-if="freePendingAssets.length > 0" class="bg-white border border-orange-200 rounded-xl p-3">
             <p class="text-xs font-semibold text-gray-600 mb-2">
-              {{ freePendingAssets.length }} équipement(s) à attribuer
+              {{ freePendingAssets.length }} équipement(s) individuel(s) à attribuer
             </p>
             <div class="space-y-1.5">
               <div v-for="a in freePendingAssets" :key="a.asset_tag"
@@ -593,10 +973,10 @@ const totalPending = computed(() =>
               </button>
               <button
                 @click="freeSubmit"
-                :disabled="freeSubmitting || !freePendingAssets.length || !freeUserId || !freeEndDate"
+                :disabled="freeSubmitting || !freeTotalItems || !freeUserId || !freeEndDate"
                 class="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition disabled:opacity-50 font-medium">
                 <CheckCircleSolid class="w-4 h-4" />
-                {{ freeSubmitting ? 'Validation…' : `Valider l'attribution (${freePendingAssets.length})` }}
+                {{ freeSubmitting ? 'Validation…' : `Valider l'attribution (${freeTotalItems})` }}
               </button>
             </div>
           </div>
@@ -627,9 +1007,17 @@ const totalPending = computed(() =>
         </div>
       </div>
 
+      <!-- No results for calendar filter -->
+      <div v-if="viewMode === 'calendar' && selectedDate && displayedReservations.length === 0"
+           class="bg-white rounded-xl shadow-sm border px-8 py-12 text-center text-gray-400 mb-6">
+        <CalendarIcon class="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p class="text-base font-medium text-gray-500">Aucune réservation ce jour</p>
+        <p class="text-sm mt-1">Sélectionnez un autre jour sur le calendrier.</p>
+      </div>
+
       <!-- Reservation cards -->
       <div class="space-y-6">
-        <div v-for="res in localReservations" :key="res.id"
+        <div v-for="res in displayedReservations" :key="res.id"
              class="bg-white rounded-xl shadow-sm border overflow-hidden"
              :class="res.all_checked_out ? 'border-green-300' : 'border-gray-200'">
 
@@ -650,7 +1038,11 @@ const totalPending = computed(() =>
                   </span>
                   <span class="flex items-center gap-1">
                     <CalendarIcon class="w-3 h-3" />
-                    {{ formatDate(res.start_date) }} → {{ formatDate(res.end_date) }}
+                    {{ formatDate(res.start_date) }}
+                    <span class="font-semibold text-blue-600">{{ formatTime(res.start_date) }}</span>
+                    →
+                    {{ formatDate(res.end_date) }}
+                    <span class="font-semibold text-orange-600">{{ formatTime(res.end_date) }}</span>
                   </span>
                   <span class="flex items-center gap-1">
                     {{ res.assets.length }} équipement(s)
@@ -806,6 +1198,10 @@ const totalPending = computed(() =>
                     @keydown.enter="scanAsset(res)"
                     autocomplete="off"
                     class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-60"
+                  />
+                  <BarcodeScanButton
+                    title="Scanner pour cette réservation"
+                    @scanned="(code) => { res.scanInput = code; scanAsset(res) }"
                   />
                   <button
                     @click="scanAsset(res)"

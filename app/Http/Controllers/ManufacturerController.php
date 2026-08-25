@@ -27,7 +27,7 @@ class ManufacturerController extends Controller
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'website'     => 'nullable|url|max:255',
-            'image'       => 'nullable|image|max:2048',
+            'image'       => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         if ($request->hasFile('image')) {
@@ -38,13 +38,24 @@ class ManufacturerController extends Controller
         return back()->with('success', 'Fabricant créé.');
     }
 
+    /** Création rapide depuis un formulaire inline (retourne JSON). */
+    public function quickStore(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $manufacturer = Manufacturer::firstOrCreate(['name' => trim($data['name'])]);
+        return response()->json(['id' => $manufacturer->id, 'name' => $manufacturer->name]);
+    }
+
     public function update(Request $request, Manufacturer $manufacturer)
     {
         $data = $request->validate([
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'website'     => 'nullable|url|max:255',
-            'image'       => 'nullable|image|max:2048',
+            'image'       => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         if ($request->hasFile('image')) {

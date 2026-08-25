@@ -9,12 +9,8 @@ class CheckoutForm extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'description', 'is_active', 'is_required_for_reservation', 'created_by'];
-
-    protected $casts = [
-        'is_active' => 'boolean',
-        'is_required_for_reservation' => 'boolean',
-    ];
+    // status: 'inactive' | 'optional' | 'required_before' | 'required_after'
+    protected $fillable = ['name', 'description', 'status', 'created_by'];
 
     public function fields()
     {
@@ -29,5 +25,21 @@ class CheckoutForm extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', '!=', 'inactive');
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return match($this->status) {
+            'inactive'        => 'Inactif',
+            'optional'        => 'Optionnel',
+            'required_before' => 'Obligatoire avant réservation',
+            'required_after'  => 'Obligatoire après réservation',
+            default           => 'Inconnu',
+        };
     }
 }

@@ -50,22 +50,41 @@ const requiredFormValid = computed(() => {
 })
 
 // --- Availability check ---
-const availabilityMap = ref({})   // { assetId: { status, reason } }
+const availabilityMap    = ref({})   // { assetId: { status, reason } }
+const kitAvailabilityMap = ref({})   // { kitId:   { status, reason } }
 const checkingAvailability = ref(false)
 
 async function checkAvailability() {
   if (!form.value.start_date || !form.value.end_date || cart.isEmpty) {
-    availabilityMap.value = {}
+    availabilityMap.value    = {}
+    kitAvailabilityMap.value = {}
     return
   }
   checkingAvailability.value = true
   try {
-    const { data } = await axios.get(route('assets.available'), {
-      params: { start: form.value.start_date, end: form.value.end_date },
-    })
-    const map = {}
-    data.forEach(a => { map[a.id] = a.availability })
-    availabilityMap.value = map
+    const params = { start: form.value.start_date, end: form.value.end_date }
+
+    // Disponibilité des équipements individuels
+    const assetsPromise = cart.items.length > 0
+      ? axios.get(route('assets.available'), { params })
+      : Promise.resolve({ data: [] })
+
+    // Disponibilité des kits via endpoint dédié
+    const kitsPromise = cart.kitItems.length > 0
+      ? axios.get(route('kits.check-availability'), {
+          params: { ...params, kit_ids: cart.kitItems.map(k => k.id) },
+        })
+      : Promise.resolve({ data: [] })
+
+    const [assetsRes, kitsRes] = await Promise.all([assetsPromise, kitsPromise])
+
+    const assetMap = {}
+    assetsRes.data.forEach(a => { assetMap[a.id] = a.availability })
+    availabilityMap.value = assetMap
+
+    const kitMap = {}
+    kitsRes.data.forEach(k => { kitMap[k.id] = { status: k.status, reason: k.reason } })
+    kitAvailabilityMap.value = kitMap
   } catch {
     // silently ignore
   } finally {
@@ -83,14 +102,15 @@ function itemAvailability(itemId) {
   return availabilityMap.value[itemId] ?? null
 }
 
-// Per-kit availability helper (worst status among kit assets)
+// Per-kit availability helper (depuis endpoint dédié)
 function kitAvailabilityStatus(kit) {
   if (!datesSelected.value || checkingAvailability.value) return null
-  const statuses = (kit.assets ?? []).map(a => availabilityMap.value[a.id]?.status).filter(Boolean)
-  if (statuses.includes('unavailable')) return 'unavailable'
-  if (statuses.includes('warning')) return 'warning'
-  if (statuses.length > 0) return 'available'
-  return null
+  const entry = kitAvailabilityMap.value[kit.id]
+  return entry?.status ?? null
+}
+
+function kitAvailabilityReason(kit) {
+  return kitAvailabilityMap.value[kit.id]?.reason ?? null
 }
 
 const hasHardConflict = computed(() =>
@@ -102,6 +122,12 @@ const hasWarning = computed(() =>
   cart.kitItems.some(k => kitAvailabilityStatus(k) === 'warning')
 )
 const datesSelected = computed(() => !!form.value.start_date && !!form.value.end_date)
+
+// La date de retour doit être strictement postérieure à la date de début
+const datesValid = computed(() => {
+  if (!form.value.start_date || !form.value.end_date) return true // pas encore rempli
+  return new Date(form.value.end_date) > new Date(form.value.start_date)
+})
 
 // datetime-local min: now (or +examAdvanceHours in exam mode)
 const nowDtLocal = computed(() => {
@@ -116,6 +142,13 @@ const minEndDate = computed(() => {
   const start = new Date(form.value.start_date)
   start.setMinutes(start.getMinutes() + 1)
   return start.toISOString().slice(0, 16)
+})
+
+// Réinitialiser end_date si start_date change et devient postérieure à end_date
+watch(() => form.value.start_date, (newStart) => {
+  if (newStart && form.value.end_date && new Date(form.value.end_date) <= new Date(newStart)) {
+    form.value.end_date = ''
+  }
 })
 
 function submit() {
@@ -133,6 +166,10 @@ function submit() {
     errors.value.end_date = 'La date de fin est obligatoire.'
     return
   }
+  if (!datesValid.value) {
+    errors.value.end_date = 'La date de retour doit être postérieure à la date de début.'
+    return
+  }
   if (cart.isEmpty) {
     errors.value.cart = 'Votre panier est vide.'
     return
@@ -147,19 +184,32 @@ function submit() {
   }
 
   loading.value = true
+
+  // Sauvegarder le panier pour pouvoir le restaurer en cas d'erreur
+  const savedItems    = cart.items.map(i => ({ ...i }))
+  const savedKitItems = cart.kitItems.map(k => ({ ...k }))
+
+  // Vider le panier immédiatement (optimiste) pour éviter les doublons
+  // si la réservation réussit mais que le callback onSuccess ne se déclenche pas
+  cart.clearCart()
+
   router.post(route('reservations.store'), {
     title:          form.value.title,
     start_date:     form.value.start_date,
     end_date:       form.value.end_date,
     notes:          form.value.notes,
-    asset_ids:      cart.items.map(i => i.id),
-    kit_ids:        cart.kitItems.map(k => k.id),
+    asset_ids:      savedItems.map(i => i.id),
+    kit_ids:        savedKitItems.map(k => k.id),
     form_id:        form.value.form_id,
     form_responses: form.value.form_responses,
   }, {
-    onSuccess: () => cart.clearCart(),
-    onError:   (e) => { errors.value = e },
-    onFinish:  () => { loading.value = false },
+    onError: (e) => {
+      errors.value = e
+      // Restaurer le panier si la réservation a échoué
+      savedItems.forEach(i => cart.addItem(i))
+      savedKitItems.forEach(k => cart.addKit(k))
+    },
+    onFinish: () => { loading.value = false },
   })
 }
 </script>
@@ -245,8 +295,11 @@ function submit() {
                 </label>
                 <input v-model="form.end_date" type="datetime-local" :min="minEndDate"
                        class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                       :class="{ 'border-red-400': errors.end_date }" />
+                       :class="{ 'border-red-400': errors.end_date || (datesSelected && !datesValid) }" />
                 <p v-if="errors.end_date" class="text-red-500 text-xs mt-1">{{ errors.end_date }}</p>
+                <p v-else-if="datesSelected && !datesValid" class="text-red-500 text-xs mt-1">
+                  La date de retour doit être postérieure à la date de début.
+                </p>
               </div>
             </div>
 
@@ -402,11 +455,11 @@ function submit() {
                 <!-- Conflits -->
                 <p v-if="kitAvailabilityStatus(kit) === 'unavailable'"
                    class="text-xs text-red-600 mt-1">
-                  Un ou plusieurs équipements de ce kit sont indisponibles.
+                  {{ kitAvailabilityReason(kit) ?? 'Un ou plusieurs équipements de ce kit sont indisponibles.' }}
                 </p>
                 <p v-else-if="kitAvailabilityStatus(kit) === 'warning'"
                    class="text-xs text-amber-600 mt-1">
-                  Un ou plusieurs équipements ont une réservation en attente sur cette période.
+                  {{ kitAvailabilityReason(kit) ?? 'Un ou plusieurs équipements ont une réservation en attente sur cette période.' }}
                 </p>
               </div>
               <!-- Badge disponibilité (quand dates saisies) -->
@@ -543,12 +596,19 @@ function submit() {
               Un administrateur examinera votre demande et vous notifiera par email.
             </p>
           </div>
-          <button @click="submit" :disabled="loading || cart.isEmpty || hasHardConflict || !requiredFormValid"
-                  class="flex-shrink-0 font-semibold px-6 py-3 rounded-xl transition text-sm whitespace-nowrap disabled:opacity-50"
-                  :class="(hasHardConflict || !requiredFormValid)
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'">
-            {{ loading ? 'Envoi…' : 'Confirmer la réservation' }}
+          <button @click="submit"
+                  :disabled="loading || cart.isEmpty || !datesSelected || !datesValid || checkingAvailability || !form.title.trim() || hasHardConflict || !requiredFormValid"
+                  class="flex-shrink-0 font-semibold px-6 py-3 rounded-xl transition text-sm whitespace-nowrap"
+                  :class="(loading || cart.isEmpty || !datesSelected || !datesValid || checkingAvailability || !form.title.trim() || hasHardConflict || !requiredFormValid)
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'">
+            <span v-if="checkingAvailability">Vérification…</span>
+            <span v-else-if="!form.title.trim()">Titre requis</span>
+            <span v-else-if="!datesSelected">Dates requises</span>
+            <span v-else-if="!datesValid">Date de retour invalide</span>
+            <span v-else-if="hasHardConflict">Conflit détecté</span>
+            <span v-else-if="!requiredFormValid">Formulaire incomplet</span>
+            <span v-else>{{ loading ? 'Envoi…' : 'Confirmer la réservation' }}</span>
           </button>
         </div>
 

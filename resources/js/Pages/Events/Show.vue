@@ -2,6 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { ref } from 'vue'
 import { router, Link } from '@inertiajs/vue3'
+import axios from 'axios'
 
 const props = defineProps({
   event: Object,
@@ -23,6 +24,15 @@ function submitEdit() {
     onFinish:  () => { saving.value = false },
     preserveScroll: true,
   })
+}
+
+// ── Diagrammes liés ──────────────────────────────────────────────────────────
+const localDiagrams = ref([...(props.event.diagrams ?? [])])
+
+async function detachDiagram(diagramId) {
+  if (!confirm('Dissocier ce diagramme de l\'événement ?')) return
+  await axios.delete(route('diagrams.detach-event', { diagram: diagramId, event: props.event.id }))
+  localDiagrams.value = localDiagrams.value.filter(d => d.id !== diagramId)
 }
 
 // ── Créer réservation pour l'événement ────────────────────────────────────────
@@ -225,6 +235,48 @@ function deleteEvent() {
             <Link :href="route('calendar.index')" class="text-xs text-indigo-600 hover:underline">
               Voir dans le calendrier →
             </Link>
+          </div>
+
+          <!-- Diagrammes liés -->
+          <div class="bg-white rounded-xl shadow-sm border p-5">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                🗂 Diagrammes liés
+              </h2>
+              <Link :href="route('diagrams.index')"
+                    class="text-xs text-indigo-600 hover:underline font-medium">
+                Éditeur →
+              </Link>
+            </div>
+
+            <div v-if="localDiagrams.length === 0"
+                 class="text-center text-gray-400 text-xs py-4">
+              Aucun diagramme associé.
+              <br/>
+              <Link :href="route('diagrams.index')" class="text-indigo-500 underline mt-1 inline-block">
+                Ouvrir l'éditeur pour en lier un
+              </Link>
+            </div>
+
+            <div v-else class="space-y-2">
+              <div v-for="d in localDiagrams" :key="d.id"
+                   class="flex items-center justify-between px-3 py-2.5 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition group">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-semibold text-gray-800 truncate">{{ d.name }}</p>
+                  <p class="text-xs text-gray-400">{{ d.updated_at }}</p>
+                </div>
+                <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+                  <Link :href="route('diagrams.index')"
+                        class="text-xs text-indigo-600 hover:underline px-2 py-1 rounded hover:bg-indigo-50 transition">
+                    Ouvrir
+                  </Link>
+                  <button @click="detachDiagram(d.id)"
+                          class="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50 transition opacity-0 group-hover:opacity-100">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

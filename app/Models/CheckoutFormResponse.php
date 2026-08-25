@@ -14,12 +14,14 @@ class CheckoutFormResponse extends Model
         'reservation_id',
         'user_id',
         'responses',
+        'fields_snapshot',
         'submitted_at',
     ];
 
     protected $casts = [
-        'responses' => 'array',
-        'submitted_at' => 'datetime',
+        'responses'       => 'array',
+        'fields_snapshot' => 'array',
+        'submitted_at'    => 'datetime',
     ];
 
     public function form()

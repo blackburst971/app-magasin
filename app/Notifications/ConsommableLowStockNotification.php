@@ -17,7 +17,12 @@ class ConsommableLowStockNotification extends Notification
 
     public function via($notifiable): array
     {
-        return ['database', 'mail'];
+        $channel = \App\Models\Setting::get('alert_low_stock_channel', 'both');
+        return match($channel) {
+            'notification' => ['database'],
+            'email'        => ['mail'],
+            default        => ['database', 'mail'],
+        };
     }
 
     public function toMail($notifiable): MailMessage

@@ -16,6 +16,136 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class ReportController extends Controller
 {
+    /**
+     * Historique complet paginé des mouvements (admin).
+     */
+    public function movements(Request $request)
+    {
+        $query = AssetMovement::with(['asset', 'user', 'reservation']);
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->whereHas('asset', fn($q) => $q->where('name', 'like', "%$s%")
+                ->orWhere('asset_tag', 'like', "%$s%"));
+        }
+        if ($request->filled('action')) {
+            $query->where('action', $request->action);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('created_at', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('created_at', '<=', $request->to);
+        }
+
+        $movements = $query->latest()->paginate(50)->withQueryString()
+            ->through(fn($m) => [
+                'id'          => $m->id,
+                'asset'       => $m->asset?->name ?? 'N/A',
+                'asset_tag'   => $m->asset?->asset_tag ?? 'N/A',
+                'asset_id'    => $m->asset_id,
+                'user'        => $m->user?->name ?? 'Système',
+                'action'      => $m->action,
+                'action_label'=> $m->action_label,
+                'notes'       => $m->notes,
+                'reservation_id' => $m->reservation_id,
+                'date'        => $m->created_at->format('d/m/Y H:i'),
+                'date_raw'    => $m->created_at->toDateTimeString(),
+            ]);
+
+        $actions = [
+            'checkout'       => 'Retrait',
+            'return'         => 'Retour',
+            'maintenance'    => 'Maintenance',
+            'import'         => 'Import',
+            'status_change'  => 'Changement statut',
+            'place_assigned' => 'Affectation lieu',
+            'place_returned' => 'Retour de lieu',
+        ];
+
+        return Inertia::render('Reports/Movements', [
+            'movements' => $movements,
+            'filters'   => $request->only(['search', 'action', 'from', 'to']),
+            'actions'   => $actions,
+        ]);
+    }
+
+    /**
+     * Export des mouvements (PDF ou CSV).
+     */
+    public function exportMovements(Request $request)
+    {
+        $query = AssetMovement::with(['asset', 'user']);
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->whereHas('asset', fn($q) => $q->where('name', 'like', "%$s%")
+                ->orWhere('asset_tag', 'like', "%$s%"));
+        }
+        if ($request->filled('action')) {
+            $query->where('action', $request->action);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('created_at', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('created_at', '<=', $request->to);
+        }
+
+        $movements = $query->latest()->get();
+        $format    = $request->input('format', 'csv');
+        $filename  = 'mouvements_' . now()->format('Y-m-d');
+
+        if ($format === 'pdf') {
+            $rows = '';
+            foreach ($movements as $i => $m) {
+                $bg = $i % 2 === 0 ? '#fff' : '#f9fafb';
+                $rows .= '<tr style="background:' . $bg . '">'
+                    . '<td>' . e($m->created_at->format('d/m/Y H:i')) . '</td>'
+                    . '<td>' . e($m->asset?->name ?? 'N/A') . '</td>'
+                    . '<td style="font-family:monospace">' . e($m->asset?->asset_tag ?? '') . '</td>'
+                    . '<td>' . e($m->action_label) . '</td>'
+                    . '<td>' . e($m->user?->name ?? 'Système') . '</td>'
+                    . '<td>' . e($m->notes ?? '') . '</td>'
+                    . '</tr>';
+            }
+            $html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;margin:20px}
+h1{font-size:14px;margin:0 0 6px}p{color:#555;font-size:9px;margin:0 0 10px}
+table{width:100%;border-collapse:collapse}
+th{background:#e5e7eb;text-align:left;padding:5px 7px;border:1px solid #ccc;font-size:9px}
+td{padding:4px 7px;border:1px solid #ddd;font-size:9px}
+@media print{@page{margin:12mm;size:A4 landscape}}</style></head><body>
+<h1>Historique des mouvements</h1>
+<p>Exporté le ' . now()->format('d/m/Y H:i') . ' — ' . $movements->count() . ' mouvement(s)</p>
+<table><thead><tr><th>Date</th><th>Équipement</th><th>Tag</th><th>Action</th><th>Utilisateur</th><th>Notes</th></tr></thead>
+<tbody>' . $rows . '</tbody></table></body></html>';
+            $pdf = Pdf::loadHTML($html)->setPaper('a4', 'landscape');
+            return $pdf->download($filename . '.pdf');
+        }
+
+        // CSV
+        return response()->streamDownload(function () use ($movements) {
+            $handle = fopen('php://output', 'w');
+            fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fputcsv($handle, ['Date', 'Équipement', 'Tag', 'Action', 'Utilisateur', 'Notes'], ';');
+            foreach ($movements as $m) {
+                fputcsv($handle, [
+                    $m->created_at->format('d/m/Y H:i'),
+                    $m->asset?->name ?? 'N/A',
+                    $m->asset?->asset_tag ?? '',
+                    $m->action_label,
+                    $m->user?->name ?? 'Système',
+                    $m->notes ?? '',
+                ], ';');
+            }
+            fclose($handle);
+        }, $filename . '.csv', [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}.csv\"",
+        ]);
+    }
+
     public function index(Request $request)
     {
         $period = $request->period ?? '30';

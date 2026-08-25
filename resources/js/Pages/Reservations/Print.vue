@@ -30,26 +30,56 @@ const proviseurLabel  = computed(() =>
 // ── Formulaire sélectionné ─────────────────────────────────────
 const chosenFormId = ref(props.selectedFormId ?? null)
 
+// Formulaires qui ont une réponse pour cette réservation
+const formsWithResponse = computed(() =>
+  props.checkoutForms.filter(f => props.reservation.form_responses?.[f.id])
+)
+
 const chosenForm = computed(() =>
   props.checkoutForms.find(f => f.id === chosenFormId.value) ?? null
 )
 
-// Réponses du formulaire (si déjà rempli et lié à la réservation)
+// Réponse du formulaire sélectionné
+const selectedFormResponse = computed(() => {
+  if (!chosenFormId.value) return null
+  return props.reservation.form_responses?.[chosenFormId.value] ?? null
+})
+
+// Réponses parsées du formulaire sélectionné
 const formResponses = computed(() => {
-  if (!props.reservation.form_response) return null
-  const r = props.reservation.form_response.responses
+  if (!selectedFormResponse.value) return null
+  const r = selectedFormResponse.value.responses
   if (!r) return null
   if (typeof r === 'string') { try { return JSON.parse(r) } catch { return null } }
   return r
 })
 
-const formFields = computed(() => props.reservation.form_response?.form?.fields ?? [])
+const formFields = computed(() => {
+  const fields = selectedFormResponse.value?.form?.fields ?? []
+  if (!formResponses.value) return fields
+  return fields.filter(field => {
+    const val = formResponses.value?.[field.id]
+    if (val === undefined || val === null || val === '') return false
+    if (field.type === 'checkbox') {
+      if (Array.isArray(val)) return val.length > 0
+      return true
+    }
+    if (field.type === 'signature') {
+      const name = `${val?.first_name ?? ''} ${val?.last_name ?? ''}`.trim()
+      return name !== ''
+    }
+    return String(val).trim() !== ''
+  })
+})
 
 // Réponse formatée pour un champ (selon son type)
 function formatResponse(field) {
   const val = formResponses.value?.[field.id]
   if (val === undefined || val === null || val === '') return '—'
-  if (field.type === 'checkbox') return val ? '✓ Oui' : '✗ Non'
+  if (field.type === 'checkbox') {
+    if (Array.isArray(val)) return val.length > 0 ? val.join(' · ') : '—'
+    return val ? '✓ Oui' : '✗ Non'
+  }
   if (field.type === 'signature') return `${val?.first_name ?? ''} ${val?.last_name ?? ''}`.trim() || '—'
   return String(val)
 }
@@ -82,7 +112,12 @@ function doPrint() {
         <select v-model="chosenFormId" @change="changeForm"
                 class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option :value="null">— Aucun formulaire —</option>
-          <option v-for="f in checkoutForms" :key="f.id" :value="f.id">{{ f.name }}</option>
+          <option v-for="f in formsWithResponse" :key="f.id" :value="f.id">{{ f.name }}</option>
+          <optgroup v-if="checkoutForms.filter(f => !formsWithResponse.find(r => r.id === f.id)).length > 0"
+                    label="─ Non remplis ─">
+            <option v-for="f in checkoutForms.filter(f => !formsWithResponse.find(r => r.id === f.id))"
+                    :key="f.id" :value="f.id" class="text-gray-400">{{ f.name }}</option>
+          </optgroup>
         </select>
       </div>
       <button @click="doPrint"
@@ -182,11 +217,12 @@ function doPrint() {
     </section>
 
     <!-- FORMULAIRE DE SORTIE (si rempli, sélectionné et visible) -->
-    <section v-if="showForm && formFields.length > 0 && formResponses" class="section">
-      <h2 class="section-title">Formulaire rempli par l'utilisateur</h2>
+    <section v-if="showForm && formFields.length > 0 && formResponses && selectedFormResponse" class="section">
+      <h2 class="section-title">{{ chosenForm?.name ?? 'Formulaire rempli par l\'utilisateur' }}</h2>
       <div class="form-responses-grid">
         <div v-for="field in formFields" :key="field.id"
-             :class="['form-card', field.type === 'signature' ? 'form-card--signature' : '']">
+             :class="['form-card', field.type === 'signature' ? 'form-card--signature' : '']"
+             :style="{ gridColumn: `span ${field.col_span === 2 || field.type === 'signature' ? 2 : 1}` }">
           <p class="form-card-label">{{ field.label }}</p>
           <p :class="['form-card-value', field.type === 'signature' ? 'form-card-value--name' : '']">
             {{ formatResponse(field) }}
@@ -366,9 +402,8 @@ function doPrint() {
   break-inside: avoid;
 }
 
-/* Champs signature → pleine largeur + fond bleu clair */
+/* Champs signature → fond bleu clair (le span est géré en inline style) */
 .form-card--signature {
-  grid-column: span 2;
   background: #eff6ff;
   border-color: #bfdbfe;
 }

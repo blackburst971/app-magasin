@@ -119,7 +119,7 @@ class ConsommableController extends Controller
             'is_requestable' => 'boolean',
             'unit_cost'      => 'nullable|numeric|min:0',
             'description'    => 'nullable|string|max:2000',
-            'image'          => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
+            'image'          => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         if ($request->hasFile('image')) {
@@ -151,26 +151,32 @@ class ConsommableController extends Controller
             'name'           => 'required|string|max:255',
             'reference'      => "required|string|max:100|unique:consommables,reference,{$consommable->id}",
             'unit'           => 'required|string|max:50',
-            'quantity'       => 'required|integer|min:0',
-            'min_stock'      => 'required|integer|min:0',
+            'quantity'       => 'nullable|integer|min:0',
+            'min_stock'      => 'nullable|integer|min:0',
             'category_id'    => 'nullable|exists:categories,id',
             'is_requestable' => 'boolean',
             'unit_cost'      => 'nullable|numeric|min:0',
             'description'    => 'nullable|string|max:2000',
-            'image'          => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
             'remove_image'   => 'nullable|boolean',
         ]);
 
-        // Gestion image
+        // Valeurs par défaut si NULL (cas des imports CSV incomplets)
+        $data['quantity']  = (int) ($data['quantity']  ?? 0);
+        $data['min_stock'] = (int) ($data['min_stock'] ?? 0);
+
+        // Gestion image (validée séparément pour éviter les faux positifs FormData)
+        if ($request->hasFile('image')) {
+            $request->validate(['image' => 'file|mimes:jpeg,jpg,png,gif,webp,avif|max:2048']);
+        }
+
         if ($request->boolean('remove_image') && $consommable->image) {
             Storage::disk('public')->delete($consommable->image);
             $data['image'] = null;
         } elseif ($request->hasFile('image')) {
             if ($consommable->image) Storage::disk('public')->delete($consommable->image);
             $data['image'] = $request->file('image')->store('consommables', 'public');
-        } else {
-            unset($data['image']); // Conserver l'image actuelle
         }
+        // else: pas de touche à la colonne image
 
         // Log si quantité modifiée
         $oldQty = $consommable->quantity;
@@ -188,6 +194,11 @@ class ConsommableController extends Controller
         }
 
         $consommable->update($data);
+
+        // Réinitialiser l'alerte si le stock est remonté au-dessus du seuil
+        if ($consommable->quantity > $consommable->min_stock && $consommable->low_stock_alerted_at) {
+            $consommable->update(['low_stock_alerted_at' => null]);
+        }
 
         return back()->with('success', 'Consommable mis à jour.');
     }
@@ -217,7 +228,12 @@ class ConsommableController extends Controller
             return back()->withErrors(['delta' => "Impossible : le stock passerait à {$newQty}. Stock actuel : {$oldQty}."]);
         }
 
-        $consommable->update(['quantity' => $newQty]);
+        // Réinitialiser l'alerte si le stock est remonté au-dessus du seuil
+        $updateData = ['quantity' => $newQty];
+        if ($newQty > $consommable->min_stock && $consommable->low_stock_alerted_at) {
+            $updateData['low_stock_alerted_at'] = null;
+        }
+        $consommable->update($updateData);
 
         ConsommableMovement::create([
             'consommable_id'  => $consommable->id,

@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
+use Illuminate\Notifications\Messages\MailMessage;
 use App\Models\ConsommableRequest;
 
 class ConsommableRequestPendingNotification extends Notification
@@ -14,7 +15,29 @@ class ConsommableRequestPendingNotification extends Notification
 
     public function via($notifiable): array
     {
-        return ['database'];
+        if (\App\Models\Setting::get('alert_consommable_request_enabled', 'true') !== 'true') {
+            return [];
+        }
+        $channel = \App\Models\Setting::get('alert_consommable_request_channel', 'notification');
+        return match($channel) {
+            'email'  => ['mail'],
+            'both'   => ['database', 'mail'],
+            default  => ['database'],
+        };
+    }
+
+    public function toMail($notifiable): MailMessage
+    {
+        $consommable = $this->consommableRequest->consommable;
+        $user        = $this->consommableRequest->user;
+
+        return (new MailMessage)
+            ->subject("📦 Demande de consommable — {$consommable->name}")
+            ->greeting("Bonjour {$notifiable->name},")
+            ->line("**{$user->name}** a effectué une demande de consommable.")
+            ->line("**{$consommable->name}** — {$this->consommableRequest->quantity} {$consommable->unit}(s) demandé(s)")
+            ->action('Voir les demandes', url(route('consommables.index')))
+            ->line('Connectez-vous pour traiter cette demande.');
     }
 
     public function toArray($notifiable): array

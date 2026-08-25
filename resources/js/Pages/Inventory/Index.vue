@@ -1,6 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { router } from '@inertiajs/vue3'
 import { MagnifyingGlassIcon, ClipboardDocumentCheckIcon } from '@heroicons/vue/24/outline'
 
@@ -33,6 +33,10 @@ function clearSelection() {
   selectedIds.value = []
 }
 
+watch(search, () => {
+  selectedIds.value = []
+})
+
 function startSession() {
   if (selectedIds.value.length === 0) return
   router.post(route('inventory.session'), { models: selectedIds.value })
@@ -53,13 +57,19 @@ function startSession() {
             Sélectionnez les modèles à inventorier, puis scannez les équipements un à un.
           </p>
         </div>
-        <button @click="startSession" :disabled="selectedIds.length === 0"
-          class="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition shadow-sm">
-          Démarrer l'inventaire
-          <span v-if="selectedIds.length > 0" class="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            {{ selectedIds.length }}
-          </span>
-        </button>
+        <div class="flex items-center gap-2">
+          <button @click="router.get(route('inventory.history'))"
+            class="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+            📋 Historique
+          </button>
+          <button @click="startSession" :disabled="selectedIds.length === 0"
+            class="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition shadow-sm">
+            Démarrer l'inventaire
+            <span v-if="selectedIds.length > 0" class="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {{ selectedIds.length }}
+            </span>
+          </button>
+        </div>
       </div>
 
       <!-- Barre de recherche + actions -->

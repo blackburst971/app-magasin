@@ -1,29 +1,41 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { usePage } from '@inertiajs/vue3'
 
 export const useCartStore = defineStore('cart', () => {
+  // Clé localStorage isolée par utilisateur pour éviter le partage entre comptes sur le même navigateur
+  function storageKey() {
+    const userId = usePage().props?.auth?.user?.id
+    return userId ? `reservation_cart_${userId}` : 'reservation_cart'
+  }
+
   // Restore from localStorage — handle both old format (array) and new format ({ items, kitItems })
-  const stored = localStorage.getItem('reservation_cart')
-  let parsedItems = []
-  let parsedKitItems = []
-  if (stored) {
-    const parsed = JSON.parse(stored)
-    if (Array.isArray(parsed)) {
-      parsedItems = parsed  // ancien format : tableau direct
-    } else {
-      parsedItems    = parsed.items    ?? []
-      parsedKitItems = parsed.kitItems ?? []
+  function loadFromStorage() {
+    const stored = localStorage.getItem(storageKey())
+    if (!stored) return { items: [], kitItems: [] }
+    try {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) {
+        return { items: parsed, kitItems: [] } // ancien format
+      }
+      return {
+        items:    parsed.items    ?? [],
+        kitItems: parsed.kitItems ?? [],
+      }
+    } catch {
+      return { items: [], kitItems: [] }
     }
   }
 
-  const items    = ref(parsedItems)
-  const kitItems = ref(parsedKitItems)
+  const initial   = loadFromStorage()
+  const items     = ref(initial.items)
+  const kitItems  = ref(initial.kitItems)
 
   const count   = computed(() => items.value.length + kitItems.value.length)
   const isEmpty = computed(() => items.value.length === 0 && kitItems.value.length === 0)
 
   function save() {
-    localStorage.setItem('reservation_cart', JSON.stringify({
+    localStorage.setItem(storageKey(), JSON.stringify({
       items:    items.value,
       kitItems: kitItems.value,
     }))
@@ -93,6 +105,6 @@ export const useCartStore = defineStore('cart', () => {
     count, isEmpty,
     addItem, removeItem, hasItem,
     addKit,  removeKit,  hasKit,
-    clearCart,
+    clearCart, save,
   }
 })

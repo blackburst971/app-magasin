@@ -15,7 +15,15 @@ class WaitlistAssetAvailableNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        if (\App\Models\Setting::get('alert_waitlist_enabled', 'true') !== 'true') {
+            return [];
+        }
+        $channel = \App\Models\Setting::get('alert_waitlist_channel', 'both');
+        return match($channel) {
+            'notification' => ['database'],
+            'email'        => ['mail'],
+            default        => ['database', 'mail'],
+        };
     }
 
     public function toMail(object $notifiable): MailMessage

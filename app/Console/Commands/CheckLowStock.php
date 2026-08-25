@@ -14,13 +14,16 @@ class CheckLowStock extends Command
 
     public function handle(): int
     {
-        // Consommables en stock bas dont l'alerte n'a pas été envoyée depuis 24h
+        // Vérifier si les alertes de stock bas sont activées
+        if (\App\Models\Setting::get('alert_low_stock_enabled', 'true') !== 'true') {
+            $this->info('Alertes de stock bas désactivées dans les paramètres.');
+            return Command::SUCCESS;
+        }
+
+        // Consommables en stock bas dont l'alerte n'a jamais été envoyée (une seule fois)
         $lowStock = Consommable::where('min_stock', '>', 0)
             ->whereRaw('quantity <= min_stock')
-            ->where(function ($q) {
-                $q->whereNull('low_stock_alerted_at')
-                  ->orWhere('low_stock_alerted_at', '<', now()->subHours(24));
-            })
+            ->whereNull('low_stock_alerted_at')
             ->get();
 
         if ($lowStock->isEmpty()) {

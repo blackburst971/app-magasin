@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\CheckoutSummary;
 use App\Models\CheckoutForm;
+use App\Models\Kit;
 use App\Models\Reservation;
 use App\Models\Asset;
 use App\Models\AssetMovement;
@@ -363,6 +364,36 @@ class AttributionController extends Controller
     }
 
     /**
+     * Rechercher des kits pour le mode libre.
+     */
+    public function searchKits(Request $request)
+    {
+        $request->validate(['q' => 'nullable|string|max:100']);
+
+        $q = trim($request->input('q', ''));
+
+        $kits = Kit::with(['assets' => fn($q) => $q->select('assets.id', 'name', 'asset_tag', 'status')])
+            ->where('is_reservable', true)
+            ->when($q, fn($query) => $query->where('name', 'like', "%{$q}%"))
+            ->orderBy('name')
+            ->limit(10)
+            ->get()
+            ->map(fn($kit) => [
+                'id'     => $kit->id,
+                'name'   => $kit->name,
+                'status' => $kit->status,
+                'assets' => $kit->assets->map(fn($a) => [
+                    'id'        => $a->id,
+                    'name'      => $a->name,
+                    'asset_tag' => $a->asset_tag,
+                    'status'    => $a->status,
+                ]),
+            ]);
+
+        return response()->json(['kits' => $kits]);
+    }
+
+    /**
      * Valider un tag avant de l'ajouter à la liste mode libre.
      */
     public function validateTag(Request $request)
@@ -383,24 +414,33 @@ class AttributionController extends Controller
     }
 
     /**
-     * Attribution libre en lot : crée une réservation active avec plusieurs équipements.
+     * Attribution libre en lot : crée une réservation active avec plusieurs équipements et/ou kits.
      */
     public function freeBulkCheckout(Request $request)
     {
         $request->validate([
-            'asset_tags'          => 'required|array|min:1',
-            'asset_tags.*'        => 'required|string',
-            'user_id'             => 'required|exists:users,id',
-            'end_date'            => 'required|date|after:now',
-            'title'               => 'nullable|string|max:255',
-            'send_checkout_email' => 'nullable|boolean',
+            'asset_tags'             => 'nullable|array',
+            'asset_tags.*'           => 'required|string',
+            'kit_ids'                => 'nullable|array',
+            'kit_ids.*'              => 'exists:kits,id',
+            'user_id'                => 'required|exists:users,id',
+            'end_date'               => 'required|date|after:now',
+            'title'                  => 'nullable|string|max:255',
+            'send_checkout_email'    => 'nullable|boolean',
+            'additional_user_ids'    => 'nullable|array',
+            'additional_user_ids.*'  => 'exists:users,id',
         ]);
 
-        $targetUser = \App\Models\User::findOrFail($request->user_id);
+        if (empty($request->asset_tags) && empty($request->kit_ids)) {
+            return response()->json(['error' => 'Aucun équipement ni kit sélectionné.'], 422);
+        }
+
+        $targetUser = User::findOrFail($request->user_id);
         $assets     = [];
         $errors     = [];
 
-        foreach ($request->asset_tags as $tag) {
+        // ── Équipements individuels ──────────────────────────────────────────
+        foreach ($request->input('asset_tags', []) as $tag) {
             $tag   = trim($tag);
             $asset = Asset::where('asset_tag', $tag)->first();
             if (!$asset) {
@@ -414,14 +454,42 @@ class AttributionController extends Controller
             $assets[] = $asset;
         }
 
-        if (empty($assets)) {
+        // ── Kits : on ajoute tous leurs équipements disponibles ─────────────
+        $kits = [];
+        $kitAssets = [];
+        foreach ($request->input('kit_ids', []) as $kitId) {
+            $kit = Kit::with('assets')->find($kitId);
+            if (!$kit) continue;
+            $kits[] = $kit;
+            foreach ($kit->assets as $kitAsset) {
+                // Éviter les doublons avec les équipements individuels ou d'autres kits
+                $alreadyAdded = collect($assets)->contains('id', $kitAsset->id)
+                    || collect($kitAssets)->contains('id', $kitAsset->id);
+                if ($alreadyAdded) continue;
+                if ($kitAsset->status === 'checked_out') {
+                    $errors[] = "{$kitAsset->asset_tag} (kit {$kit->name}) déjà sorti";
+                    continue;
+                }
+                $kitAssets[] = $kitAsset;
+            }
+        }
+
+        $allAssets = array_merge($assets, $kitAssets);
+
+        if (empty($allAssets)) {
             return response()->json(['error' => 'Aucun équipement valide. ' . implode('. ', $errors)], 422);
         }
 
-        $names = implode(', ', array_map(fn($a) => $a->name, $assets));
-        $title = $request->title ?: "Attribution libre — {$names}";
+        // Titre automatique
+        if ($kits && !$assets) {
+            $kitNames = implode(', ', array_map(fn($k) => $k->name, $kits));
+            $title = $request->title ?: "Attribution libre — {$kitNames}";
+        } else {
+            $names = implode(', ', array_map(fn($a) => $a->name, $allAssets));
+            $title = $request->title ?: "Attribution libre — {$names}";
+        }
 
-        $reservation = \App\Models\Reservation::create([
+        $reservation = Reservation::create([
             'user_id'     => $targetUser->id,
             'title'       => $title,
             'start_date'  => now(),
@@ -432,7 +500,13 @@ class AttributionController extends Controller
             'checkout_at' => now(),
         ]);
 
-        foreach ($assets as $asset) {
+        // Lier les kits à la réservation
+        foreach ($kits as $kit) {
+            $reservation->kits()->attach($kit->id);
+        }
+
+        // Attacher et sortir tous les équipements
+        foreach ($allAssets as $asset) {
             $reservation->assets()->attach($asset->id, ['checkout_at' => now()]);
             $asset->update([
                 'status'                 => 'checked_out',
@@ -448,12 +522,30 @@ class AttributionController extends Controller
             ]);
         }
 
+        // Participants supplémentaires
+        $additionalUserIds = collect($request->input('additional_user_ids', []))
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id !== $targetUser->id)
+            ->unique()
+            ->values()
+            ->toArray();
+        if ($additionalUserIds) {
+            $reservation->additionalUsers()->sync($additionalUserIds);
+        }
+
         $checkoutEmailSent = false;
         if ($request->boolean('send_checkout_email')) {
+            $fresh = $reservation->fresh();
             try {
-                Mail::to($targetUser->email)->send(new CheckoutSummary($reservation->fresh()));
+                Mail::to($targetUser->email)->send(new CheckoutSummary($fresh));
                 $checkoutEmailSent = true;
             } catch (\Exception $e) {}
+            foreach ($additionalUserIds as $uid) {
+                $extra = User::find($uid);
+                if ($extra) {
+                    try { Mail::to($extra->email)->send(new CheckoutSummary($fresh)); } catch (\Exception $e) {}
+                }
+            }
         }
 
         // Formulaires actifs obligatoires à remplir après attribution
@@ -467,7 +559,8 @@ class AttributionController extends Controller
             'reservation_id'      => $reservation->id,
             'user'                => $targetUser->name,
             'end_date'            => $reservation->end_date->format('d/m/Y H:i'),
-            'assets'              => array_map(fn($a) => ['name' => $a->name, 'asset_tag' => $a->asset_tag], $assets),
+            'assets'              => array_map(fn($a) => ['name' => $a->name, 'asset_tag' => $a->asset_tag], $allAssets),
+            'kits'                => array_map(fn($k) => ['name' => $k->name], $kits),
             'errors'              => $errors,
             'checkout_email_sent' => $checkoutEmailSent,
             'pending_forms'       => $pendingForms,

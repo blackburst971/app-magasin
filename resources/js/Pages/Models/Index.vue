@@ -1,11 +1,12 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { useForm, router } from '@inertiajs/vue3'
-import { ref, computed } from 'vue'
+import CameraCapture from '@/Components/CameraCapture.vue'
+import { Link, useForm, router } from '@inertiajs/vue3'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import axios from 'axios'
 import {
   PlusIcon, PencilIcon, TrashIcon, CubeTransparentIcon, PhotoIcon, Squares2X2Icon, MagnifyingGlassIcon,
-  DocumentArrowUpIcon, DocumentIcon, XMarkIcon,
+  DocumentArrowUpIcon, DocumentIcon, XMarkIcon, ListBulletIcon, CheckIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -17,8 +18,13 @@ const props = defineProps({
 
 // ─── Recherche ───────────────────────────────────────────────────────────────
 const searchQuery = ref('')
+const focusedModelId = ref(null)   // quand arrivé depuis ?highlight=id : n'affiche que ce modèle
 
 const filteredModels = computed(() => {
+  // Mode focus : un seul modèle affiché
+  if (focusedModelId.value !== null) {
+    return props.models.filter(m => m.id === focusedModelId.value)
+  }
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return props.models
   return props.models.filter(m =>
@@ -42,6 +48,8 @@ const createForm = useForm({
   description: '',
   image: null,
   quantity: 0,
+  purchase_cost: '',
+  purchase_date: '',
 })
 
 function submitCreate() {
@@ -50,6 +58,7 @@ function submitCreate() {
     onSuccess: () => {
       showCreateModal.value = false
       createForm.reset()
+      createImagePreview.value = null
     },
   })
 }
@@ -65,10 +74,13 @@ const editForm = useForm({
   supplier_id: '',
   description: '',
   image: null,
+  purchase_cost: '',
+  purchase_date: '',
   _method: 'PUT',
 })
 
 function openEdit(model) {
+  resetQuickCreate()
   editingModel.value = model
   editForm.name            = model.name
   editForm.manufacturer    = model.manufacturer ?? ''
@@ -76,7 +88,10 @@ function openEdit(model) {
   editForm.category_id     = model.category_id ?? ''
   editForm.supplier_id     = model.supplier_id ?? ''
   editForm.description     = model.description ?? ''
+  editForm.purchase_cost   = model.purchase_cost ?? ''
+  editForm.purchase_date   = model.purchase_date ?? ''
   editForm.image           = null
+  editImagePreview.value   = null
   showEditModal.value = true
 }
 
@@ -119,9 +134,176 @@ function duplicateModel(model) {
   }
 }
 
-// ─── File inputs ────────────────────────────────────────────────────────────
-function onCreateImageChange(e) { createForm.image = e.target.files[0] ?? null }
-function onEditImageChange(e) { editForm.image = e.target.files[0] ?? null }
+// ─── Bulk select ─────────────────────────────────────────────────────────────
+const selectedIds  = ref([])
+const selectAll    = ref(false)
+
+function toggleSelectAll() {
+  if (selectAll.value) {
+    selectedIds.value = filteredModels.value.map(m => m.id)
+  } else {
+    selectedIds.value = []
+  }
+}
+
+watch(filteredModels, () => {
+  // Vider la sélection dès qu'un filtre change
+  selectedIds.value = []
+  selectAll.value   = false
+})
+
+watch(selectedIds, (val) => {
+  selectAll.value = val.length > 0 && val.length === filteredModels.value.length
+})
+
+// ─── Bulk edit ───────────────────────────────────────────────────────────────
+const showBulkEditModal = ref(false)
+// '' = ne pas modifier, '0' = effacer (set null), id = changer
+const bulkForm = ref({
+  manufacturer_id: '',
+  category_id:     '',
+  supplier_id:     '',
+  purchase_date:   '',
+  purchase_cost:   '',
+})
+const bulkProcessing = ref(false)
+
+function openBulkEdit() {
+  bulkForm.value = { manufacturer_id: '', category_id: '', supplier_id: '', purchase_date: '', purchase_cost: '' }
+  showBulkEditModal.value = true
+}
+
+// Champs qui ont été explicitement modifiés dans le formulaire bulk
+const bulkChangedFields = computed(() => {
+  const f = bulkForm.value
+  const changed = []
+  if (f.manufacturer_id !== '') changed.push('Fabricant')
+  if (f.category_id     !== '') changed.push('Catégorie')
+  if (f.supplier_id     !== '') changed.push('Fournisseur')
+  if (f.purchase_date   !== '') changed.push('Date d\'achat')
+  if (f.purchase_cost   !== '') changed.push('Coût d\'achat')
+  return changed
+})
+
+function submitBulkEdit() {
+  if (bulkChangedFields.value.length === 0) return
+  bulkProcessing.value = true
+
+  const payload = { ids: selectedIds.value }
+  const f = bulkForm.value
+  // N'envoyer que les champs touchés ; '0' → null côté serveur
+  if (f.manufacturer_id !== '') payload.manufacturer_id = f.manufacturer_id === '0' ? null : f.manufacturer_id
+  if (f.category_id     !== '') payload.category_id     = f.category_id     === '0' ? null : f.category_id
+  if (f.supplier_id     !== '') payload.supplier_id     = f.supplier_id     === '0' ? null : f.supplier_id
+  if (f.purchase_date   !== '') payload.purchase_date   = f.purchase_date   || null
+  if (f.purchase_cost   !== '') payload.purchase_cost   = f.purchase_cost   || null
+
+  router.post(route('models.bulk-update'), payload, {
+    onSuccess: () => {
+      showBulkEditModal.value = false
+      selectedIds.value = []
+      selectAll.value = false
+    },
+    onFinish: () => { bulkProcessing.value = false },
+  })
+}
+
+// ─── Listes réactives locales (enrichies par création rapide sans rechargement) ─
+const localManufacturers = ref([...props.manufacturers])
+const localCategories    = ref([...props.categories])
+const localSuppliers     = ref([...props.suppliers])
+
+// État de la création rapide inline pour chaque type
+const quickCreate = reactive({
+  manufacturer: { open: false, name: '', loading: false, error: '' },
+  category:     { open: false, name: '', loading: false, error: '' },
+  supplier:     { open: false, name: '', loading: false, error: '' },
+})
+
+function resetQuickCreate() {
+  for (const k of Object.keys(quickCreate)) {
+    quickCreate[k].open    = false
+    quickCreate[k].name    = ''
+    quickCreate[k].error   = ''
+    quickCreate[k].loading = false
+  }
+}
+
+async function submitQuickCreate(type, targetForm) {
+  const state = quickCreate[type]
+  if (!state.name.trim()) return
+  state.loading = true
+  state.error   = ''
+  const routeMap = {
+    manufacturer: route('manufacturers.quick-store'),
+    category:     route('categories.quick-store'),
+    supplier:     route('suppliers.quick-store'),
+  }
+  try {
+    const { data } = await axios.post(routeMap[type], { name: state.name.trim() }, {
+      headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+    })
+    if (type === 'manufacturer') {
+      localManufacturers.value.push(data)
+      targetForm.manufacturer_id = data.id
+    } else if (type === 'category') {
+      localCategories.value.push(data)
+      targetForm.category_id = data.id
+    } else if (type === 'supplier') {
+      localSuppliers.value.push(data)
+      targetForm.supplier_id = data.id
+    }
+    state.open  = false
+    state.name  = ''
+  } catch (err) {
+    state.error = err.response?.data?.errors?.name?.[0]
+      ?? err.response?.data?.message
+      ?? 'Erreur lors de la création.'
+  } finally {
+    state.loading = false
+  }
+}
+
+// ─── Focus/highlight depuis ?highlight=id (navigation depuis une fiche équipement) ──
+const highlightedModelId = ref(null)
+
+onMounted(() => {
+  const params = new URLSearchParams(window.location.search)
+  const id = params.get('highlight')
+  if (!id) return
+  const numId = Number(id)
+  focusedModelId.value   = numId
+  highlightedModelId.value = numId
+  nextTick(() => {
+    const el = document.getElementById(`model-row-${id}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setTimeout(() => { highlightedModelId.value = null }, 3000)
+  })
+})
+
+// ─── File inputs + caméra ───────────────────────────────────────────────────
+const createImagePreview = ref(null)
+const editImagePreview   = ref(null)
+
+function onCreateImageChange(e) {
+  const file = e.target.files[0] ?? null
+  createForm.image = file
+  createImagePreview.value = file ? URL.createObjectURL(file) : null
+}
+function onCreateCameraCapture(file) {
+  createForm.image = file
+  createImagePreview.value = URL.createObjectURL(file)
+}
+
+function onEditImageChange(e) {
+  const file = e.target.files[0] ?? null
+  editForm.image = file
+  editImagePreview.value = file ? URL.createObjectURL(file) : null
+}
+function onEditCameraCapture(file) {
+  editForm.image = file
+  editImagePreview.value = URL.createObjectURL(file)
+}
 
 // ─── Documents PDF ───────────────────────────────────────────────────────────
 const docUploadFile   = ref(null)
@@ -193,7 +375,7 @@ const editingModelDocs = computed(() => {
         <div>
           <h1 class="text-2xl font-bold text-gray-900">Modèles d'équipements</h1>
           <p class="text-gray-500 text-sm mt-1">
-            {{ filteredModels.length }}<template v-if="searchQuery"> / {{ models.length }}</template> modèle(s)
+            {{ filteredModels.length }}<template v-if="searchQuery || focusedModelId"> / {{ models.length }}</template> modèle(s)
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -207,12 +389,24 @@ const editingModelDocs = computed(() => {
              class="flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition">
             ⬇ CSV
           </a>
-          <button @click="showCreateModal = true"
+          <button @click="resetQuickCreate(); showCreateModal = true"
                   class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
             <PlusIcon class="w-4 h-4" />
             Nouveau modèle
           </button>
         </div>
+      </div>
+
+      <!-- Bandeau focus modèle (depuis navigation fiche équipement) -->
+      <div v-if="focusedModelId" class="mb-4 flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-sm text-indigo-800">
+        <span>🔍</span>
+        <span class="flex-1">
+          Affichage filtré — modèle : <strong>{{ filteredModels[0]?.name }}</strong>
+        </span>
+        <button @click="focusedModelId = null"
+                class="inline-flex items-center gap-1 text-xs text-indigo-600 border border-indigo-300 bg-white px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition font-medium">
+          <XMarkIcon class="w-3.5 h-3.5" /> Afficher tous les modèles
+        </button>
       </div>
 
       <!-- Barre de recherche -->
@@ -227,6 +421,27 @@ const editingModelDocs = computed(() => {
         </button>
       </div>
 
+      <!-- ── Bandeau sélection / actions groupées ── -->
+      <Transition name="slide-down">
+        <div v-if="selectedIds.length > 0"
+             class="mb-4 flex flex-wrap items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+          <span class="text-sm font-semibold text-indigo-800">
+            {{ selectedIds.length }} modèle(s) sélectionné(s)
+          </span>
+          <div class="flex items-center gap-2 flex-1 flex-wrap">
+            <button @click="openBulkEdit"
+                    class="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium">
+              <PencilIcon class="w-4 h-4" />
+              Modifier en lot
+            </button>
+            <button @click="selectedIds = []; selectAll = false"
+                    class="text-xs text-gray-500 hover:text-gray-700 underline">
+              Désélectionner
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <!-- Info box -->
       <div class="mb-5 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
         <strong>💡 Structure :</strong> Créez d'abord un <strong>modèle</strong> (ex : "MacBook Pro 14"), puis ajoutez la quantité d'équipements physiques.
@@ -237,7 +452,9 @@ const editingModelDocs = computed(() => {
       <!-- ── Grouped / card view ── -->
       <div v-if="groupByModel" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         <div v-for="model in filteredModels" :key="model.id"
-             class="bg-white rounded-xl border shadow-sm overflow-hidden hover:shadow-md transition">
+             :id="`model-row-${model.id}`"
+             :class="['bg-white rounded-xl border shadow-sm overflow-hidden transition',
+               highlightedModelId === model.id ? 'ring-2 ring-indigo-400 shadow-indigo-100' : 'hover:shadow-md']">
           <!-- Image banner -->
           <div class="h-28 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative overflow-hidden">
             <img v-if="model.image_url" :src="model.image_url" class="w-full h-full object-cover" :alt="model.name" />
@@ -261,6 +478,10 @@ const editingModelDocs = computed(() => {
             <p v-if="model.category" class="text-xs text-blue-600 mt-0.5">{{ model.category.name }}</p>
             <p v-if="model.description" class="text-xs text-gray-400 mt-1 truncate">{{ model.description }}</p>
             <div class="flex items-center gap-1.5 mt-3 flex-wrap">
+              <Link :href="route('assets.index', { model: model.id })"
+                    class="flex-1 text-center text-xs text-indigo-700 border border-indigo-300 bg-indigo-50 py-1.5 rounded-lg hover:bg-indigo-100 transition flex items-center justify-center gap-1">
+                <ListBulletIcon class="w-3 h-3" /> Équipements
+              </Link>
               <button @click="openAddAssets(model)"
                       class="flex-1 text-center text-xs text-green-700 border border-green-300 bg-green-50 py-1.5 rounded-lg hover:bg-green-100 transition flex items-center justify-center gap-1">
                 ➕ Stock
@@ -292,6 +513,10 @@ const editingModelDocs = computed(() => {
         <table class="w-full text-sm">
           <thead>
             <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+              <th class="px-3 py-3 w-10">
+                <input type="checkbox" v-model="selectAll" @change="toggleSelectAll"
+                       class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+              </th>
               <th class="px-4 py-3 text-left">Modèle</th>
               <th class="px-4 py-3 text-left hidden md:table-cell">Fabricant</th>
               <th class="px-4 py-3 text-left hidden lg:table-cell">Catégorie</th>
@@ -300,7 +525,16 @@ const editingModelDocs = computed(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="model in filteredModels" :key="model.id" class="border-b hover:bg-gray-50 transition">
+            <tr v-for="model in filteredModels" :key="model.id"
+                :id="`model-row-${model.id}`"
+                :class="['border-b transition',
+                  selectedIds.includes(model.id) ? 'bg-indigo-50 hover:bg-indigo-50' :
+                  highlightedModelId === model.id ? 'bg-indigo-50 ring-2 ring-inset ring-indigo-300' : 'hover:bg-gray-50']">
+              <!-- Checkbox -->
+              <td class="px-3 py-3">
+                <input type="checkbox" :value="model.id" v-model="selectedIds"
+                       class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+              </td>
               <!-- Modèle -->
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
@@ -334,6 +568,10 @@ const editingModelDocs = computed(() => {
               <!-- Actions -->
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2 flex-wrap">
+                  <Link :href="route('assets.index', { model: model.id })"
+                        class="inline-flex items-center gap-1 text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-md hover:bg-indigo-100 transition font-medium">
+                    <ListBulletIcon class="w-3.5 h-3.5" /> Équipements
+                  </Link>
                   <button @click="openAddAssets(model)"
                           class="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md hover:bg-green-100 transition font-medium">
                     ➕ Stock
@@ -354,7 +592,7 @@ const editingModelDocs = computed(() => {
               </td>
             </tr>
             <tr v-if="filteredModels.length === 0">
-              <td colspan="5" class="px-4 py-12 text-center text-gray-400">
+              <td colspan="6" class="px-4 py-12 text-center text-gray-400">
                 <CubeTransparentIcon class="w-12 h-12 mx-auto mb-2 opacity-30" />
                 <p class="font-medium">Aucun modèle enregistré</p>
                 <p class="text-sm mt-1">Créez votre premier modèle pour organiser vos équipements.</p>
@@ -382,42 +620,144 @@ const editingModelDocs = computed(() => {
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
               <p v-if="createForm.errors.name" class="text-red-500 text-xs mt-1">{{ createForm.errors.name }}</p>
             </div>
+            <!-- Fabricant -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Fabricant</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Fabricant</label>
+                <button type="button"
+                        @click="quickCreate.manufacturer.open = !quickCreate.manufacturer.open; quickCreate.manufacturer.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.manufacturer.open ? 'Annuler' : 'Nouveau' }}
+                </button>
+              </div>
               <select v-model="createForm.manufacturer_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans fabricant —</option>
-                <option v-for="mfr in manufacturers" :key="mfr.id" :value="mfr.id">{{ mfr.name }}</option>
+                <option v-for="mfr in localManufacturers" :key="mfr.id" :value="mfr.id">{{ mfr.name }}</option>
               </select>
+              <div v-if="quickCreate.manufacturer.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.manufacturer.name" type="text"
+                         placeholder="Nom du fabricant…"
+                         @keydown.enter.prevent="submitQuickCreate('manufacturer', createForm)"
+                         @keydown.escape="quickCreate.manufacturer.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.manufacturer.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.manufacturer.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('manufacturer', createForm)"
+                        :disabled="quickCreate.manufacturer.loading || !quickCreate.manufacturer.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.manufacturer.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
+            <!-- Fournisseur -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Fournisseur</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Fournisseur</label>
+                <button type="button"
+                        @click="quickCreate.supplier.open = !quickCreate.supplier.open; quickCreate.supplier.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.supplier.open ? 'Annuler' : 'Nouveau' }}
+                </button>
+              </div>
               <select v-model="createForm.supplier_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans fournisseur —</option>
-                <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
+                <option v-for="s in localSuppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
+              <div v-if="quickCreate.supplier.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.supplier.name" type="text"
+                         placeholder="Nom du fournisseur…"
+                         @keydown.enter.prevent="submitQuickCreate('supplier', createForm)"
+                         @keydown.escape="quickCreate.supplier.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.supplier.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.supplier.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('supplier', createForm)"
+                        :disabled="quickCreate.supplier.loading || !quickCreate.supplier.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.supplier.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
+            <!-- Catégorie -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Catégorie</label>
+                <button type="button"
+                        @click="quickCreate.category.open = !quickCreate.category.open; quickCreate.category.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.category.open ? 'Annuler' : 'Nouvelle' }}
+                </button>
+              </div>
               <select v-model="createForm.category_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans catégorie —</option>
-                <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+                <option v-for="cat in localCategories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
               </select>
+              <div v-if="quickCreate.category.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.category.name" type="text"
+                         placeholder="Nom de la catégorie…"
+                         @keydown.enter.prevent="submitQuickCreate('category', createForm)"
+                         @keydown.escape="quickCreate.category.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.category.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.category.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('category', createForm)"
+                        :disabled="quickCreate.category.loading || !quickCreate.category.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.category.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea v-model="createForm.description" rows="2" placeholder="Caractéristiques, notes…"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"></textarea>
             </div>
+            <!-- Achat — propagé à tous les équipements créés -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Date d'achat</label>
+                <input v-model="createForm.purchase_date" type="date"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Coût d'achat (€)</label>
+                <input v-model="createForm.purchase_cost" type="number" step="0.01" min="0" placeholder="0.00"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Image</label>
-              <label class="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-300 rounded-lg px-4 py-3 hover:border-blue-400 transition">
-                <PhotoIcon class="w-5 h-5 text-gray-400" />
-                <span class="text-sm text-gray-500">{{ createForm.image ? createForm.image.name : 'Choisir une image…' }}</span>
-                <input type="file" accept="image/*" class="hidden" @change="onCreateImageChange" />
-              </label>
+              <div class="flex items-start gap-3">
+                <!-- Preview -->
+                <div v-if="createImagePreview" class="relative flex-shrink-0">
+                  <img :src="createImagePreview" class="w-20 h-20 object-cover rounded-xl border border-gray-200 shadow-sm" />
+                  <button type="button" @click="createForm.image = null; createImagePreview = null"
+                          class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow transition text-xs leading-none">
+                    &times;
+                  </button>
+                </div>
+                <!-- Upload + Camera -->
+                <div class="flex-1 flex flex-col gap-2">
+                  <label class="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-300 rounded-lg px-4 py-2.5 hover:border-blue-400 transition">
+                    <PhotoIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <span class="text-sm text-gray-500 truncate">{{ createForm.image ? createForm.image.name : 'Choisir une image…' }}</span>
+                    <input type="file" accept="image/*" class="hidden" @change="onCreateImageChange" />
+                  </label>
+                  <CameraCapture @captured="onCreateCameraCapture" />
+                </div>
+              </div>
             </div>
             <!-- Quantity -->
             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -511,46 +851,163 @@ const editingModelDocs = computed(() => {
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
               <p v-if="editForm.errors.name" class="text-red-500 text-xs mt-1">{{ editForm.errors.name }}</p>
             </div>
+            <!-- Fabricant -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Fabricant</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Fabricant</label>
+                <button type="button"
+                        @click="quickCreate.manufacturer.open = !quickCreate.manufacturer.open; quickCreate.manufacturer.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.manufacturer.open ? 'Annuler' : 'Nouveau' }}
+                </button>
+              </div>
               <select v-model="editForm.manufacturer_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans fabricant —</option>
-                <option v-for="mfr in manufacturers" :key="mfr.id" :value="mfr.id">{{ mfr.name }}</option>
+                <option v-for="mfr in localManufacturers" :key="mfr.id" :value="mfr.id">{{ mfr.name }}</option>
               </select>
+              <div v-if="quickCreate.manufacturer.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.manufacturer.name" type="text"
+                         placeholder="Nom du fabricant…"
+                         @keydown.enter.prevent="submitQuickCreate('manufacturer', editForm)"
+                         @keydown.escape="quickCreate.manufacturer.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.manufacturer.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.manufacturer.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('manufacturer', editForm)"
+                        :disabled="quickCreate.manufacturer.loading || !quickCreate.manufacturer.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.manufacturer.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
+            <!-- Fournisseur -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Fournisseur</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Fournisseur</label>
+                <button type="button"
+                        @click="quickCreate.supplier.open = !quickCreate.supplier.open; quickCreate.supplier.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.supplier.open ? 'Annuler' : 'Nouveau' }}
+                </button>
+              </div>
               <select v-model="editForm.supplier_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans fournisseur —</option>
-                <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
+                <option v-for="s in localSuppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
+              <div v-if="quickCreate.supplier.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.supplier.name" type="text"
+                         placeholder="Nom du fournisseur…"
+                         @keydown.enter.prevent="submitQuickCreate('supplier', editForm)"
+                         @keydown.escape="quickCreate.supplier.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.supplier.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.supplier.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('supplier', editForm)"
+                        :disabled="quickCreate.supplier.loading || !quickCreate.supplier.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.supplier.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
+            <!-- Catégorie -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Catégorie</label>
+                <button type="button"
+                        @click="quickCreate.category.open = !quickCreate.category.open; quickCreate.category.error = ''"
+                        class="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition">
+                  <PlusIcon class="w-3 h-3" />
+                  {{ quickCreate.category.open ? 'Annuler' : 'Nouvelle' }}
+                </button>
+              </div>
               <select v-model="editForm.category_id"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="">— Sans catégorie —</option>
-                <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+                <option v-for="cat in localCategories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
               </select>
+              <div v-if="quickCreate.category.open" class="mt-1.5 flex gap-2 items-start">
+                <div class="flex-1">
+                  <input v-model="quickCreate.category.name" type="text"
+                         placeholder="Nom de la catégorie…"
+                         @keydown.enter.prevent="submitQuickCreate('category', editForm)"
+                         @keydown.escape="quickCreate.category.open = false"
+                         class="w-full border border-blue-300 bg-blue-50 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-blue-300" />
+                  <p v-if="quickCreate.category.error" class="text-xs text-red-500 mt-0.5">{{ quickCreate.category.error }}</p>
+                </div>
+                <button type="button"
+                        @click="submitQuickCreate('category', editForm)"
+                        :disabled="quickCreate.category.loading || !quickCreate.category.name.trim()"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap">
+                  {{ quickCreate.category.loading ? '…' : '✓ Créer' }}
+                </button>
+              </div>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea v-model="editForm.description" rows="3"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"></textarea>
             </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nouvelle image</label>
-              <div v-if="editingModel?.image_url" class="mb-2 flex items-center gap-3">
-                <img :src="editingModel.image_url" class="w-16 h-16 rounded-lg object-cover border" :alt="editingModel.name" />
-                <span class="text-xs text-gray-500">Image actuelle — sera propagée à tous les équipements.</span>
+            <!-- Achat — propagé à tous les équipements liés lors de la sauvegarde -->
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-amber-800">💰 Informations d'achat</span>
+                <span class="text-xs text-amber-600">(propagées à tous les équipements liés)</span>
               </div>
-              <label class="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-300 rounded-lg px-4 py-3 hover:border-blue-400 transition">
-                <PhotoIcon class="w-5 h-5 text-gray-400" />
-                <span class="text-sm text-gray-500">{{ editForm.image ? editForm.image.name : 'Remplacer l\'image…' }}</span>
-                <input type="file" accept="image/*" class="hidden" @change="onEditImageChange" />
-              </label>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Date d'achat</label>
+                  <input v-model="editForm.purchase_date" type="date"
+                         class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none bg-white" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Coût d'achat (€)</label>
+                  <input v-model="editForm.purchase_cost" type="number" step="0.01" min="0" placeholder="0.00"
+                         class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none bg-white" />
+                </div>
+              </div>
+              <p class="text-xs text-amber-600">
+                ⚠ En sauvegardant, ces valeurs seront écrites sur tous les équipements de ce modèle.
+              </p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Image</label>
+              <div class="flex items-start gap-3">
+                <!-- Preview : nouvelle photo capturée/sélectionnée en priorité, sinon image actuelle -->
+                <div v-if="editImagePreview || editingModel?.image_url" class="relative flex-shrink-0">
+                  <img :src="editImagePreview ?? editingModel.image_url"
+                       class="w-20 h-20 object-cover rounded-xl border border-gray-200 shadow-sm"
+                       :alt="editingModel?.name" />
+                  <span v-if="!editImagePreview"
+                        class="absolute -bottom-1 left-0 right-0 text-center text-xs bg-black/50 text-white py-0.5 rounded-b-xl">
+                    Actuelle
+                  </span>
+                  <button v-if="editImagePreview" type="button"
+                          @click="editForm.image = null; editImagePreview = null"
+                          class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow transition text-xs leading-none">
+                    &times;
+                  </button>
+                </div>
+                <!-- Upload + Camera -->
+                <div class="flex-1 flex flex-col gap-2">
+                  <p v-if="editingModel?.image_url && !editImagePreview" class="text-xs text-gray-500">
+                    Sera propagée à tous les équipements.
+                  </p>
+                  <label class="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-300 rounded-lg px-4 py-2.5 hover:border-blue-400 transition">
+                    <PhotoIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <span class="text-sm text-gray-500 truncate">{{ editForm.image ? editForm.image.name : 'Remplacer l\'image…' }}</span>
+                    <input type="file" accept="image/*" class="hidden" @change="onEditImageChange" />
+                  </label>
+                  <CameraCapture @captured="onEditCameraCapture" />
+                </div>
+              </div>
             </div>
             <div class="flex justify-end gap-3 pt-2">
               <button type="button" @click="showEditModal = false"
@@ -625,5 +1082,150 @@ const editingModelDocs = computed(() => {
         </div>
       </div>
     </Teleport>
+    <!-- ══════════════════════════════════════════════
+         Modal — Modifier en lot
+    ══════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <div v-if="showBulkEditModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white z-10">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900">✏️ Modifier en lot</h2>
+              <p class="text-xs text-gray-500 mt-0.5">{{ selectedIds.length }} modèle(s) sélectionné(s)</p>
+            </div>
+            <button @click="showBulkEditModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          </div>
+
+          <div class="px-6 py-5 space-y-5">
+
+            <!-- Info -->
+            <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              <p class="font-semibold mb-1">⚠️ Seuls les champs que vous modifiez seront appliqués.</p>
+              <p class="text-xs text-amber-700">Laissez un champ sur « Ne pas modifier » pour le laisser inchangé sur les modèles sélectionnés.</p>
+            </div>
+
+            <!-- Fabricant -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Fabricant
+                <span v-if="bulkForm.manufacturer_id !== ''" class="ml-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">sera modifié</span>
+              </label>
+              <select v-model="bulkForm.manufacturer_id"
+                      class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      :class="bulkForm.manufacturer_id !== '' ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'">
+                <option value="">— Ne pas modifier —</option>
+                <option value="0">✕ Aucun (retirer le fabricant)</option>
+                <option v-for="mfr in localManufacturers" :key="mfr.id" :value="String(mfr.id)">{{ mfr.name }}</option>
+              </select>
+            </div>
+
+            <!-- Fournisseur -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Fournisseur
+                <span v-if="bulkForm.supplier_id !== ''" class="ml-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">sera modifié</span>
+              </label>
+              <select v-model="bulkForm.supplier_id"
+                      class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      :class="bulkForm.supplier_id !== '' ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'">
+                <option value="">— Ne pas modifier —</option>
+                <option value="0">✕ Aucun (retirer le fournisseur)</option>
+                <option v-for="s in localSuppliers" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+              </select>
+            </div>
+
+            <!-- Catégorie -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Catégorie
+                <span v-if="bulkForm.category_id !== ''" class="ml-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">sera modifié</span>
+              </label>
+              <select v-model="bulkForm.category_id"
+                      class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      :class="bulkForm.category_id !== '' ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'">
+                <option value="">— Ne pas modifier —</option>
+                <option value="0">✕ Aucune (retirer la catégorie)</option>
+                <option v-for="cat in localCategories" :key="cat.id" :value="String(cat.id)">{{ cat.name }}</option>
+              </select>
+            </div>
+
+            <!-- Date d'achat + Coût -->
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+              <p class="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                💰 Informations d'achat
+                <span class="font-normal text-amber-700">(propagées aux équipements liés)</span>
+              </p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Date d'achat
+                    <span v-if="bulkForm.purchase_date !== ''" class="ml-1 text-indigo-600 font-semibold">✓</span>
+                  </label>
+                  <input v-model="bulkForm.purchase_date" type="date"
+                         class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                         :class="bulkForm.purchase_date !== '' ? 'border-indigo-400 bg-indigo-50' : 'border-amber-300 bg-white'" />
+                  <button v-if="bulkForm.purchase_date !== ''" type="button"
+                          @click="bulkForm.purchase_date = ''"
+                          class="text-xs text-gray-400 hover:text-gray-600 mt-0.5">
+                    ✕ Ne pas modifier
+                  </button>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Coût d'achat (€)
+                    <span v-if="bulkForm.purchase_cost !== ''" class="ml-1 text-indigo-600 font-semibold">✓</span>
+                  </label>
+                  <input v-model="bulkForm.purchase_cost" type="number" step="0.01" min="0" placeholder="—"
+                         class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                         :class="bulkForm.purchase_cost !== '' ? 'border-indigo-400 bg-indigo-50' : 'border-amber-300 bg-white'" />
+                  <button v-if="bulkForm.purchase_cost !== ''" type="button"
+                          @click="bulkForm.purchase_cost = ''"
+                          class="text-xs text-gray-400 hover:text-gray-600 mt-0.5">
+                    ✕ Ne pas modifier
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Résumé des modifications -->
+            <div v-if="bulkChangedFields.length > 0"
+                 class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm">
+              <p class="font-semibold text-green-800 mb-1 flex items-center gap-1.5">
+                <CheckIcon class="w-4 h-4" />
+                Modifications qui seront appliquées :
+              </p>
+              <ul class="text-green-700 text-xs space-y-0.5 list-disc list-inside">
+                <li v-for="field in bulkChangedFields" :key="field">{{ field }}</li>
+              </ul>
+              <p class="text-xs text-green-600 mt-2">
+                → Sur <strong>{{ selectedIds.length }}</strong> modèle(s) et leurs équipements liés.
+              </p>
+            </div>
+            <div v-else class="text-sm text-gray-400 text-center py-2">
+              Aucun champ modifié — sélectionnez au moins une valeur à appliquer.
+            </div>
+
+          </div>
+
+          <div class="flex gap-3 px-6 pb-6">
+            <button @click="showBulkEditModal = false"
+                    class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+              Annuler
+            </button>
+            <button @click="submitBulkEdit"
+                    :disabled="bulkChangedFields.length === 0 || bulkProcessing"
+                    class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition">
+              {{ bulkProcessing ? 'Application…' : `Appliquer à ${selectedIds.length} modèle(s)` }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
   </AppLayout>
 </template>
+
+<style scoped>
+.slide-down-enter-active, .slide-down-leave-active { transition: all 0.2s ease; }
+.slide-down-enter-from, .slide-down-leave-to { opacity: 0; transform: translateY(-8px); }
+</style>

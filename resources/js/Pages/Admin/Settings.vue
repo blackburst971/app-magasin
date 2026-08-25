@@ -80,6 +80,11 @@ const form = useForm({
   'sounds.scan_error':           props.settings?.sounds?.['sounds.scan_error']           ?? 'buzz',
   // Fonctionnalités optionnelles
   todo_enabled: props.settings?.features?.todo_enabled ?? 'false',
+
+  // Accès page Commandes par rôle (professeur)
+  section_procurement_professeur_read:   props.settings?.procurement?.section_procurement_professeur_read   ?? 'false',
+  section_procurement_professeur_write:  props.settings?.procurement?.section_procurement_professeur_write  ?? 'false',
+  section_procurement_professeur_export: props.settings?.procurement?.section_procurement_professeur_export ?? 'false',
 })
 
 const submit = () => form.post(route('settings.update'))
@@ -123,6 +128,7 @@ function sendTestEmail() {
     onFinish: () => { testEmailSending.value = false },
   })
 }
+
 </script>
 
 <template>
@@ -703,7 +709,8 @@ function sendTestEmail() {
             Activez ou désactivez des modules pour les utilisateurs non-administrateurs.
             Les administrateurs y ont toujours accès.
           </p>
-          <div class="flex items-center justify-between py-3 border-b last:border-0">
+          <!-- To-Do -->
+          <div class="flex items-center justify-between py-3 border-b">
             <div>
               <p class="font-medium text-gray-800 text-sm">✅ Liste de tâches (To-Do)</p>
               <p class="text-xs text-gray-500 mt-0.5">Permet aux utilisateurs de créer des projets et gérer leurs tâches (vue liste + kanban)</p>
@@ -715,6 +722,68 @@ function sendTestEmail() {
                 :class="form.todo_enabled === 'true' ? 'translate-x-5' : 'translate-x-0'" />
             </button>
           </div>
+
+          <!-- Commandes -->
+          <div class="pt-4">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-base">🛒</span>
+              <p class="font-medium text-gray-800 text-sm">Page Commandes — Accès professeurs</p>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">
+              L'admin a toujours accès à la page Commandes. Configurez ci-dessous les droits accordés aux <strong>professeurs</strong>.
+            </p>
+            <div class="space-y-3 pl-2">
+
+              <!-- Visibilité -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-medium text-gray-700">Consulter la liste</p>
+                  <p class="text-xs text-gray-400">Les professeurs peuvent voir la page et lire les articles existants</p>
+                </div>
+                <button type="button"
+                  @click="form.section_procurement_professeur_read = form.section_procurement_professeur_read === 'true' ? 'false' : 'true'"
+                  class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                  :class="form.section_procurement_professeur_read === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+                  <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                    :class="form.section_procurement_professeur_read === 'true' ? 'translate-x-5' : 'translate-x-0'" />
+                </button>
+              </div>
+
+              <!-- Écriture -->
+              <div class="flex items-center justify-between"
+                   :class="form.section_procurement_professeur_read !== 'true' ? 'opacity-40 pointer-events-none' : ''">
+                <div>
+                  <p class="text-sm font-medium text-gray-700">Ajouter et modifier ses articles</p>
+                  <p class="text-xs text-gray-400">Les professeurs peuvent créer des besoins et modifier uniquement leurs propres saisies</p>
+                </div>
+                <button type="button"
+                  @click="form.section_procurement_professeur_write = form.section_procurement_professeur_write === 'true' ? 'false' : 'true'"
+                  class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                  :class="form.section_procurement_professeur_write === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+                  <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                    :class="form.section_procurement_professeur_write === 'true' ? 'translate-x-5' : 'translate-x-0'" />
+                </button>
+              </div>
+
+              <!-- Export -->
+              <div class="flex items-center justify-between"
+                   :class="form.section_procurement_professeur_read !== 'true' ? 'opacity-40 pointer-events-none' : ''">
+                <div>
+                  <p class="text-sm font-medium text-gray-700">Exporter en PDF / Excel</p>
+                  <p class="text-xs text-gray-400">Les professeurs peuvent exporter les listes sélectionnées en PDF ou CSV</p>
+                </div>
+                <button type="button"
+                  @click="form.section_procurement_professeur_export = form.section_procurement_professeur_export === 'true' ? 'false' : 'true'"
+                  class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                  :class="form.section_procurement_professeur_export === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+                  <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                    :class="form.section_procurement_professeur_export === 'true' ? 'translate-x-5' : 'translate-x-0'" />
+                </button>
+              </div>
+
+            </div>
+          </div>
+
         </div>
 
         <div class="flex justify-end">
@@ -724,6 +793,7 @@ function sendTestEmail() {
           </button>
         </div>
       </form>
+
     </div>
   </AppLayout>
 </template>

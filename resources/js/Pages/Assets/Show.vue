@@ -20,6 +20,53 @@
                 </div>
             </div>
 
+            <!-- ══ BANNIÈRE ÉTAT DE L'ÉQUIPEMENT ════════════════════════════ -->
+            <!-- Visible par tous si renseignée. Editable inline par l'admin.  -->
+            <div v-if="localConditionNote || isAdmin" class="mb-4">
+                <!-- Mode lecture -->
+                <div v-if="!editingConditionNote && localConditionNote"
+                     class="flex items-start gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
+                    <span class="text-2xl flex-shrink-0 mt-0.5">📋</span>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-0.5">État de l'équipement</p>
+                        <p class="text-sm text-amber-900 whitespace-pre-wrap">{{ localConditionNote }}</p>
+                    </div>
+                    <button v-if="isAdmin"
+                            @click="editingConditionNote = true"
+                            class="flex-shrink-0 p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-100 rounded-lg transition"
+                            title="Modifier">
+                        <PencilIcon class="w-4 h-4" />
+                    </button>
+                </div>
+                <!-- Mode placeholder (admin, pas de note) -->
+                <div v-else-if="!editingConditionNote && isAdmin"
+                     @click="editingConditionNote = true"
+                     class="flex items-center gap-3 border-2 border-dashed border-amber-200 rounded-xl px-4 py-3 cursor-pointer hover:border-amber-400 hover:bg-amber-50 transition group">
+                    <span class="text-xl opacity-40">📋</span>
+                    <p class="text-sm text-gray-400 group-hover:text-amber-600 transition">
+                        Ajouter une note d'état visible par les utilisateurs (emojis autorisés)…
+                    </p>
+                </div>
+                <!-- Mode édition (admin) -->
+                <div v-if="editingConditionNote" class="bg-amber-50 border border-amber-300 rounded-xl p-4">
+                    <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Note d'état de l'équipement</p>
+                    <textarea v-model="localConditionNote" rows="3"
+                              placeholder="Ex : ⚠️ Objectif légèrement rayé — fonctionne correctement. Câble HDMI à demander séparément."
+                              class="w-full border border-amber-300 bg-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 outline-none resize-none"
+                              @keydown.escape="cancelConditionNote" />
+                    <div class="flex gap-2 mt-2">
+                        <button @click="saveConditionNote" :disabled="savingConditionNote"
+                                class="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition">
+                            {{ savingConditionNote ? '…' : '✓ Enregistrer' }}
+                        </button>
+                        <button @click="cancelConditionNote"
+                                class="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition">
+                            Annuler
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- En-tête -->
             <div class="flex items-center justify-between mb-6">
                 <div class="flex items-center gap-3">
@@ -31,12 +78,17 @@
                         <p class="text-sm text-gray-500 mt-0.5">Tag : {{ asset.asset_tag }}</p>
                     </div>
                 </div>
-                <div class="flex gap-2">
-                    <Link v-if="$page.props.auth.user.is_admin"
-                          :href="route('assets.edit', asset.id)"
-                          class="btn-secondary">
-                        Modifier
-                    </Link>
+                <div class="flex items-center gap-2">
+                    <template v-if="$page.props.auth.user.is_admin">
+                        <Link :href="route('assets.edit', asset.id)" class="btn-secondary">
+                            Modifier
+                        </Link>
+                        <button @click="confirmDelete"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 transition">
+                            <TrashIcon class="w-4 h-4" />
+                            Supprimer
+                        </button>
+                    </template>
                     <StatusBadge :status="asset.status" :label="asset.status_label" :color="asset.status_color" />
                 </div>
             </div>
@@ -55,9 +107,10 @@
                                 <dt class="text-xs text-gray-500">Modèle</dt>
                                 <dd class="font-medium text-gray-900 mt-0.5">
                                     <Link v-if="asset.model && isAdmin"
-                                          :href="route('models.index')"
-                                          class="text-indigo-600 hover:text-indigo-800 hover:underline">
+                                          :href="route('models.index') + '?highlight=' + asset.model.id"
+                                          class="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 hover:underline">
                                         {{ asset.model.name }}
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                                     </Link>
                                     <span v-else-if="asset.model">{{ asset.model.name }}</span>
                                     <span v-else>—</span>
@@ -186,6 +239,155 @@
                             </div>
                         </template>
                     </div>
+
+                    <!-- ══ COMPOSANTS ════════════════════════════════════ -->
+                    <div v-if="localComponents.length > 0 || isAdmin"
+                         class="bg-white rounded-xl shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                <PuzzlePieceIcon class="w-4 h-4" />
+                                Composants
+                                <span v-if="localComponents.length" class="text-indigo-500 text-xs font-normal normal-case">({{ localComponents.length }})</span>
+                            </h2>
+                            <button v-if="isAdmin" @click="openAddComponent"
+                                    class="inline-flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-medium transition">
+                                <PlusIcon class="w-3.5 h-3.5" /> Ajouter
+                            </button>
+                        </div>
+
+                        <!-- Liste des composants -->
+                        <div v-if="localComponents.length === 0 && isAdmin"
+                             class="text-center py-6 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-sm">
+                            <PuzzlePieceIcon class="w-10 h-10 mx-auto mb-2 opacity-30" />
+                            Aucun composant. Cliquez "Ajouter" pour en définir.
+                        </div>
+
+                        <ul v-else class="space-y-2">
+                            <li v-for="comp in localComponents" :key="comp.id"
+                                class="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 group"
+                                :class="comp.condition === 'missing' ? 'border-red-200 bg-red-50/40' : comp.condition === 'damaged' ? 'border-orange-200 bg-orange-50/40' : comp.condition === 'defective' ? 'border-yellow-200 bg-yellow-50/40' : ''">
+                                <!-- Icône quantité -->
+                                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold">
+                                    {{ comp.quantity }}
+                                </div>
+                                <!-- Infos -->
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-semibold text-gray-900">{{ comp.name }}</p>
+                                    <p v-if="comp.description" class="text-xs text-gray-500 mt-0.5 truncate">{{ comp.description }}</p>
+                                </div>
+                                <!-- Badge condition (toujours visible si défini) -->
+                                <span v-if="comp.condition" class="flex-shrink-0 text-sm px-2 py-0.5 rounded-full font-medium"
+                                      :class="componentConditionClass(comp.condition)">
+                                    {{ componentConditionLabel(comp.condition) }}
+                                </span>
+                                <!-- Actions admin -->
+                                <div v-if="isAdmin" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <!-- Cycle condition -->
+                                    <button @click="cycleComponentCondition(comp)"
+                                            class="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                                            :title="comp.condition ? 'Changer l\'état' : 'Définir un état'">
+                                        <span class="text-xs">{{ comp.condition ? componentConditionLabel(comp.condition) : '—' }}</span>
+                                    </button>
+                                    <button @click="openEditComponent(comp)"
+                                            class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                                        <PencilIcon class="w-3.5 h-3.5" />
+                                    </button>
+                                    <button @click="deleteComponent(comp)"
+                                            class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
+                                        <TrashIcon class="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </li>
+                        </ul>
+
+                        <!-- Feedback propagation -->
+                        <Transition name="fade">
+                            <div v-if="componentFeedback"
+                                 :class="componentFeedback.type === 'propagated'
+                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                                    : componentFeedback.type === 'warning'
+                                        ? 'bg-orange-50 border-orange-200 text-orange-800'
+                                        : 'bg-green-50 border-green-200 text-green-800'"
+                                 class="mt-3 border rounded-xl px-4 py-2.5 text-sm font-medium">
+                                {{ componentFeedback.message }}
+                            </div>
+                        </Transition>
+
+                        <!-- Formulaire ajout / édition inline -->
+                        <div v-if="showComponentForm" class="mt-4 border-t pt-4">
+                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                                {{ editingComponent ? 'Modifier le composant' : 'Nouveau composant' }}
+                            </p>
+                            <!-- Hint propagation -->
+                            <p v-if="!editingComponent && hasModel" class="text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5 mb-3 flex items-center gap-1.5">
+                                <span>🔗</span>
+                                Ce composant sera automatiquement ajouté avec le numéro correspondant à tous les équipements du même modèle.
+                            </p>
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+                                <div class="flex-1">
+                                    <label class="block text-xs text-gray-500 mb-1">Nom de base <span class="text-red-400">*</span></label>
+                                    <input v-model="componentForm.name" type="text" placeholder="ex: Câble alimentation, Notice, Télécommande…"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                                </div>
+                                <div class="w-20">
+                                    <label class="block text-xs text-gray-500 mb-1">Qté</label>
+                                    <input v-model.number="componentForm.quantity" type="number" min="1" max="999"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-xs text-gray-500 mb-1">Description (optionnel)</label>
+                                    <input v-model="componentForm.description" type="text" placeholder="Détails supplémentaires…"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                                </div>
+                                <div class="flex gap-2 flex-shrink-0">
+                                    <button @click="submitComponent" :disabled="!componentForm.name.trim() || savingComponent"
+                                            class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                                        {{ savingComponent ? '…' : (editingComponent ? 'Modifier' : 'Ajouter') }}
+                                    </button>
+                                    <button @click="cancelComponentForm"
+                                            class="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition">
+                                        Annuler
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══ MODAL : Suppression composant (propagation) ══════ -->
+                    <Teleport to="body">
+                        <div v-if="showDeleteCompModal"
+                             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                                <div class="bg-red-500 px-6 py-4 text-white">
+                                    <p class="text-xs font-semibold text-red-100 uppercase tracking-widest mb-1">Supprimer le composant</p>
+                                    <p class="text-base font-bold">{{ deleteCompTarget ? stripNumberSuffix(deleteCompTarget.name) : '' }}</p>
+                                </div>
+                                <div class="px-6 py-5 space-y-3">
+                                    <p class="text-sm text-gray-600">Cet équipement fait partie d'un modèle. Comment voulez-vous supprimer ce composant ?</p>
+                                    <button @click="doDeleteComponent(deleteCompTarget, false)"
+                                            class="w-full text-left flex items-start gap-3 border border-gray-200 rounded-xl px-4 py-3 hover:bg-gray-50 transition">
+                                        <span class="text-lg mt-0.5">📌</span>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-900">Supprimer uniquement sur cet équipement</p>
+                                            <p class="text-xs text-gray-500 mt-0.5">Les autres équipements du modèle conservent leur composant.</p>
+                                        </div>
+                                    </button>
+                                    <button @click="doDeleteComponent(deleteCompTarget, true)"
+                                            class="w-full text-left flex items-start gap-3 border border-red-200 rounded-xl px-4 py-3 hover:bg-red-50 transition">
+                                        <span class="text-lg mt-0.5">🗑️</span>
+                                        <div>
+                                            <p class="text-sm font-semibold text-red-700">Supprimer sur TOUS les équipements du même modèle</p>
+                                            <p class="text-xs text-red-400 mt-0.5">Supprime « {{ deleteCompTarget ? stripNumberSuffix(deleteCompTarget.name) : '' }} » de tous les équipements de ce modèle.</p>
+                                        </div>
+                                    </button>
+                                    <button @click="showDeleteCompModal = false"
+                                            class="w-full py-2 text-sm text-gray-500 hover:text-gray-700 transition">
+                                        Annuler
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </Teleport>
 
                     <!-- ══ FICHIERS ATTACHÉS (images + PDFs) ══════════════ -->
                     <div v-if="assetFiles.length > 0 || isAdmin"
@@ -582,6 +784,103 @@
                         </div>
                     </Teleport>
 
+                    <!-- ══ RAPPORTS UTILISATEURS ════════════════════════════ -->
+                    <div id="reports"
+                         v-if="localReports.length > 0 || isAdmin"
+                         class="bg-white rounded-xl shadow-sm p-6 scroll-mt-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                <span>📋</span>
+                                Rapports utilisateurs
+                                <span v-if="localReports.length" class="text-xs font-normal normal-case text-gray-400">({{ localReports.length }})</span>
+                            </h2>
+                        </div>
+                        <div v-if="localReports.length === 0" class="text-center py-6 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+                            Aucun rapport validé pour le moment.
+                        </div>
+                        <div class="space-y-3">
+                            <div v-for="report in localReports" :key="report.id"
+                                 class="border rounded-xl overflow-hidden"
+                                 :class="report.is_validated ? 'border-gray-200' : 'border-amber-200 bg-amber-50/30'">
+                                <!-- En-tête rapport -->
+                                <div class="flex items-start gap-3 px-4 py-3"
+                                     :class="report.is_validated ? 'bg-gray-50' : 'bg-amber-50'">
+                                    <span class="text-lg flex-shrink-0 mt-0.5">{{ reportTypeIcon(report.type) }}</span>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <p class="text-sm font-semibold text-gray-900">{{ report.title }}</p>
+                                            <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                                  :class="reportTypeBadgeClass(report.type)">{{ report.type_label }}</span>
+                                            <span v-if="!report.is_validated && isAdmin"
+                                                  class="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                                                En attente de validation
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-0.5">
+                                            {{ report.user?.name ?? '—' }} · {{ report.created_at }}
+                                        </p>
+                                    </div>
+                                    <!-- Actions admin -->
+                                    <div v-if="isAdmin" class="flex items-center gap-1 flex-shrink-0">
+                                        <button v-if="!report.is_validated"
+                                                @click="validateReport(report)"
+                                                class="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded-lg font-medium transition">
+                                            Valider
+                                        </button>
+                                        <button @click="openEditReport(report)"
+                                                class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                                            <PencilIcon class="w-3.5 h-3.5" />
+                                        </button>
+                                        <button @click="deleteReport(report.id)"
+                                                class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
+                                            <TrashIcon class="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <!-- Corps rapport -->
+                                <div class="px-4 py-3">
+                                    <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ report.content }}</p>
+                                    <!-- Notes admin -->
+                                    <div v-if="report.admin_notes"
+                                         class="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500 italic">
+                                        <span class="font-semibold not-italic text-gray-700">Note admin :</span>
+                                        {{ report.admin_notes }}
+                                    </div>
+                                    <p v-if="report.is_validated" class="mt-1.5 text-xs text-gray-400">
+                                        ✓ Validé {{ report.validated_at }}
+                                        <span v-if="report.validated_by"> par {{ report.validated_by.name }}</span>
+                                    </p>
+                                </div>
+                                <!-- Formulaire édition admin -->
+                                <div v-if="editingReportId === report.id" class="px-4 pb-4 pt-2 border-t border-gray-200 bg-gray-50 space-y-2">
+                                    <select v-model="reportEditForm.type"
+                                            class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 outline-none">
+                                        <option value="damage">⚠️ Dégradation</option>
+                                        <option value="loss">❌ Perte</option>
+                                        <option value="malfunction">🔧 Dysfonctionnement</option>
+                                        <option value="observation">📋 Observation</option>
+                                    </select>
+                                    <input v-model="reportEditForm.title" type="text" placeholder="Titre…"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                                    <textarea v-model="reportEditForm.content" rows="3" placeholder="Contenu…"
+                                              class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 outline-none resize-none" />
+                                    <textarea v-model="reportEditForm.admin_notes" rows="2" placeholder="Notes admin (optionnel)…"
+                                              class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 outline-none resize-none" />
+                                    <div class="flex gap-2">
+                                        <button @click="saveReportEdit(report)"
+                                                class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition">
+                                            Enregistrer
+                                        </button>
+                                        <button @click="editingReportId = null"
+                                                class="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-white transition">
+                                            Annuler
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Historique des mouvements (admin uniquement) -->
                     <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm p-6">
                         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Historique</h2>
@@ -635,6 +934,11 @@
                                 Voir mon panier ({{ cart.count }}) →
                             </Link>
                         </div>
+                        <div v-else-if="asset.status === 'maintenance'"
+                             class="bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-center text-sm text-yellow-800">
+                            <p class="font-semibold">🔧 En cours de maintenance</p>
+                            <p class="text-xs mt-1 text-yellow-600">Cet équipement n'est pas disponible à la réservation pour le moment.</p>
+                        </div>
                         <div v-else-if="asset.is_reservable"
                              class="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center text-sm text-orange-700">
                             <p class="font-semibold">Indisponible actuellement</p>
@@ -676,6 +980,80 @@
                         </Link>
                     </div>
 
+                    <!-- ── Admin : Étiquettes ── -->
+                    <!-- ── Admin : Disponibilité à la réservation ── -->
+                    <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm border p-5">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-semibold text-gray-800">📅 Réservable par les utilisateurs</p>
+                                <p class="text-xs text-gray-400 mt-0.5">
+                                    {{ localIsReservable
+                                        ? 'Visible et réservable depuis le catalogue'
+                                        : 'Masqué du catalogue — non réservable par les utilisateurs' }}
+                                </p>
+                            </div>
+                            <button @click="toggleReservable"
+                                :class="localIsReservable
+                                    ? 'bg-green-500 hover:bg-green-600'
+                                    : 'bg-gray-200 hover:bg-gray-300'"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0"
+                                :title="localIsReservable ? 'Désactiver la réservation' : 'Activer la réservation'">
+                                <span :class="localIsReservable ? 'translate-x-6' : 'translate-x-1'"
+                                    class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform" />
+                            </button>
+                        </div>
+                        <div v-if="!localIsReservable"
+                             class="mt-3 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-amber-700">
+                            ⚠ Cet équipement n'apparaît pas dans le catalogue utilisateurs et ne peut pas être réservé.
+                        </div>
+                    </div>
+
+                    <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm border p-5">
+                        <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                            🏷️ Étiquettes
+                        </h2>
+                        <div class="space-y-3">
+                            <!-- À créer -->
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-800">✏️ Étiquette à créer</p>
+                                    <p class="text-xs text-gray-400">L'équipement nécessite une nouvelle étiquette</p>
+                                </div>
+                                <button @click="toggleLabelCreate"
+                                    :class="localLabelToCreate
+                                        ? 'bg-indigo-600 hover:bg-indigo-700'
+                                        : 'bg-gray-200 hover:bg-gray-300'"
+                                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0">
+                                    <span :class="localLabelToCreate ? 'translate-x-6' : 'translate-x-1'"
+                                        class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform" />
+                                </button>
+                            </div>
+                            <!-- À coller -->
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-800">📌 Étiquette à coller</p>
+                                    <p class="text-xs text-gray-400">L'étiquette est prête mais pas encore collée</p>
+                                </div>
+                                <button @click="toggleLabelApply"
+                                    :class="localLabelToApply
+                                        ? 'bg-indigo-600 hover:bg-indigo-700'
+                                        : 'bg-gray-200 hover:bg-gray-300'"
+                                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0">
+                                    <span :class="localLabelToApply ? 'translate-x-6' : 'translate-x-1'"
+                                        class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform" />
+                                </button>
+                            </div>
+                        </div>
+                        <div v-if="localLabelToCreate || localLabelToApply"
+                             class="mt-3 text-xs bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5 text-indigo-700">
+                            <template v-if="localLabelToCreate && localLabelToApply">✏️📌 Étiquette à créer et à coller</template>
+                            <template v-else-if="localLabelToCreate">✏️ Étiquette à créer</template>
+                            <template v-else>📌 Étiquette à coller</template>
+                            — visible sur la
+                            <a :href="route('assets.labels')" class="underline font-medium">page étiquettes</a>.
+                        </div>
+                    </div>
+
                     <!-- ── Admin : Configuration retour (scratch / belge) ── -->
                     <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm border p-5">
                         <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -685,8 +1063,7 @@
                             <!-- Scratch -->
                             <div class="flex items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-medium text-gray-800">🪢 Scratch / Velcro</p>
-                                    <p class="text-xs text-gray-400">Attaches velcro pour câbles</p>
+                                    <p class="text-sm font-medium text-gray-800">🪢 Velcro</p>
                                 </div>
                                 <button @click="toggleScratch"
                                     :class="localHasScratch
@@ -700,8 +1077,7 @@
                             <!-- Belge -->
                             <div class="flex items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-medium text-gray-800">👜 Belge / Sacoche</p>
-                                    <p class="text-xs text-gray-400">Housse ou sacoche de transport</p>
+                                    <p class="text-sm font-medium text-gray-800">👜 Belge</p>
                                 </div>
                                 <button @click="toggleBelge"
                                     :class="localHasBelge
@@ -717,6 +1093,33 @@
                            class="mt-3 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
                             Affiché sur la page retours pour rappel à l'admin.
                         </p>
+
+                        <!-- Note de vérification retour -->
+                        <div class="mt-4 pt-4 border-t">
+                            <p class="text-sm font-medium text-gray-800 mb-1">📋 Vérification à faire pour le retour</p>
+                            <p class="text-xs text-gray-400 mb-2">
+                                Message affiché en pop-up lors du scan retour et sous l'équipement sur la page retours.
+                            </p>
+                            <textarea
+                                v-model="localReturnCheckNote"
+                                rows="3"
+                                placeholder="Ex : Vérifier la présence du câble d'alimentation et de la télécommande…"
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none resize-none"
+                                @blur="saveReturnCheckNote"
+                            />
+                            <div class="flex items-center justify-between mt-1.5">
+                                <p class="text-xs text-gray-400">
+                                    <span v-if="returnCheckNoteSaved" class="text-green-600 font-medium">✓ Enregistré</span>
+                                    <span v-else-if="localReturnCheckNote">Cliquez hors du champ pour enregistrer</span>
+                                    <span v-else-if="asset.return_check_note">Effacez le texte puis cliquez hors du champ pour supprimer</span>
+                                </p>
+                                <button v-if="localReturnCheckNote"
+                                    @click="localReturnCheckNote = ''; saveReturnCheckNote()"
+                                    class="text-xs text-red-500 hover:text-red-700 underline">
+                                    Supprimer
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- ── Admin : QR Code ──────────────────────────────── -->
@@ -758,7 +1161,7 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import StatusBadge from '@/Components/StatusBadge.vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import axios from 'axios'
-import { ArrowLeftIcon, ClockIcon, QrCodeIcon, DocumentIcon, ArrowDownTrayIcon, BellIcon, ShoppingCartIcon, LinkIcon, PaperClipIcon, WrenchScrewdriverIcon, PencilIcon, PlusIcon, TrashIcon, PhotoIcon, XMarkIcon, CheckIcon as CheckIconSolid } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon, ClockIcon, QrCodeIcon, DocumentIcon, ArrowDownTrayIcon, BellIcon, ShoppingCartIcon, LinkIcon, PaperClipIcon, WrenchScrewdriverIcon, PencilIcon, PlusIcon, TrashIcon, PhotoIcon, XMarkIcon, CheckIcon as CheckIconSolid, PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { ref, onMounted, computed } from 'vue'
 import JsBarcode from 'jsbarcode'
 import { useCartStore } from '@/stores/cart'
@@ -778,10 +1181,24 @@ const props = defineProps({
     activeAssignment:  { type: Object,  default: null },
     assignedAssets:    { type: Array,   default: () => [] },
     assignableAssets:  { type: Array,   default: () => [] },
+    components:        { type: Array,   default: () => [] },
+    reports:           { type: Array,   default: () => [] },
 })
 
 const isAdmin = computed(() => page.props.auth?.user?.is_admin)
 const cart    = useCartStore()
+
+// ── État local is_reservable (mise à jour optimiste) ─────────────────────────
+const localIsReservable = ref(props.asset.is_reservable ?? true)
+
+async function toggleReservable() {
+    localIsReservable.value = !localIsReservable.value
+    try {
+        await axios.patch(route('assets.toggle-reservable', props.asset.id))
+    } catch {
+        localIsReservable.value = !localIsReservable.value // rollback
+    }
+}
 
 // ── État local scratch / belge (mise à jour optimiste) ───────────────────────
 const localHasScratch = ref(props.asset.has_scratch ?? false)
@@ -805,11 +1222,185 @@ async function toggleBelge() {
     }
 }
 
+// ── Étiquettes (label_to_create / label_to_apply) ─────────────────────────────
+const localLabelToCreate = ref(props.asset.label_to_create ?? false)
+const localLabelToApply  = ref(props.asset.label_to_apply  ?? false)
+
+async function toggleLabelCreate() {
+    localLabelToCreate.value = !localLabelToCreate.value
+    try {
+        await axios.patch(`/assets/${props.asset.id}/toggle-label-create`)
+    } catch (e) {
+        localLabelToCreate.value = !localLabelToCreate.value // rollback
+        console.error('toggleLabelCreate error:', e?.response?.status, e?.message)
+    }
+}
+
+async function toggleLabelApply() {
+    localLabelToApply.value = !localLabelToApply.value
+    try {
+        await axios.patch(`/assets/${props.asset.id}/toggle-label-apply`)
+    } catch (e) {
+        localLabelToApply.value = !localLabelToApply.value // rollback
+        console.error('toggleLabelApply error:', e?.response?.status, e?.message)
+    }
+}
+
+// ── Note de vérification retour ───────────────────────────────────────────────
+const localReturnCheckNote  = ref(props.asset.return_check_note ?? '')
+const returnCheckNoteSaved  = ref(false)
+let returnCheckNoteTimer    = null
+
+async function saveReturnCheckNote() {
+    try {
+        await axios.patch(route('assets.return-check-note', props.asset.id), {
+            return_check_note: localReturnCheckNote.value || null,
+        })
+        returnCheckNoteSaved.value = true
+        clearTimeout(returnCheckNoteTimer)
+        returnCheckNoteTimer = setTimeout(() => { returnCheckNoteSaved.value = false }, 2500)
+    } catch {}
+}
+
+// ── Note d'état de l'équipement (condition_note) ─────────────────────────────
+const localConditionNote    = ref(props.asset.condition_note ?? '')
+const editingConditionNote  = ref(false)
+const savingConditionNote   = ref(false)
+let   conditionNoteOriginal = props.asset.condition_note ?? ''
+
+function cancelConditionNote() {
+    localConditionNote.value  = conditionNoteOriginal
+    editingConditionNote.value = false
+}
+
+async function saveConditionNote() {
+    savingConditionNote.value = true
+    try {
+        await axios.patch(route('assets.condition-note', props.asset.id), {
+            condition_note: localConditionNote.value || null,
+        })
+        conditionNoteOriginal      = localConditionNote.value
+        editingConditionNote.value = false
+    } catch {
+        alert('Erreur lors de la sauvegarde.')
+    } finally {
+        savingConditionNote.value = false
+    }
+}
+
+// ── Condition des composants ──────────────────────────────────────────────────
+const CONDITION_CYCLE = [null, 'good', 'damaged', 'defective', 'missing']
+
+function componentConditionLabel(condition) {
+    const labels = { good: '✅ Bon état', damaged: '⚠️ Endommagé', missing: '❌ Manquant', defective: '🔧 Défectueux' }
+    return labels[condition] ?? condition
+}
+
+function componentConditionClass(condition) {
+    const classes = {
+        good:      'bg-green-100 text-green-700',
+        damaged:   'bg-orange-100 text-orange-700',
+        missing:   'bg-red-100 text-red-700',
+        defective: 'bg-yellow-100 text-yellow-700',
+    }
+    return classes[condition] ?? 'bg-gray-100 text-gray-600'
+}
+
+async function cycleComponentCondition(comp) {
+    const compIdx = localComponents.value.findIndex(c => c.id === comp.id)
+    if (compIdx === -1) return
+
+    const idx  = CONDITION_CYCLE.indexOf(localComponents.value[compIdx].condition ?? null)
+    const next = CONDITION_CYCLE[(idx + 1) % CONDITION_CYCLE.length]
+    const prev = localComponents.value[compIdx].condition
+
+    // Mise à jour optimiste via splice (réactivité garantie)
+    localComponents.value.splice(compIdx, 1, { ...localComponents.value[compIdx], condition: next })
+
+    try {
+        await axios.patch(route('assets.components.condition', [props.asset.id, comp.id]), {
+            condition: next,
+        })
+    } catch (e) {
+        // Retour arrière en cas d'erreur
+        localComponents.value.splice(compIdx, 1, { ...localComponents.value[compIdx], condition: prev })
+        console.error('Erreur condition composant:', e.response?.status, e.response?.data ?? e.message)
+        alert('Erreur lors de la mise à jour de l\'état.')
+    }
+}
+
+// ── Rapports utilisateurs ─────────────────────────────────────────────────────
+const localReports    = ref([...props.reports])
+const editingReportId = ref(null)
+const reportEditForm  = ref({ type: '', title: '', content: '', admin_notes: '' })
+
+function reportTypeIcon(type) {
+    const icons = { damage: '⚠️', loss: '❌', malfunction: '🔧', observation: '📋' }
+    return icons[type] ?? '📋'
+}
+
+function reportTypeBadgeClass(type) {
+    const classes = {
+        damage:      'bg-orange-100 text-orange-700',
+        loss:        'bg-red-100 text-red-700',
+        malfunction: 'bg-yellow-100 text-yellow-700',
+        observation: 'bg-blue-100 text-blue-700',
+    }
+    return classes[type] ?? 'bg-gray-100 text-gray-600'
+}
+
+async function validateReport(report) {
+    try {
+        const { data } = await axios.patch(route('asset-reports.validate', report.id))
+        const idx = localReports.value.findIndex(r => r.id === report.id)
+        if (idx !== -1) localReports.value.splice(idx, 1, data.report)
+    } catch {
+        alert('Erreur lors de la validation.')
+    }
+}
+
+function openEditReport(report) {
+    editingReportId.value = report.id
+    reportEditForm.value  = {
+        type:        report.type,
+        title:       report.title,
+        content:     report.content,
+        admin_notes: report.admin_notes ?? '',
+    }
+}
+
+async function saveReportEdit(report) {
+    try {
+        const { data } = await axios.put(route('asset-reports.update', report.id), reportEditForm.value)
+        const idx = localReports.value.findIndex(r => r.id === report.id)
+        if (idx !== -1) localReports.value.splice(idx, 1, data.report)
+        editingReportId.value = null
+    } catch {
+        alert('Erreur lors de l\'enregistrement.')
+    }
+}
+
+async function deleteReport(reportId) {
+    if (!confirm('Supprimer ce rapport définitivement ?')) return
+    try {
+        await axios.delete(route('asset-reports.destroy', reportId))
+        localReports.value = localReports.value.filter(r => r.id !== reportId)
+    } catch {
+        alert('Erreur lors de la suppression.')
+    }
+}
+
 function goBack() {
     if (window.history.length > 1) {
         window.history.back()
     } else {
         router.visit(route('assets.index'))
+    }
+}
+
+function confirmDelete() {
+    if (confirm(`Supprimer définitivement « ${props.asset.name} » ?\nCette action est irréversible.`)) {
+        router.delete(route('assets.destroy', props.asset.id))
     }
 }
 
@@ -885,6 +1476,126 @@ function returnAssignment(assignmentId) {
         preserveScroll: true,
         onFinish: () => { returningAssignId.value = null },
     })
+}
+
+// ── Composants de l'équipement ───────────────────────────────────────────────
+const localComponents     = ref([...props.components])
+const showComponentForm   = ref(false)
+const editingComponent    = ref(null)   // null = création, objet = édition
+const savingComponent     = ref(false)
+const componentForm       = ref({ name: '', description: '', quantity: 1 })
+const componentFeedback   = ref(null)   // { message, type } affiché après ajout
+let   componentFeedbackTimer = null
+
+// Indique si cet asset appartient à un modèle (pour l'UI de propagation)
+const hasModel = computed(() => !!props.asset.equipment_model_id)
+
+// Retire le suffixe " #N" d'un nom de composant
+function stripNumberSuffix(name) {
+    return name.replace(/ #\d+\s*$/, '').trim()
+}
+
+function setComponentFeedback(message, type = 'success') {
+    if (componentFeedbackTimer) clearTimeout(componentFeedbackTimer)
+    componentFeedback.value = { message, type }
+    componentFeedbackTimer = setTimeout(() => { componentFeedback.value = null }, 5000)
+}
+
+function openAddComponent() {
+    editingComponent.value  = null
+    componentForm.value     = { name: '', description: '', quantity: 1 }
+    showComponentForm.value = true
+}
+
+function openEditComponent(comp) {
+    editingComponent.value  = comp
+    // Pour l'édition on montre le nom de base (sans #N) pour faciliter la saisie
+    componentForm.value     = {
+        name:        hasModel.value ? stripNumberSuffix(comp.name) : comp.name,
+        description: comp.description ?? '',
+        quantity:    comp.quantity,
+    }
+    showComponentForm.value = true
+}
+
+function cancelComponentForm() {
+    showComponentForm.value = false
+    editingComponent.value  = null
+}
+
+async function submitComponent() {
+    if (!componentForm.value.name.trim()) return
+    savingComponent.value = true
+    try {
+        if (editingComponent.value) {
+            // Mise à jour uniquement sur cet équipement
+            const { data } = await axios.put(
+                route('assets.components.update', [props.asset.id, editingComponent.value.id]),
+                componentForm.value
+            )
+            const idx = localComponents.value.findIndex(c => c.id === data.id)
+            if (idx !== -1) localComponents.value.splice(idx, 1, data)
+            setComponentFeedback('Composant modifié.')
+        } else {
+            // Création avec propagation automatique
+            const { data } = await axios.post(
+                route('assets.components.store', props.asset.id),
+                componentForm.value
+            )
+            // Pousser un objet propre avec tous les champs attendus
+            localComponents.value.push({
+                id:          data.id,
+                name:        data.name,
+                description: data.description ?? null,
+                quantity:    data.quantity ?? 1,
+                sort_order:  data.sort_order ?? 0,
+                condition:   data.condition ?? null,
+            })
+            if (data.propagated_to > 0) {
+                setComponentFeedback(
+                    `✓ « ${data.base_name} » ajouté et propagé automatiquement à ${data.propagated_to} autre${data.propagated_to > 1 ? 's' : ''} équipement${data.propagated_to > 1 ? 's' : ''} du même modèle.`,
+                    'propagated'
+                )
+            } else {
+                setComponentFeedback(`✓ Composant « ${data.name} » ajouté.`)
+            }
+        }
+        showComponentForm.value = false
+        editingComponent.value  = null
+    } catch (e) {
+        alert(e.response?.data?.message ?? 'Erreur lors de l\'enregistrement.')
+    } finally {
+        savingComponent.value = false
+    }
+}
+
+// Modal de confirmation suppression (propagation ou non)
+const showDeleteCompModal = ref(false)
+const deleteCompTarget    = ref(null)
+
+function deleteComponent(comp) {
+    if (hasModel.value) {
+        // Proposer deux options : supprimer ici seulement ou sur tout le modèle
+        deleteCompTarget.value    = comp
+        showDeleteCompModal.value = true
+    } else {
+        doDeleteComponent(comp, false)
+    }
+}
+
+async function doDeleteComponent(comp, propagate) {
+    showDeleteCompModal.value = false
+    try {
+        await axios.delete(route('assets.components.destroy', [props.asset.id, comp.id]), {
+            data: { propagate },
+        })
+        localComponents.value = localComponents.value.filter(c => c.id !== comp.id)
+        if (propagate) {
+            setComponentFeedback(`✓ Composant « ${stripNumberSuffix(comp.name)} » supprimé sur tous les équipements du modèle.`, 'warning')
+        }
+    } catch (e) {
+        alert('Erreur lors de la suppression.')
+    }
 }
 
 // ── Fiche publique (admin) ────────────────────────────────────────────────────

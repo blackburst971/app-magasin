@@ -3,18 +3,29 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Computer extends Model
 {
     protected $fillable = [
+        'asset_id',
         'name', 'asset_tag', 'type', 'os', 'os_version',
-        'serial_number', 'ip_address', 'processor', 'ram',
+        'serial_number', 'ip_addresses', 'processor', 'ram',
         'photo', 'notes',
     ];
 
+    protected $casts = [
+        'ip_addresses' => 'array',
+    ];
+
     /* ── Relations ─────────────────────────────────────────────────────── */
+
+    public function asset(): BelongsTo
+    {
+        return $this->belongsTo(Asset::class);
+    }
 
     public function licenseAssignments(): HasMany
     {

@@ -47,8 +47,8 @@ function openCreate() {
   editingId.value = -1
   keyManual.value = false
   editForm.value  = {
-    key: '', label: '', color: 'blue',
-    blocks_reservation: false, is_active: true,
+    key: '', label: '', description: '', color: 'blue',
+    blocks_reservation: false, is_active: true, user_visible: true, hide_from_users: false,
     sort_order: props.statuses.length * 10,
   }
   errors.value = {}
@@ -158,6 +158,16 @@ function destroy(status) {
             </div>
           </div>
 
+          <!-- Description -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">
+              Description <span class="text-gray-400 font-normal">— optionnelle</span>
+            </label>
+            <textarea v-model="editForm.description" rows="2"
+              placeholder="Ex: Équipement en attente d'intervention technique…"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          </div>
+
           <!-- Couleur -->
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-2">Couleur du badge</label>
@@ -190,6 +200,16 @@ function destroy(status) {
                 class="w-4 h-4 text-blue-600 border-gray-300 rounded" />
               <span class="text-sm text-gray-700">Statut actif</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="editForm.user_visible"
+                class="w-4 h-4 text-emerald-600 border-gray-300 rounded" />
+              <span class="text-sm text-gray-700">Visible dans le filtre utilisateurs</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="editForm.hide_from_users"
+                class="w-4 h-4 text-orange-600 border-gray-300 rounded" />
+              <span class="text-sm text-gray-700">Masquer les équipements aux utilisateurs</span>
+            </label>
           </div>
         </div>
 
@@ -220,14 +240,26 @@ function destroy(status) {
             <div v-if="editingId !== status.id"
                  class="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/70 transition group">
               <span :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', dotClasses[status.color] ?? 'bg-gray-400']" />
-              <div class="flex-1 min-w-0 flex items-center gap-2.5 flex-wrap">
-                <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', colorClasses[status.color] ?? 'bg-gray-100 text-gray-800']">
-                  {{ status.label }}
-                </span>
-                <code class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono">{{ status.key }}</code>
-                <span v-if="status.blocks_reservation" class="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-medium">
-                  bloque les réservations
-                </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', colorClasses[status.color] ?? 'bg-gray-100 text-gray-800']">
+                    {{ status.label }}
+                  </span>
+                  <code class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono">{{ status.key }}</code>
+                  <span v-if="status.blocks_reservation" class="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-medium">
+                    bloque les réservations
+                  </span>
+                  <span v-if="status.hide_from_users" class="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full font-medium">
+                    masqué aux utilisateurs
+                  </span>
+                  <span v-if="status.user_visible" class="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
+                    visible dans le filtre
+                  </span>
+                  <span v-else class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                    masqué du filtre
+                  </span>
+                </div>
+                <p v-if="status.description" class="text-xs text-gray-400 mt-0.5 truncate max-w-sm">{{ status.description }}</p>
               </div>
               <button @click="openEdit(status)" title="Modifier"
                 class="p-1.5 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-0 group-hover:opacity-100">
@@ -254,6 +286,14 @@ function destroy(status) {
                   </div>
                 </div>
                 <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">
+                    Description <span class="text-gray-400 font-normal">— optionnelle</span>
+                  </label>
+                  <textarea v-model="editForm.description" rows="2"
+                    placeholder="Ex: Équipement en attente d'intervention technique…"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+                </div>
+                <div>
                   <label class="block text-xs font-medium text-gray-700 mb-2">Couleur</label>
                   <div class="flex flex-wrap gap-2">
                     <button v-for="(col, key) in colorPalette" :key="key" type="button"
@@ -271,11 +311,23 @@ function destroy(status) {
                     </span>
                   </div>
                 </div>
-                <div class="flex items-center gap-2">
-                  <input type="checkbox" v-model="editForm.blocks_reservation" :id="'br-sys-'+status.id"
-                    class="w-4 h-4 text-red-600 border-gray-300 rounded" />
-                  <label :for="'br-sys-'+status.id" class="text-sm text-gray-700 cursor-pointer">
-                    Bloque les réservations
+                <div class="flex flex-wrap gap-5">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" v-model="editForm.blocks_reservation" :id="'br-sys-'+status.id"
+                      class="w-4 h-4 text-red-600 border-gray-300 rounded" />
+                    <label :for="'br-sys-'+status.id" class="text-sm text-gray-700 cursor-pointer">
+                      Bloque les réservations
+                    </label>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" v-model="editForm.user_visible" :id="'uv-sys-'+status.id"
+                      class="w-4 h-4 text-emerald-600 border-gray-300 rounded" />
+                    <span class="text-sm text-gray-700">Visible dans le filtre utilisateurs</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" v-model="editForm.hide_from_users" :id="'hfu-sys-'+status.id"
+                      class="w-4 h-4 text-orange-600 border-gray-300 rounded" />
+                    <span class="text-sm text-gray-700">Masquer les équipements aux utilisateurs</span>
                   </label>
                 </div>
               </div>
@@ -316,17 +368,29 @@ function destroy(status) {
                  class="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/70 transition group">
               <Bars3Icon class="w-4 h-4 text-gray-300 flex-shrink-0 cursor-grab" title="Réordonner" />
               <span :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', dotClasses[status.color] ?? 'bg-gray-400']" />
-              <div class="flex-1 min-w-0 flex items-center gap-2.5 flex-wrap">
-                <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', colorClasses[status.color] ?? 'bg-gray-100 text-gray-800']">
-                  {{ status.label }}
-                </span>
-                <code class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono">{{ status.key }}</code>
-                <span v-if="status.blocks_reservation" class="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-medium">
-                  bloque les réservations
-                </span>
-                <span v-if="!status.is_active" class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                  inactif
-                </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', colorClasses[status.color] ?? 'bg-gray-100 text-gray-800']">
+                    {{ status.label }}
+                  </span>
+                  <code class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono">{{ status.key }}</code>
+                  <span v-if="status.blocks_reservation" class="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-medium">
+                    bloque les réservations
+                  </span>
+                  <span v-if="status.hide_from_users" class="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full font-medium">
+                    masqué aux utilisateurs
+                  </span>
+                  <span v-if="status.user_visible" class="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
+                    visible dans le filtre
+                  </span>
+                  <span v-else class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                    masqué du filtre
+                  </span>
+                  <span v-if="!status.is_active" class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                    inactif
+                  </span>
+                </div>
+                <p v-if="status.description" class="text-xs text-gray-400 mt-0.5 truncate max-w-sm">{{ status.description }}</p>
               </div>
               <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition">
                 <button @click="openEdit(status)" title="Modifier"
@@ -360,6 +424,14 @@ function destroy(status) {
                   </div>
                 </div>
                 <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">
+                    Description <span class="text-gray-400 font-normal">— optionnelle</span>
+                  </label>
+                  <textarea v-model="editForm.description" rows="2"
+                    placeholder="Ex: Équipement en attente d'intervention technique…"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+                </div>
+                <div>
                   <label class="block text-xs font-medium text-gray-700 mb-2">Couleur</label>
                   <div class="flex flex-wrap gap-2">
                     <button v-for="(col, key) in colorPalette" :key="key" type="button"
@@ -388,6 +460,16 @@ function destroy(status) {
                       class="w-4 h-4 text-blue-600 border-gray-300 rounded" />
                     <span class="text-sm text-gray-700">Statut actif</span>
                   </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" v-model="editForm.user_visible"
+                      class="w-4 h-4 text-emerald-600 border-gray-300 rounded" />
+                    <span class="text-sm text-gray-700">Visible dans le filtre utilisateurs</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" v-model="editForm.hide_from_users"
+                      class="w-4 h-4 text-orange-600 border-gray-300 rounded" />
+                    <span class="text-sm text-gray-700">Masquer les équipements aux utilisateurs</span>
+                  </label>
                 </div>
               </div>
               <div class="flex gap-3 mt-4">
@@ -414,6 +496,8 @@ function destroy(status) {
           <li>Un statut <strong>"bloque les réservations"</strong> empêche les utilisateurs de réserver l'équipement concerné.</li>
           <li>Supprimer un statut personnalisé remet tous les équipements associés à <strong>"Disponible"</strong>.</li>
           <li>La <strong>clé</strong> est l'identifiant interne unique (minuscules, chiffres, tirets bas).</li>
+          <li>L'option <strong>"Visible dans le filtre utilisateurs"</strong> contrôle si les utilisateurs (non-admins) peuvent filtrer par ce statut. Les admins voient toujours tous les statuts.</li>
+          <li>L'option <strong>"Masquer les équipements aux utilisateurs"</strong> rend tous les équipements portant ce statut complètement invisibles et non réservables côté utilisateurs. Les admins les voient toujours.</li>
         </ul>
       </div>
 

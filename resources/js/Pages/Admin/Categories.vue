@@ -58,10 +58,19 @@ function submitEdit() {
 }
 
 // ─── Suppression ─────────────────────────────────────────────────────────────
-const deleteForm = useForm({})
-function deleteCategory(c) {
-  if (!confirm(`Supprimer « ${c.name} » ?`)) return
-  deleteForm.delete(route('categories.destroy', c.id))
+const showDeleteModal = ref(false)
+const deleteTarget   = ref(null)
+const deleteForm     = useForm({})
+
+function openDeleteModal(c) {
+  deleteTarget.value = c
+  showDeleteModal.value = true
+}
+
+function confirmDelete() {
+  deleteForm.delete(route('categories.destroy', deleteTarget.value.id), {
+    onSuccess: () => { showDeleteModal.value = false; deleteTarget.value = null },
+  })
 }
 </script>
 
@@ -118,9 +127,9 @@ function deleteCategory(c) {
               class="flex items-center gap-1.5 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition">
               <PencilIcon class="w-3.5 h-3.5" /> Modifier
             </button>
-            <button @click="deleteCategory(c)"
-              class="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-600 border border-gray-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition ml-auto">
-              <TrashIcon class="w-3.5 h-3.5" />
+            <button @click="openDeleteModal(c)"
+              class="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 hover:bg-red-50 px-3 py-1.5 rounded-lg transition ml-auto">
+              <TrashIcon class="w-3.5 h-3.5" /> Supprimer
             </button>
           </div>
         </div>
@@ -228,6 +237,42 @@ function deleteCategory(c) {
           <button @click="submitEdit" :disabled="editForm.processing"
             class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {{ editForm.processing ? 'Sauvegarde…' : 'Enregistrer' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal Supprimer ═══ -->
+    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+            <TrashIcon class="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 class="font-bold text-gray-900">Supprimer « {{ deleteTarget?.name }} » ?</h3>
+            <p class="text-sm text-gray-500 mt-1">Cette action est irréversible.</p>
+          </div>
+        </div>
+
+        <div v-if="deleteTarget?.assets_count > 0"
+          class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
+          <span class="font-semibold">{{ deleteTarget.assets_count }} équipement(s)</span>
+          associé(s) à cette catégorie seront déliés (catégorie mise à vide).
+          Les équipements ne seront pas supprimés.
+        </div>
+        <div v-else class="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-4 text-sm text-gray-600">
+          Aucun équipement n'est associé à cette catégorie.
+        </div>
+
+        <div class="flex gap-3">
+          <button @click="showDeleteModal = false; deleteTarget = null"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+            Annuler
+          </button>
+          <button @click="confirmDelete" :disabled="deleteForm.processing"
+            class="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+            {{ deleteForm.processing ? 'Suppression…' : 'Supprimer' }}
           </button>
         </div>
       </div>

@@ -16,10 +16,21 @@ class EquipmentModelController extends Controller
 {
     public function index()
     {
+        // Récupère un asset représentatif par modèle pour pré-remplir coût/date d'achat
+        $purchaseByModel = Asset::select('equipment_model_id', 'purchase_cost', 'purchase_date')
+            ->whereNotNull('equipment_model_id')
+            ->where(fn($q) => $q->whereNotNull('purchase_cost')->orWhereNotNull('purchase_date'))
+            ->orderBy('id')
+            ->get()
+            ->unique('equipment_model_id')
+            ->keyBy('equipment_model_id');
+
         $models = EquipmentModel::with(['category', 'documents'])->withCount('assets')->orderBy('name')->get()
             ->map(fn($m) => array_merge($m->toArray(), [
                 'image_url'    => $m->image_url,
                 'assets_count' => $m->assets_count,
+                'purchase_cost'=> $purchaseByModel[$m->id]?->purchase_cost ?? null,
+                'purchase_date'=> $purchaseByModel[$m->id]?->purchase_date ?? null,
                 'documents'    => $m->documents->map(fn($d) => [
                     'id'            => $d->id,
                     'name'          => $d->name,
@@ -47,16 +58,27 @@ class EquipmentModelController extends Controller
             'category_id'     => 'nullable|exists:categories,id',
             'supplier_id'     => 'nullable|exists:suppliers,id',
             'description'     => 'nullable|string',
-            'image'           => 'nullable|image|max:2048',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
             'quantity'        => 'nullable|integer|min:0|max:500',
+            'purchase_cost'   => 'nullable|numeric|min:0',
+            'purchase_date'   => 'nullable|date',
         ]);
 
         if ($request->hasFile('image')) {
             $data['image'] = $request->file('image')->store('models', 'public');
         }
 
-        $quantity = (int) ($data['quantity'] ?? 0);
-        unset($data['quantity']);
+        $quantity     = (int) ($data['quantity'] ?? 0);
+        $purchaseCost = !empty($data['purchase_cost']) ? $data['purchase_cost'] : null;
+        $purchaseDate = !empty($data['purchase_date']) ? $data['purchase_date'] : null;
+        unset($data['quantity'], $data['purchase_cost'], $data['purchase_date']);
+
+        // Normaliser les chaînes vides en null pour les champs nullable
+        foreach (['manufacturer_id', 'category_id', 'supplier_id', 'manufacturer', 'description', 'image'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
 
         // Résoudre manufacturer_id depuis le texte si besoin
         $data = $this->resolveManufacturerId($data);
@@ -69,7 +91,7 @@ class EquipmentModelController extends Controller
 
         // Auto-create assets if quantity > 0
         if ($quantity > 0) {
-            $this->createAssetsForModel($model, $quantity);
+            $this->createAssetsForModel($model, $quantity, $purchaseCost, $purchaseDate);
         }
 
         return back()->with('success', "Modèle créé avec succès" . ($quantity > 0 ? " — {$quantity} équipement(s) créé(s)." : '.'));
@@ -86,7 +108,7 @@ class EquipmentModelController extends Controller
         return back()->with('success', "{$data['quantity']} équipement(s) ajouté(s) au modèle « {$model->name} ».");
     }
 
-    private function createAssetsForModel(EquipmentModel $model, int $quantity): void
+    private function createAssetsForModel(EquipmentModel $model, int $quantity, $purchaseCost = null, $purchaseDate = null): void
     {
         // Start numbering after existing assets to avoid duplicates like "#1", "#1"
         $existingCount = $model->assets()->count();
@@ -107,10 +129,12 @@ class EquipmentModelController extends Controller
                 'equipment_model_id' => $model->id,
                 'category_id'        => $model->category_id,
                 'manufacturer'       => $model->manufacturer,
-                'manufacturer_id'    => $model->manufacturer_id,  // ← propagation correcte
+                'manufacturer_id'    => $model->manufacturer_id,
                 'status'             => 'available',
                 'is_reservable'      => true,
                 'image'              => $model->image,
+                'purchase_cost'      => $purchaseCost,
+                'purchase_date'      => $purchaseDate,
             ]);
         }
     }
@@ -137,34 +161,139 @@ class EquipmentModelController extends Controller
             'category_id'     => 'nullable|exists:categories,id',
             'supplier_id'     => 'nullable|exists:suppliers,id',
             'description'     => 'nullable|string',
-            'image'           => 'nullable|image|max:2048',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
+            'purchase_cost'   => 'nullable|numeric|min:0',
+            'purchase_date'   => 'nullable|date',
         ]);
+
+        // Extraire les champs de propagation (non stockés sur le modèle)
+        $purchaseCost = !empty($data['purchase_cost']) ? $data['purchase_cost'] : null;
+        $purchaseDate = !empty($data['purchase_date']) ? $data['purchase_date'] : null;
+        $hasPurchaseData = $request->filled('purchase_cost') || $request->filled('purchase_date');
+        unset($data['purchase_cost'], $data['purchase_date']);
 
         if ($request->hasFile('image')) {
             if ($model->image && !str_starts_with($model->image, 'http')) {
                 Storage::disk('public')->delete($model->image);
             }
             $data['image'] = $request->file('image')->store('models', 'public');
+        } else {
+            unset($data['image']); // conserver l'image existante si aucun nouveau fichier
+        }
+
+        // Normaliser les chaînes vides en null pour les champs nullable
+        foreach (['manufacturer_id', 'category_id', 'supplier_id', 'manufacturer', 'description'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
         }
 
         $data = $this->resolveManufacturerId($data);
 
         $oldManufacturerId = $model->manufacturer_id;
+        $oldCategoryId     = $model->category_id;
         $model->update($data);
 
-        // Propager manufacturer_id et manufacturer aux assets du modèle
+        // Propager les champs hérités aux assets liés
+        $assetUpdate = [];
+
         if (($data['manufacturer_id'] ?? null) !== $oldManufacturerId) {
-            $model->assets()->update([
-                'manufacturer_id' => $model->manufacturer_id,
-                'manufacturer'    => $model->manufacturer,
-            ]);
+            $assetUpdate['manufacturer_id'] = $model->manufacturer_id;
+            $assetUpdate['manufacturer']    = $model->manufacturer;
+        }
+
+        if (($data['category_id'] ?? null) !== $oldCategoryId) {
+            $assetUpdate['category_id'] = $model->category_id;
+        }
+
+        if ($hasPurchaseData) {
+            $assetUpdate['purchase_cost'] = $purchaseCost;
+            $assetUpdate['purchase_date'] = $purchaseDate;
+        }
+
+        if (!empty($assetUpdate)) {
+            $model->assets()->update($assetUpdate);
         }
 
         if (isset($data['image'])) {
             $model->propagateImageToAssets();
         }
 
-        return back()->with('success', 'Modèle mis à jour. Fabricant propagé à tous les équipements liés.');
+        $msg = 'Modèle mis à jour.';
+        if (!empty($assetUpdate)) {
+            $msg .= ' Modifications propagées à tous les équipements liés.';
+        }
+
+        return back()->with('success', $msg);
+    }
+
+    public function bulkUpdate(Request $request)
+    {
+        $request->validate([
+            'ids'             => 'required|array|min:1',
+            'ids.*'           => 'exists:equipment_models,id',
+            'manufacturer_id' => 'nullable|exists:manufacturers,id',
+            'category_id'     => 'nullable|exists:categories,id',
+            'supplier_id'     => 'nullable|exists:suppliers,id',
+            'purchase_cost'   => 'nullable|numeric|min:0',
+            'purchase_date'   => 'nullable|date',
+        ]);
+
+        $models      = EquipmentModel::whereIn('id', $request->ids)->get();
+        $modelUpdate = [];
+        $assetUpdate = [];
+
+        // Chaque champ n'est appliqué que s'il est explicitement présent dans la requête
+        if ($request->has('manufacturer_id')) {
+            $manufacturerId = $request->input('manufacturer_id') ?: null;
+            $modelUpdate['manufacturer_id'] = $manufacturerId;
+            if ($manufacturerId) {
+                $mfr = Manufacturer::find($manufacturerId);
+                $modelUpdate['manufacturer'] = $mfr?->name;
+                $assetUpdate['manufacturer_id'] = $manufacturerId;
+                $assetUpdate['manufacturer']    = $mfr?->name;
+            } else {
+                $modelUpdate['manufacturer'] = null;
+                $assetUpdate['manufacturer_id'] = null;
+                $assetUpdate['manufacturer']    = null;
+            }
+        }
+
+        if ($request->has('category_id')) {
+            $categoryId = $request->input('category_id') ?: null;
+            $modelUpdate['category_id'] = $categoryId;
+            $assetUpdate['category_id'] = $categoryId;
+        }
+
+        if ($request->has('supplier_id')) {
+            $modelUpdate['supplier_id'] = $request->input('supplier_id') ?: null;
+        }
+
+        if ($request->has('purchase_cost')) {
+            $assetUpdate['purchase_cost'] = $request->input('purchase_cost') ?: null;
+        }
+
+        if ($request->has('purchase_date')) {
+            $assetUpdate['purchase_date'] = $request->input('purchase_date') ?: null;
+        }
+
+        $count = 0;
+        foreach ($models as $model) {
+            if (!empty($modelUpdate)) {
+                $model->update($modelUpdate);
+            }
+            if (!empty($assetUpdate)) {
+                $model->assets()->update($assetUpdate);
+            }
+            $count++;
+        }
+
+        $msg = "{$count} modèle(s) mis à jour.";
+        if (!empty($assetUpdate)) {
+            $msg .= ' Modifications propagées aux équipements liés.';
+        }
+
+        return back()->with('success', $msg);
     }
 
     public function duplicate(EquipmentModel $model)

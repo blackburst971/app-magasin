@@ -11,23 +11,24 @@ Artisan::command('inspire', function () {
 // Rappels de retour — scrute les réservations actives toutes les minutes
 Schedule::command('app:send-return-reminders')
     ->everyMinute()
-    ->withoutOverlapping()
-    ->runInBackground();
+    ->withoutOverlapping();
 
 // Annulation automatique — scrute les réservations approuvées non retirées toutes les heures
 Schedule::command('app:cancel-expired-reservations')
     ->hourly()
-    ->withoutOverlapping()
-    ->runInBackground();
+    ->withoutOverlapping();
 
 // Alertes stock bas consommables — une fois par jour à 8h
 Schedule::command('app:check-low-stock')
     ->dailyAt('08:00')
-    ->withoutOverlapping()
-    ->runInBackground();
+    ->withoutOverlapping();
 
 // Rappels de tâches To-Do — toutes les minutes
 Schedule::command('app:check-todo-reminders')
     ->everyMinute()
-    ->withoutOverlapping()
-    ->runInBackground();
+    ->withoutOverlapping();
+
+// Remise automatique de préparations — toutes les minutes
+Schedule::command('app:auto-checkout-preparations')
+    ->everyMinute()
+    ->withoutOverlapping();

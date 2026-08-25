@@ -7,6 +7,7 @@ use App\Models\AssetStatus;
 use App\Models\Reservation;
 use App\Models\Category;
 use App\Models\Setting;
+use App\Models\TodoTask;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,22 @@ class DashboardController extends Controller
                     ]);
             }
 
+            // Toutes les réservations actives (matériel sorti) — pour les compteurs du dashboard
+            $checkoutReservations = Reservation::with(['user', 'assets'])
+                ->where('status', 'active')
+                ->orderBy('end_date')
+                ->get()
+                ->map(fn($r) => [
+                    'id'          => $r->id,
+                    'title'       => $r->title,
+                    'user'        => $r->user->name,
+                    'end_date'    => $r->end_date->format('d/m/Y H:i'),
+                    'end_date_ts' => $r->end_date->timestamp,
+                    'assets'      => $r->assets->map(fn($a) => $a->name)->join(', '),
+                    'assets_count'=> $r->assets->count(),
+                    'is_overdue'  => $r->end_date->lt(now()),
+                ]);
+
             // Réservations en retard (actives avec end_date dépassée)
             $overdueReturns = Reservation::with(['user', 'assets'])
                 ->where('status', 'active')
@@ -52,12 +69,13 @@ class DashboardController extends Controller
                 ->orderBy('end_date')
                 ->get()
                 ->map(fn($r) => [
-                    'id'           => $r->id,
-                    'title'        => $r->title,
-                    'user'         => $r->user->name,
-                    'end_date'     => $r->end_date->format('d/m/Y H:i'),
-                    'assets_count' => $r->assets->count(),
-                    'assets'       => $r->assets->map(fn($a) => $a->name)->join(', '),
+                    'id'              => $r->id,
+                    'title'           => $r->title,
+                    'user'            => $r->user->name,
+                    'end_date'        => $r->end_date->format('d/m/Y H:i'),
+                    'end_date_ts'     => $r->end_date->timestamp,
+                    'assets_count'    => $r->assets->count(),
+                    'assets'          => $r->assets->map(fn($a) => $a->name)->join(', '),
                     'minutes_overdue' => (int) $r->end_date->diffInMinutes(now()),
                 ]);
 
@@ -89,17 +107,18 @@ class DashboardController extends Controller
                 });
 
             $stats = [
-                'total_assets'           => Asset::count(),
-                'available_assets'       => Asset::where('status', 'available')->count(),
-                'checked_out_assets'     => Asset::where('status', 'checked_out')->count(),
-                'maintenance_assets'     => Asset::where('status', 'maintenance')->count(),
-                'pending_reservations'   => Reservation::pending()->count(),
-                'approved_reservations'  => Reservation::approved()->count(),
-                'active_reservations'    => Reservation::active()->count(),
-                'total_users'            => User::count(),
-                'total_categories'       => Category::count(),
-                'upcoming_returns'       => $upcomingReturns->count(),
-                'overdue_returns'        => $overdueReturns->count(),
+                'total_assets'              => Asset::count(),
+                'available_assets'          => Asset::where('status', 'available')->count(),
+                'checked_out_assets'        => Asset::where('status', 'checked_out')->count(),
+                'maintenance_assets'        => Asset::where('status', 'maintenance')->count(),
+                'pending_reservations'      => Reservation::pending()->count(),
+                'approved_reservations'     => Reservation::approved()->count(),
+                'active_reservations'       => Reservation::active()->count(),
+                'awaiting_supervisor'       => Reservation::awaitingSupervisor()->count(),
+                'total_users'               => User::count(),
+                'total_categories'          => Category::count(),
+                'upcoming_returns'          => $upcomingReturns->count(),
+                'overdue_returns'           => $overdueReturns->count(),
             ];
 
             $pendingReservations = Reservation::with(['user', 'assets'])
@@ -129,6 +148,30 @@ class DashboardController extends Controller
                     'user' => $m->user->name ?? 'Système',
                     'action' => $m->action_label,
                     'created_at' => $m->created_at->format('d/m/Y H:i'),
+                ]);
+
+            // ── Récapitulatif To-Do ────────────────────────────────────────────────
+            // Tâches non terminées avec due_date, sur les 30 prochains jours + déjà en retard
+            $todoTasks = TodoTask::with(['assignedTo:id,name', 'project:id,name,color', 'labels:id,name,color'])
+                ->whereNull('parent_task_id')
+                ->where('status', '!=', 'done')
+                ->whereNotNull('due_date')
+                ->where('due_date', '<=', now()->addDays(30))
+                ->orderBy('due_date')
+                ->get()
+                ->map(fn($t) => [
+                    'id'          => $t->id,
+                    'title'       => $t->title,
+                    'due_date'    => $t->due_date->format('Y-m-d'),
+                    'due_label'   => $t->due_date->format('d/m/Y'),
+                    'is_overdue'  => $t->due_date->lt(now()->startOfDay()),
+                    'is_today'    => $t->due_date->isToday(),
+                    'is_tomorrow' => $t->due_date->isTomorrow(),
+                    'priority'    => $t->priority,
+                    'status'      => $t->status,
+                    'project'     => ['id' => $t->project->id, 'name' => $t->project->name, 'color' => $t->project->color],
+                    'assigned_to' => $t->assignedTo ? $t->assignedTo->name : null,
+                    'labels'      => $t->labels->map(fn($l) => ['name' => $l->name, 'color' => $l->color])->values(),
                 ]);
 
             // ── Données graphiques ─────────────────────────────────────────────────
@@ -162,11 +205,12 @@ class DashboardController extends Controller
 
             return Inertia::render('Dashboard', [
                 'stats'                => $stats,
-                'pendingReservations'  => $pendingReservations,
-                'approvedReservations' => $approvedReservations,
-                'recentMovements'      => $recentMovements,
-                'upcomingReturns'      => $upcomingReturns,
-                'overdueReturns'       => $overdueReturns,
+                'pendingReservations'   => $pendingReservations,
+                'approvedReservations'  => $approvedReservations,
+                'recentMovements'       => $recentMovements,
+                'upcomingReturns'       => $upcomingReturns,
+                'overdueReturns'        => $overdueReturns,
+                'checkoutReservations'  => $checkoutReservations,
                 'reminderMinutes'      => $reminderMinutes,
                 'reminderEnabled'      => $reminderEnabled,
                 'autoCancelEnabled'    => $autoCancelEnabled,
@@ -174,6 +218,7 @@ class DashboardController extends Controller
                 'reservationsByMonth'  => $reservationsByMonth,
                 'assetsByStatus'       => $assetsByStatus,
                 'topAssets'            => $topAssets,
+                'todoTasks'            => $todoTasks,
             ]);
         }
 
@@ -185,11 +230,12 @@ class DashboardController extends Controller
             ->take(5)
             ->get()
             ->map(fn($r) => [
-                'id' => $r->id,
-                'title' => $r->title,
-                'start_date' => $r->start_date->format('d/m/Y H:i'),
-                'end_date' => $r->end_date->format('d/m/Y H:i'),
-                'status' => $r->status,
+                'id'           => $r->id,
+                'title'        => $r->title,
+                'start_date'   => $r->start_date->format('d/m/Y H:i'),
+                'end_date'     => $r->end_date->format('d/m/Y H:i'),
+                'end_date_ts'  => $r->end_date->timestamp,
+                'status'       => $r->status,
                 'status_label' => $r->status_label,
                 'status_color' => $r->status_color,
                 'assets_count' => $r->assets->count(),

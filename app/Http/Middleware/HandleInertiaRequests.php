@@ -42,6 +42,10 @@ class HandleInertiaRequests extends Middleware
                 'categories'    => \App\Models\Setting::get('tab_categories', 'true') === 'true',
                 'locations'     => \App\Models\Setting::get('tab_locations', 'true') === 'true',
                 'manufacturers' => \App\Models\Setting::get('tab_manufacturers', 'true') === 'true',
+                // Accès page Commandes par rôle
+                'section_procurement_professeur_read' => \App\Models\Setting::get('section_procurement_professeur_read', 'false'),
+                'section_procurement_personnel_read'  => \App\Models\Setting::get('section_procurement_personnel_read', 'false'),
+                'section_procurement_etudiant_read'   => \App\Models\Setting::get('section_procurement_etudiant_read', 'false'),
             ] : null,
             'unreadNotifications' => fn () => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
             'flash' => [

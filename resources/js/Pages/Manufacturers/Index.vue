@@ -78,6 +78,7 @@ function deleteManufacturer(m, e) {
 
 // ─── Navigation vers les équipements du fabricant ────────────────────────────
 function viewAssets(m) {
+  try { sessionStorage.removeItem('assets_filters') } catch (_) {}
   router.get(route('assets.index'), { manufacturer: m.id })
 }
 </script>

@@ -17,11 +17,13 @@ class CheckoutFormField extends Model
         'options',
         'required',
         'order',
+        'col_span',
     ];
 
     protected $casts = [
-        'options' => 'array',
+        'options'  => 'array',
         'required' => 'boolean',
+        'col_span' => 'integer',
     ];
 
     public function form()

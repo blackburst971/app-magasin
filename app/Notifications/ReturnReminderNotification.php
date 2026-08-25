@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Models\Setting;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -18,7 +19,12 @@ class ReturnReminderNotification extends Notification
 
     public function via($notifiable): array
     {
-        return ['database', 'mail'];
+        $channel = Setting::get('return_reminder_channel', 'both');
+        return match ($channel) {
+            'notification' => ['database'],
+            'email'        => ['mail'],
+            default        => ['database', 'mail'],
+        };
     }
 
     public function toArray($notifiable): array

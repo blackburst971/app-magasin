@@ -3,7 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import StatusBadge from '@/Components/StatusBadge.vue'
 import SignaturePad from '@/Components/SignaturePad.vue'
 import AssetThumbnail from '@/Components/AssetThumbnail.vue'
-import { router, usePage } from '@inertiajs/vue3'
+import { Link, router, usePage } from '@inertiajs/vue3'
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import axios from 'axios'
 
@@ -12,10 +12,11 @@ const isAdmin = computed(() => page.props.auth.user?.is_admin)
 const isOwner = computed(() => page.props.auth.user?.id === props.reservation?.user_id)
 
 const props = defineProps({
-  reservation:      Object,
-  isAdmin:          Boolean,
-  isSupervisor:     Boolean,
-  activeCheckoutForm: Object,
+  reservation:        Object,
+  isAdmin:            Boolean,
+  isSupervisor:       Boolean,
+  checkoutForms: { type: Array, default: () => [] },
+  allUsers:           { type: Array, default: () => [] },
 })
 
 const showRejectModal    = ref(false)
@@ -23,6 +24,8 @@ const rejectNotes        = ref('')
 const supervisorRejectNotes = ref('')
 const showSupervisorRejectModal = ref(false)
 const showDeleteModal    = ref(false)
+const showAdminCancelModal = ref(false)
+const adminCancelReason  = ref('')
 const processing         = ref('')
 const manualReturning    = ref(null)  // asset.id en cours de retour manuel
 
@@ -133,6 +136,13 @@ const rejectReservation = () => {
 const cancelReservation = () => {
   if (!confirm('Annuler cette réservation ?')) return
   router.post(route('reservations.cancel', props.reservation.id))
+}
+
+const adminCancelReservation = () => {
+  processing.value = 'admin-cancel'
+  router.post(route('reservations.cancel', props.reservation.id), { reason: adminCancelReason.value }, {
+    onFinish: () => { processing.value = ''; showAdminCancelModal.value = false },
+  })
 }
 
 const deleteReservation = () => {
@@ -306,6 +316,41 @@ function modalRemoveAsset(asset) {
   })
 }
 
+// ─── Participants supplémentaires (admin) ──────────────────────────────────────
+const participants      = ref([...(props.reservation.additional_users ?? [])])
+const participantSearch = ref('')
+const participantAdding = ref(false)
+const participantError  = ref('')
+
+const participantCandidates = computed(() => {
+  const q     = participantSearch.value.trim().toLowerCase()
+  const taken = new Set([props.reservation.user_id, ...participants.value.map(u => u.id)])
+  return props.allUsers.filter(u => !taken.has(u.id) && (
+    !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+  )).slice(0, 8)
+})
+
+async function addParticipant(user) {
+  participantAdding.value = true
+  participantError.value  = ''
+  try {
+    await axios.post(route('reservations.users.add', props.reservation.id), { user_id: user.id })
+    participants.value.push({ id: user.id, name: user.name, email: user.email })
+    participantSearch.value = ''
+  } catch (e) {
+    participantError.value = e.response?.data?.error ?? 'Erreur'
+  } finally {
+    participantAdding.value = false
+  }
+}
+
+async function removeParticipant(user) {
+  try {
+    await axios.delete(route('reservations.users.remove', [props.reservation.id, user.id]))
+    participants.value = participants.value.filter(u => u.id !== user.id)
+  } catch {}
+}
+
 watch(assetSearch, (val) => {
   clearTimeout(searchTimeout)
   if (!val.trim()) { assetSearchResults.value = []; return }
@@ -357,22 +402,69 @@ function removeAssetFromReservation(asset) {
 const statusIcon = computed(() => {
   const s = props.reservation.status
   if (s === 'awaiting_supervisor') return '✍️'
-  if (s === 'pending')   return '⏳'
-  if (s === 'approved')  return '✅'
-  if (s === 'active')    return '📦'
-  if (s === 'returned')  return '✓'
+  if (s === 'pending')        return '⏳'
+  if (s === 'approved')       return '✅'
+  if (s === 'en_preparation') return '📋'
+  if (s === 'active')         return '📦'
+  if (s === 'returned')       return '✓'
   return '❌'
 })
 
 const statusDescription = computed(() => {
   const s = props.reservation.status
   if (s === 'awaiting_supervisor') return 'En attente de la signature du responsable'
-  if (s === 'pending')   return 'En attente de validation administrateur'
-  if (s === 'approved')  return 'Validée — Prête au retrait'
-  if (s === 'active')    return 'Matériel en cours d\'utilisation'
-  if (s === 'returned')  return 'Matériel retourné'
+  if (s === 'pending')        return 'En attente de validation administrateur'
+  if (s === 'approved')       return 'Validée — Prête au retrait'
+  if (s === 'en_preparation') return 'Équipements en cours de préparation'
+  if (s === 'active')         return 'Matériel en cours d\'utilisation'
+  if (s === 'returned')       return 'Matériel retourné'
   return 'Réservation annulée ou refusée'
 })
+
+// ── Rapports utilisateurs ──────────────────────────────────────────────────────
+const showReportModal  = ref(false)
+const reportModalAsset = ref(null)
+const reportSubmitting = ref(false)
+const reportError      = ref('')
+const reportSuccess    = ref('')
+const reportForm       = ref({ type: '', title: '', content: '' })
+
+const reportTypes = [
+  { value: 'damage',      label: '⚠️ Dégradation' },
+  { value: 'loss',        label: '❌ Perte' },
+  { value: 'malfunction', label: '🔧 Dysfonctionnement' },
+  { value: 'observation', label: '📋 Observation' },
+]
+
+function openReportModal(asset) {
+  reportModalAsset.value = asset
+  reportForm.value       = { type: '', title: '', content: '' }
+  reportError.value      = ''
+  reportSuccess.value    = ''
+  showReportModal.value  = true
+}
+
+async function submitReport() {
+  if (!reportForm.value.type || !reportForm.value.title.trim() || !reportForm.value.content.trim()) return
+  reportSubmitting.value = true
+  reportError.value      = ''
+  reportSuccess.value    = ''
+  try {
+    const { data } = await axios.post(route('reservations.report', props.reservation.id), {
+      asset_id: reportModalAsset.value.id,
+      type:     reportForm.value.type,
+      title:    reportForm.value.title,
+      content:  reportForm.value.content,
+    })
+    reportSuccess.value = data.message ?? 'Rapport envoyé. L\'administrateur en sera informé.'
+    reportForm.value    = { type: '', title: '', content: '' }
+    setTimeout(() => { showReportModal.value = false }, 2500)
+  } catch (e) {
+    reportError.value = e.response?.data?.message ?? 'Erreur lors de l\'envoi.'
+  } finally {
+    reportSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -440,6 +532,13 @@ const statusDescription = computed(() => {
               class="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition inline-flex items-center gap-1.5">
               🖨️ Fiche de sortie
             </a>
+          </template>
+          <!-- Annuler (admin) — pour les réservations approuvées ou actives -->
+          <template v-if="['pending','approved','active'].includes(reservation.status)">
+            <button @click="adminCancelReason = ''; showAdminCancelModal = true"
+              class="border border-orange-300 text-orange-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-50 transition">
+              🚫 Annuler
+            </button>
           </template>
           <!-- Supprimer — toujours disponible pour l'admin -->
           <button @click="showDeleteModal = true"
@@ -557,6 +656,58 @@ const statusDescription = computed(() => {
                 <dd class="text-gray-700 bg-blue-50 p-3 rounded-lg">{{ reservation.admin_notes }}</dd>
               </div>
             </dl>
+          </div>
+
+          <!-- ── Participants supplémentaires (admin) ── -->
+          <div class="bg-white rounded-xl shadow-sm border p-6">
+            <h2 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              👥 Participants
+              <span class="text-xs font-normal bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                {{ 1 + participants.length }} personne(s)
+              </span>
+            </h2>
+
+            <!-- Demandeur principal (non-modifiable) -->
+            <div class="flex items-center justify-between py-2 px-3 bg-indigo-50 rounded-lg border border-indigo-100 mb-2 text-sm">
+              <div>
+                <span class="font-medium text-gray-900">{{ reservation.user?.name }}</span>
+                <span class="ml-2 text-xs text-gray-500">{{ reservation.user?.email }}</span>
+              </div>
+              <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">Demandeur principal</span>
+            </div>
+
+            <!-- Participants ajoutés -->
+            <div v-for="u in participants" :key="u.id"
+                 class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg border border-gray-200 mb-2 text-sm">
+              <div>
+                <span class="font-medium text-gray-900">{{ u.name }}</span>
+                <span class="ml-2 text-xs text-gray-500">{{ u.email }}</span>
+              </div>
+              <button v-if="isAdmin" @click="removeParticipant(u)"
+                class="text-xs text-red-500 hover:text-red-700 px-2 py-0.5 rounded hover:bg-red-50 transition">✕ Retirer</button>
+            </div>
+
+            <!-- Ajouter un participant (admin) -->
+            <template v-if="isAdmin">
+              <div class="mt-3 relative">
+                <input v-model="participantSearch" type="text"
+                  placeholder="Rechercher un utilisateur à ajouter…"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                <div v-if="participantSearch.trim() && participantCandidates.length"
+                     class="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <button v-for="u in participantCandidates" :key="u.id"
+                    @click="addParticipant(u)"
+                    :disabled="participantAdding"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-indigo-50 text-left transition disabled:opacity-50">
+                    <span class="font-medium text-gray-900">{{ u.name }}</span>
+                    <span class="text-xs text-gray-500">{{ u.email }}</span>
+                  </button>
+                </div>
+                <p v-if="participantSearch.trim() && !participantCandidates.length"
+                   class="mt-1 text-xs text-gray-400">Aucun utilisateur trouvé</p>
+              </div>
+              <p v-if="participantError" class="mt-1 text-xs text-red-600">{{ participantError }}</p>
+            </template>
           </div>
 
           <!-- Signature superviseur affichée (après approbation) -->
@@ -699,23 +850,92 @@ const statusDescription = computed(() => {
             </div>
           </div>
 
-          <!-- Formulaire de sortie -->
-          <div v-if="reservation.form_response" class="bg-white rounded-xl shadow-sm border p-6">
-            <h2 class="font-semibold text-gray-900 mb-4">📝 Feuille de sortie</h2>
-            <div class="space-y-3 text-sm">
-              <div v-for="(value, key) in reservation.form_response.responses" :key="key">
-                <p class="text-gray-500 text-xs">{{ key }}</p>
-                <p class="font-medium">{{ value }}</p>
+          <!-- ══ Formulaires de sortie ══ -->
+          <div v-if="checkoutForms.length > 0" class="bg-white rounded-xl shadow-sm border overflow-hidden">
+            <div class="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <h2 class="font-semibold text-gray-900 flex items-center gap-2">
+                📋 Formulaires
+                <span class="text-xs font-normal text-gray-400">({{ checkoutForms.filter(f => f.has_response).length }}/{{ checkoutForms.length }} rempli(s))</span>
+              </h2>
+              <a v-if="isAdmin && checkoutForms.some(f => f.has_response)"
+                 :href="route('reservations.print', reservation.id)"
+                 class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                🖨️ Fiche de sortie
+              </a>
+            </div>
+            <div class="divide-y divide-gray-100">
+              <div v-for="cf in checkoutForms" :key="cf.id"
+                   class="px-5 py-4 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-sm font-medium text-gray-800">{{ cf.name }}</span>
+                    <!-- Badge statut formulaire -->
+                    <span v-if="cf.status === 'required_before'"
+                          class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                      🟡 Obligatoire avant
+                    </span>
+                    <span v-else-if="cf.status === 'required_after'"
+                          class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                      🟢 Obligatoire après
+                    </span>
+                    <span v-else
+                          class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                      🔵 Optionnel
+                    </span>
+                    <!-- Badge rempli/non rempli -->
+                    <span v-if="cf.has_response"
+                          class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                      ✓ Rempli
+                    </span>
+                    <span v-else
+                          class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                      Non rempli
+                    </span>
+                  </div>
+                  <p v-if="cf.has_response" class="text-xs text-gray-400 mt-0.5">
+                    Soumis le {{ cf.submitted_at }}
+                  </p>
+                  <p v-else-if="cf.status === 'required_after' && ['approved','active'].includes(reservation.status)"
+                     class="text-xs text-orange-500 mt-0.5">
+                    ⚠️ Ce formulaire doit être rempli avant l'impression de la fiche de sortie
+                  </p>
+                </div>
+                <a :href="route('checkout-forms.fill', [cf.id, reservation.id])"
+                   class="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg border transition font-medium"
+                   :class="cf.has_response
+                     ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                     : (cf.status !== 'optional' ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100' : 'border-blue-300 text-blue-600 hover:bg-blue-50')">
+                  {{ cf.has_response ? '✏️ Modifier' : '📝 Remplir' }}
+                </a>
               </div>
             </div>
           </div>
-          <div v-else-if="activeCheckoutForm && ['approved','active'].includes(reservation.status)"
-               class="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-            <p class="text-sm text-yellow-800 font-medium mb-2">📋 Feuille de sortie à remplir</p>
-            <a :href="route('checkout-forms.fill', [activeCheckoutForm.id, reservation.id])"
-              class="text-sm text-yellow-700 underline hover:text-yellow-900">
-              Remplir le formulaire →
-            </a>
+
+          <!-- ══ Rapports utilisateurs (retours) ══ -->
+          <div v-if="reservation.status === 'returned' || (isAdmin && reservation.assets?.length > 0)"
+               class="bg-white rounded-xl shadow-sm border overflow-hidden">
+            <div class="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <h2 class="font-semibold text-gray-900 flex items-center gap-2">
+                📋 Rapports d'état
+              </h2>
+              <span class="text-xs text-gray-400">Signalez un problème constaté à l'utilisation</span>
+            </div>
+            <div class="divide-y divide-gray-100">
+              <div v-for="asset in reservation.assets" :key="'rpt-'+asset.id"
+                   class="px-5 py-3 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <AssetThumbnail :src="asset.image_url" :alt="asset.name" size="sm" />
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-900 truncate">{{ asset.name }}</p>
+                    <p class="text-xs text-gray-400 font-mono">{{ asset.asset_tag }}</p>
+                  </div>
+                </div>
+                <button @click="openReportModal(asset)"
+                        class="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg border border-orange-300 text-orange-700 hover:bg-orange-50 transition font-medium">
+                  ⚠️ Signaler
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- ══ Chat messagerie ══ -->
@@ -1111,6 +1331,110 @@ const statusDescription = computed(() => {
           <button @click="deleteReservation" :disabled="processing === 'delete'"
             class="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
             {{ processing === 'delete' ? 'Suppression…' : '🗑 Supprimer définitivement' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal : annulation admin ═══ -->
+    <div v-if="showAdminCancelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-2xl">🚫</span>
+          <h3 class="font-bold text-lg text-gray-900">Annuler la réservation</h3>
+        </div>
+
+        <div v-if="['approved','active'].includes(reservation.status)"
+             class="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-800">
+          ⚠️ <strong>Attention :</strong> cette réservation est
+          <strong>{{ reservation.status === 'active' ? 'active (matériel sorti)' : 'validée' }}</strong>.
+          L'annulation libérera automatiquement les équipements concernés et notifiera l'utilisateur par email.
+        </div>
+
+        <div class="mb-4 bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+          <div class="flex justify-between">
+            <span class="text-gray-500">Réservation</span>
+            <span class="font-medium">{{ reservation.title }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Demandeur</span>
+            <span>{{ reservation.user?.name }}</span>
+          </div>
+        </div>
+
+        <div class="mb-5">
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Motif de l'annulation <span class="text-gray-400 font-normal">(optionnel)</span>
+          </label>
+          <textarea v-model="adminCancelReason" rows="3"
+            placeholder="Ex : Double réservation, créneaux réattribués, problème technique…"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none resize-none" />
+          <p class="text-xs text-gray-400 mt-1">Le motif sera communiqué à l'utilisateur dans l'email de notification.</p>
+        </div>
+
+        <div class="flex gap-3">
+          <button @click="showAdminCancelModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+            Retour
+          </button>
+          <button @click="adminCancelReservation" :disabled="processing === 'admin-cancel'"
+            class="flex-1 bg-orange-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+            {{ processing === 'admin-cancel' ? 'Annulation…' : '🚫 Confirmer l\'annulation' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal : rapport utilisateur ═══ -->
+    <div v-if="showReportModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg">⚠️ Signaler un problème</h3>
+          <button @click="showReportModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <div v-if="reportModalAsset" class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border mb-4">
+          <AssetThumbnail :src="reportModalAsset.image_url" :alt="reportModalAsset.name" size="sm" />
+          <div>
+            <p class="font-medium text-sm">{{ reportModalAsset.name }}</p>
+            <p class="text-xs text-gray-400 font-mono">{{ reportModalAsset.asset_tag }}</p>
+          </div>
+        </div>
+        <div class="space-y-3">
+          <!-- Type -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5">Type de signalement <span class="text-red-500">*</span></label>
+            <div class="grid grid-cols-2 gap-2">
+              <label v-for="t in reportTypes" :key="t.value"
+                     class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition text-sm font-medium"
+                     :class="reportForm.type === t.value ? 'border-indigo-400 bg-indigo-50 text-indigo-800' : 'border-gray-200 hover:border-gray-300 text-gray-700'">
+                <input type="radio" v-model="reportForm.type" :value="t.value" class="sr-only" />
+                {{ t.label }}
+              </label>
+            </div>
+          </div>
+          <!-- Titre -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Titre court <span class="text-red-500">*</span></label>
+            <input v-model="reportForm.title" type="text" maxlength="255"
+                   placeholder="Ex : Objectif rayé, Câble manquant…"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+          </div>
+          <!-- Contenu -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Description <span class="text-red-500">*</span></label>
+            <textarea v-model="reportForm.content" rows="4" maxlength="5000"
+                      placeholder="Décrivez le problème en détail…"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none resize-none" />
+          </div>
+          <p v-if="reportError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{{ reportError }}</p>
+          <p v-if="reportSuccess" class="text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg font-medium">{{ reportSuccess }}</p>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button @click="showReportModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
+          <button @click="submitReport" :disabled="reportSubmitting || !reportForm.type || !reportForm.title.trim() || !reportForm.content.trim()"
+            class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+            {{ reportSubmitting ? 'Envoi…' : '📤 Envoyer le rapport' }}
           </button>
         </div>
       </div>

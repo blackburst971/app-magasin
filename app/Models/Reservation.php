@@ -28,6 +28,7 @@ class Reservation extends Model
         'supervisor_approved_at',
         'supervisor_approved_by',
         'return_reminder_sent_at',
+        'google_event_id',
     ];
 
     protected $casts = [
@@ -80,13 +81,18 @@ class Reservation extends Model
     public function assets()
     {
         return $this->belongsToMany(Asset::class, 'reservation_assets')
-            ->withPivot('returned_at', 'checkout_at', 'good_condition', 'return_notes', 'returned_by_user_id', 'is_missing')
+            ->withPivot('returned_at', 'checkout_at', 'good_condition', 'return_notes', 'returned_by_user_id', 'is_missing', 'pending_verification', 'verification_note')
             ->withTimestamps();
     }
 
     public function formResponse()
     {
         return $this->hasOne(CheckoutFormResponse::class);
+    }
+
+    public function formResponses()
+    {
+        return $this->hasMany(CheckoutFormResponse::class);
     }
 
     public function movements()
@@ -99,12 +105,26 @@ class Reservation extends Model
         return $this->hasMany(ReservationMessage::class)->orderBy('created_at');
     }
 
+    /** Participants supplémentaires (hors demandeur principal). */
+    public function additionalUsers()
+    {
+        return $this->belongsToMany(User::class, 'reservation_users')->withTimestamps();
+    }
+
+    /** Tous les utilisateurs concernés : demandeur + participants. */
+    public function allParticipants()
+    {
+        $extras = $this->additionalUsers->pluck('id')->toArray();
+        return User::whereIn('id', array_merge([$this->user_id], $extras))->get();
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return match($this->status) {
             'awaiting_supervisor' => 'En attente du responsable',
             'pending'             => 'En attente',
             'approved'            => 'Validée',
+            'en_preparation'      => 'En préparation',
             'active'              => 'En cours',
             'returned'            => 'Retourné',
             'cancelled'           => 'Annulée',
@@ -119,6 +139,7 @@ class Reservation extends Model
             'awaiting_supervisor' => '#8b5cf6',
             'pending'             => '#f59e0b',
             'approved'            => '#3b82f6',
+            'en_preparation'      => '#0ea5e9',
             'active'              => '#10b981',
             'returned'            => '#6b7280',
             'cancelled'           => '#ef4444',

@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\TodoTask;
+use App\Models\TodoTaskReminder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -11,25 +12,29 @@ class TodoTaskReminderNotification extends Notification
 {
     use Queueable;
 
-    public function __construct(public TodoTask $task) {}
+    public function __construct(
+        public TodoTask $task,
+        public TodoTaskReminder $reminder,
+    ) {}
 
     public function via($notifiable): array
     {
-        return match ($this->task->reminder_channel) {
-            'email'        => ['mail'],
-            'both'         => ['database', 'mail'],
-            default        => ['database'],
+        return match ($this->reminder->reminder_channel) {
+            'email'  => ['mail'],
+            'both'   => ['database', 'mail'],
+            default  => ['database'],
         };
     }
 
     public function toArray($notifiable): array
     {
         return [
-            'type'       => 'todo_reminder',
-            'task_id'    => $this->task->id,
-            'project_id' => $this->task->project_id,
-            'title'      => $this->task->title,
-            'message'    => "📋 Rappel de tâche : {$this->task->title}",
+            'type'        => 'todo_reminder',
+            'task_id'     => $this->task->id,
+            'project_id'  => $this->task->project_id,
+            'title'       => $this->task->title,
+            'reminder_at' => $this->reminder->reminder_at->format('d/m/Y H:i'),
+            'message'     => "📋 Rappel de tâche : {$this->task->title}",
         ];
     }
 
@@ -45,7 +50,7 @@ class TodoTaskReminderNotification extends Notification
         $mail = (new MailMessage)
             ->subject("📋 Rappel de tâche : {$this->task->title}")
             ->greeting("Bonjour {$notifiable->name},")
-            ->line("Cette tâche est à démarrer :")
+            ->line("Cette tâche est à traiter :")
             ->line("**{$this->task->title}**");
 
         if ($this->task->description) {

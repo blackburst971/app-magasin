@@ -10,10 +10,13 @@ class AssetStatus extends Model
     protected $fillable = [
         'key',
         'label',
+        'description',
         'color',
         'is_system',
         'blocks_reservation',
         'is_active',
+        'user_visible',
+        'hide_from_users',
         'sort_order',
     ];
 
@@ -21,6 +24,8 @@ class AssetStatus extends Model
         'is_system'          => 'boolean',
         'blocks_reservation' => 'boolean',
         'is_active'          => 'boolean',
+        'user_visible'       => 'boolean',
+        'hide_from_users'    => 'boolean',
         'sort_order'         => 'integer',
     ];
 

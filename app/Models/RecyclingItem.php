@@ -11,9 +11,13 @@ class RecyclingItem extends Model
         'asset_id', 'designation', 'serial_number', 'reference',
         'brand', 'model_name', 'quantity', 'notes', 'photo_path',
         'extra_fields', 'created_by_user_id',
+        'archived_at', 'archived_by_user_id',
     ];
 
-    protected $casts = ['extra_fields' => 'array'];
+    protected $casts = [
+        'extra_fields' => 'array',
+        'archived_at'  => 'datetime',
+    ];
 
     public function asset()
     {
@@ -23,6 +27,11 @@ class RecyclingItem extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function archivedBy()
+    {
+        return $this->belongsTo(User::class, 'archived_by_user_id');
     }
 
     public function getPhotoUrlAttribute(): ?string

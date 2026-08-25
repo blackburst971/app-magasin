@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Asset;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -25,7 +26,7 @@ class CategoryController extends Controller
             'name'        => 'required|string|max:255|unique:categories',
             'description' => 'nullable|string',
             'color'       => 'nullable|string|max:7',
-            'image'       => 'nullable|image|max:2048',
+            'image'       => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         if ($request->hasFile('image')) {
@@ -36,13 +37,24 @@ class CategoryController extends Controller
         return back()->with('success', 'Catégorie créée.');
     }
 
+    /** Création rapide depuis un formulaire inline (retourne JSON). */
+    public function quickStore(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255|unique:categories',
+        ]);
+
+        $category = Category::create($data);
+        return response()->json(['id' => $category->id, 'name' => $category->name]);
+    }
+
     public function update(Request $request, Category $category)
     {
         $data = $request->validate([
             'name'        => "required|string|max:255|unique:categories,name,{$category->id}",
             'description' => 'nullable|string',
             'color'       => 'nullable|string|max:7',
-            'image'       => 'nullable|image|max:2048',
+            'image'       => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         if ($request->hasFile('image')) {
@@ -56,8 +68,17 @@ class CategoryController extends Controller
         return back()->with('success', 'Catégorie mise à jour.');
     }
 
-    public function destroy(Category $category)
+    public function destroy(Request $request, Category $category)
     {
+        // Réassignation optionnelle avant suppression (évite les liens orphelins)
+        $reassignTo = $request->input('reassign_to');
+        if ($reassignTo && $reassignTo != $category->id) {
+            $targetExists = Category::where('id', $reassignTo)->exists();
+            if ($targetExists) {
+                Asset::where('category_id', $category->id)->update(['category_id' => $reassignTo]);
+            }
+        }
+
         if ($category->image) {
             Storage::disk('public')->delete($category->image);
         }

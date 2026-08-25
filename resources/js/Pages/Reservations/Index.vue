@@ -121,6 +121,27 @@ function toggleAsset(id) {
   else createForm.asset_ids.splice(idx, 1)
 }
 
+// ─── Admin cancel with reason ─────────────────────────────────────────────────
+const showAdminCancelModal = ref(false)
+const adminCancelTarget    = ref(null)
+const adminCancelReason    = ref('')
+const adminCancelling      = ref(false)
+
+function openAdminCancelModal(reservation) {
+  adminCancelTarget.value = reservation
+  adminCancelReason.value = ''
+  showAdminCancelModal.value = true
+}
+
+function submitAdminCancel() {
+  if (!adminCancelTarget.value) return
+  adminCancelling.value = true
+  router.post(route('reservations.cancel', adminCancelTarget.value.id), { reason: adminCancelReason.value }, {
+    onSuccess: () => { showAdminCancelModal.value = false },
+    onFinish:  () => { adminCancelling.value = false },
+  })
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const statusOptions = [
   { v: 'pending',  l: 'En attente admin' },
@@ -266,6 +287,12 @@ const filterBtns = [
                   <button v-if="!isAdmin && (r.status === 'pending' || r.status === 'awaiting_supervisor')"
                     @click="() => { if (confirm('Annuler cette réservation ?')) router.post(route('reservations.cancel', r.id)) }"
                     class="text-xs text-red-500 hover:underline">
+                    Annuler
+                  </button>
+                  <!-- Admin: cancel with reason (for pending/approved/active) -->
+                  <button v-if="isAdmin && ['pending','approved','active'].includes(r.status)"
+                    @click="openAdminCancelModal(r)"
+                    class="text-xs text-orange-500 hover:text-orange-700 hover:underline">
                     Annuler
                   </button>
                   <!-- Admin: delete -->
@@ -440,6 +467,57 @@ const filterBtns = [
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ═══ Modal : annulation admin avec motif ═══ -->
+    <Teleport to="body">
+      <div v-if="showAdminCancelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="text-2xl">🚫</span>
+            <h3 class="font-bold text-lg text-gray-900">Annuler la réservation</h3>
+          </div>
+
+          <div v-if="adminCancelTarget && ['approved','active'].includes(adminCancelTarget.status)"
+               class="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-800">
+            ⚠️ <strong>Attention :</strong> cette réservation est
+            <strong>{{ adminCancelTarget?.status === 'active' ? 'active (matériel sorti)' : 'validée' }}</strong>.
+            Les équipements seront libérés et l'utilisateur sera notifié par email.
+          </div>
+
+          <div class="mb-4 bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+            <div class="flex justify-between">
+              <span class="text-gray-500">Réservation</span>
+              <span class="font-medium">{{ adminCancelTarget?.title }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Demandeur</span>
+              <span>{{ adminCancelTarget?.user }}</span>
+            </div>
+          </div>
+
+          <div class="mb-5">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Motif <span class="text-gray-400 font-normal">(optionnel)</span>
+            </label>
+            <textarea v-model="adminCancelReason" rows="3"
+              placeholder="Ex : Double réservation, créneaux réattribués…"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none resize-none" />
+            <p class="text-xs text-gray-400 mt-1">Communiqué à l'utilisateur dans l'email de notification.</p>
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="showAdminCancelModal = false"
+              class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+              Retour
+            </button>
+            <button @click="submitAdminCancel" :disabled="adminCancelling"
+              class="flex-1 bg-orange-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+              {{ adminCancelling ? 'Annulation…' : '🚫 Confirmer' }}
+            </button>
+          </div>
         </div>
       </div>
     </Teleport>

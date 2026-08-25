@@ -8,15 +8,15 @@ class TodoTask extends Model
 {
     protected $fillable = [
         'project_id', 'parent_task_id', 'title', 'description',
-        'due_date', 'priority', 'status', 'position',
+        'due_date', 'start_time', 'end_time', 'priority', 'status', 'position',
         'assigned_to', 'created_by',
-        'reminder_at', 'reminder_channel', 'reminder_sent_at',
+        'sync_to_calendar', 'google_event_id', 'calendar_reminders',
     ];
 
     protected $casts = [
-        'due_date'          => 'date',
-        'reminder_at'       => 'datetime',
-        'reminder_sent_at'  => 'datetime',
+        'due_date'           => 'date',
+        'sync_to_calendar'   => 'boolean',
+        'calendar_reminders' => 'array',
     ];
 
     public function project()
@@ -52,5 +52,15 @@ class TodoTask extends Model
     public function reservations()
     {
         return $this->belongsToMany(\App\Models\Reservation::class, 'todo_task_reservations', 'task_id', 'reservation_id');
+    }
+
+    public function assets()
+    {
+        return $this->belongsToMany(\App\Models\Asset::class, 'todo_task_assets', 'task_id', 'asset_id');
+    }
+
+    public function reminders()
+    {
+        return $this->hasMany(TodoTaskReminder::class, 'todo_task_id')->orderBy('reminder_at');
     }
 }

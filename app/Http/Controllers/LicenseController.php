@@ -85,6 +85,13 @@ class LicenseController extends Controller
             'notes'         => 'nullable|string',
         ]);
 
+        // Normaliser les chaînes vides en null pour les champs nullable FK
+        foreach (['supplier_id', 'purchase_date', 'expiry_date'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
+
         License::create($data);
 
         return back()->with('success', 'Licence créée avec succès.');
@@ -107,6 +114,13 @@ class LicenseController extends Controller
             'supplier_id'   => 'nullable|exists:suppliers,id',
             'notes'         => 'nullable|string',
         ]);
+
+        // Normaliser les chaînes vides en null pour les champs nullable FK
+        foreach (['supplier_id', 'purchase_date', 'expiry_date'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
 
         $license->update($data);
 

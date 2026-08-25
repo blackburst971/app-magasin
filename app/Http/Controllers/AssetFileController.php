@@ -13,7 +13,7 @@ class AssetFileController extends Controller
     public function store(Request $request, Asset $asset)
     {
         $request->validate([
-            'file' => 'required|file|max:20480|mimes:jpeg,jpg,png,gif,webp,pdf',
+            'file' => 'required|file|max:20480|mimes:jpeg,jpg,png,gif,webp,avif,pdf',
             'name' => 'nullable|string|max:255',
         ]);
 

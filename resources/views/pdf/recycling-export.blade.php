@@ -20,6 +20,9 @@
   .qty { text-align: center; font-weight: bold; font-size: 11px; }
   .footer { margin-top: 12px; font-size: 8px; color: #9ca3af; text-align: right; }
   .badge { display: inline; background: #fef2f2; color: #dc2626; padding: 1px 5px; border-radius: 3px; font-size: 8px; font-weight: bold; }
+  .photo-cell { width: 80px; text-align: center; }
+  .photo-cell img { width: 70px; height: 55px; object-fit: cover; border-radius: 3px; border: 1px solid #e5e7eb; }
+  .no-photo { color: #9ca3af; font-size: 8px; }
 </style>
 </head>
 <body>
@@ -33,6 +36,7 @@
   <thead>
     <tr>
       <th class="num">#</th>
+      <th class="photo-cell">Photo</th>
       <th style="min-width:140px">Désignation</th>
       <th style="min-width:90px">Référence</th>
       <th style="min-width:110px">N° de série</th>
@@ -49,6 +53,13 @@
     @foreach($items as $i => $item)
     <tr>
       <td class="num">{{ $i + 1 }}</td>
+      <td class="photo-cell">
+        @if(!empty($photoData[$item->id]))
+          <img src="{{ $photoData[$item->id] }}" alt="photo">
+        @else
+          <span class="no-photo">—</span>
+        @endif
+      </td>
       <td>
         <span class="strong">{{ $item->designation }}</span>
         @if($item->asset_id)

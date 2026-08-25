@@ -19,6 +19,8 @@ import {
   MagnifyingGlassIcon, ArchiveBoxXMarkIcon,
   ClipboardDocumentCheckIcon, SparklesIcon,
   CheckCircleIcon,
+  ShoppingBagIcon,
+  QueueListIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -154,6 +156,14 @@ const navItems = computed(() => {
     items.push({ name: 'To-Do List', href: route('todo.index'), icon: CheckCircleIcon, current: route().current('todo.*') })
   }
 
+  // Commandes (admin toujours, autres si accès activé)
+  const procRole = user.value?.is_professeur ? 'professeur'
+                 : (user.value?.roles?.some(r => r.name === 'personnel') ? 'personnel' : 'etudiant')
+  const procReadKey = `section_procurement_${procRole}_read`
+  if (isAdmin.value || (page.props.tabSettings && page.props.tabSettings[procReadKey] === 'true')) {
+    items.push({ name: 'Commandes', href: route('procurement.index'), icon: ShoppingBagIcon, current: route().current('procurement.*') })
+  }
+
   if (!isAdmin.value) {
     items.push({ name: 'Mes réservations', href: route('reservations.index'), icon: ClipboardDocumentListIcon, current: route().current('reservations.*') })
     items.push({ name: 'Consommables',     href: route('consommables.index'), icon: InboxStackIcon,            current: route().current('consommables.*') })
@@ -168,16 +178,19 @@ const navItems = computed(() => {
       { type: 'sep', label: 'Réservations' },
       { name: 'Réservations', href: route('reservations.index'), icon: CalendarDaysIcon,        current: route().current('reservations.*') },
       { name: 'Événements',   href: route('events.index'),       icon: SparklesIcon,             current: route().current('events.*') },
-      { name: 'Attribution',  href: route('attribution.index'),  icon: ArrowLeftOnRectangleIcon, current: route().current('attribution.*') },
-      { name: 'Retours',      href: route('returns.index'),      icon: ArrowUturnLeftIcon,       current: route().current('returns.*') },
+      { name: 'Attribution',       href: route('attribution.index'),   icon: ArrowLeftOnRectangleIcon, current: route().current('attribution.*') },
+      { name: 'Affectation lieux', href: route('asset-places.index'), icon: MapPinIcon,               current: route().current('asset-places.*') },
+      { name: 'Retours',           href: route('returns.index'),      icon: ArrowUturnLeftIcon,       current: route().current('returns.*') },
       { name: 'Scanner',      href: route('scanner.index'),      icon: QrCodeIcon,               current: route().current('scanner.*') },
     )
     // ── Inventaire ────────────────────────────────────────────
     items.push(
       { type: 'sep', label: 'Inventaire' },
-      { name: 'Faire inventaire', href: route('inventory.index'), icon: ClipboardDocumentCheckIcon, current: route().current('inventory.*') },
+      { name: 'Faire inventaire', href: route('inventory.index'),  icon: ClipboardDocumentCheckIcon, current: route().current('inventory.*') },
+      { name: 'Étiquettes',   href: route('assets.labels'),           icon: QueueListIcon,           current: route().current('assets.labels') },
       { name: 'Consommables', href: route('consommables.index'),      icon: InboxStackIcon,         current: route().current('consommables.*') },
       { name: 'Modèles',      href: route('models.index'),            icon: CubeTransparentIcon,    current: route().current('models.*') },
+      { name: 'Lieux',        href: route('places.index'),            icon: MapPinIcon,              current: route().current('places.*') },
       { name: 'Maintenance',   href: route('maintenance.index'),       icon: WrenchScrewdriverIcon,  current: route().current('maintenance.*') },
       { name: 'Decheterie',   href: route('recycling.index'),         icon: ArchiveBoxXMarkIcon,    current: route().current('recycling.*') },
       { name: 'Sauvegardes',  href: route('backups.index'),           icon: ShieldCheckIcon,         current: route().current('backups.*') },

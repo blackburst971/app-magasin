@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class TodoProject extends Model
 {
-    protected $fillable = ['name', 'color', 'description', 'created_by', 'is_shared', 'position'];
+    protected $fillable = ['name', 'color', 'description', 'created_by', 'is_shared', 'position', 'archived_at'];
 
     protected $casts = [
-        'is_shared' => 'boolean',
+        'is_shared'   => 'boolean',
+        'archived_at' => 'datetime',
     ];
 
     public function creator()

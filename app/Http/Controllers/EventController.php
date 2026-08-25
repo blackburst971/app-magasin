@@ -28,7 +28,7 @@ class EventController extends Controller
 
     public function show(Event $event)
     {
-        $event->load(['responsibleUser', 'createdBy', 'reservations.assets', 'reservations.user']);
+        $event->load(['responsibleUser', 'createdBy', 'reservations.assets', 'reservations.user', 'diagrams']);
 
         $users = User::orderBy('name')->get(['id', 'name', 'email']);
 
@@ -153,6 +153,14 @@ class EventController extends Controller
                     'user_name'  => $r->user?->name,
                     'assets_count' => $r->assets->count(),
                     'checked_out'  => $r->assets->filter(fn($a) => $a->pivot->checkout_at)->count(),
+                ])->values()
+                : [],
+            'diagrams' => $event->relationLoaded('diagrams')
+                ? $event->diagrams->map(fn($d) => [
+                    'id'          => $d->id,
+                    'name'        => $d->name,
+                    'description' => $d->description,
+                    'updated_at'  => $d->updated_at->format('d/m/Y H:i'),
                 ])->values()
                 : [],
         ];

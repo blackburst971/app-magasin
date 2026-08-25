@@ -27,6 +27,8 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\TodoController;
+use App\Http\Controllers\PlaceController;
+use App\Http\Controllers\AssetPlaceController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -57,9 +59,13 @@ Route::middleware('auth')->group(function () {
     // Routes admin sans paramètre — AVANT {asset} pour éviter le conflit de routing
     Route::middleware('role:admin')->group(function () {
         Route::get('/assets/create', [AssetController::class, 'create'])->name('assets.create');
+        Route::get('/assets/labels', [AssetController::class, 'labelsIndex'])->name('assets.labels');
+        Route::post('/assets/labels-reorder', [AssetController::class, 'labelsReorder'])->name('assets.labels-reorder');
         Route::post('/assets', [AssetController::class, 'store'])->name('assets.store');
         Route::post('/assets/bulk-delete', [AssetController::class, 'bulkDelete'])->name('assets.bulk-delete');
         Route::post('/assets/bulk-update', [AssetController::class, 'bulkUpdate'])->name('assets.bulk-update');
+        Route::post('/assets/bulk-assign-place', [AssetController::class, 'bulkAssignPlace'])->name('assets.bulk-assign-place');
+        Route::post('/assets/bulk-label', [AssetController::class, 'bulkLabel'])->name('assets.bulk-label');
     });
 
     // Reservation admin routes WITHOUT {reservation} param — BEFORE parameterized routes
@@ -80,6 +86,9 @@ Route::middleware('auth')->group(function () {
         Route::patch('/assets/{asset}/toggle-reservable', [AssetController::class, 'toggleReservable'])->name('assets.toggle-reservable');
         Route::patch('/assets/{asset}/toggle-scratch', [AssetController::class, 'toggleScratch'])->name('assets.toggle-scratch');
         Route::patch('/assets/{asset}/toggle-belge', [AssetController::class, 'toggleBelge'])->name('assets.toggle-belge');
+        Route::patch('/assets/{asset}/toggle-label-create', [AssetController::class, 'toggleLabelCreate'])->name('assets.toggle-label-create');
+        Route::patch('/assets/{asset}/toggle-label-apply', [AssetController::class, 'toggleLabelApply'])->name('assets.toggle-label-apply');
+        Route::patch('/assets/{asset}/return-check-note', [AssetController::class, 'updateReturnCheckNote'])->name('assets.return-check-note');
         Route::post('/assets/{asset}/duplicate', [AssetController::class, 'duplicate'])->name('assets.duplicate');
         Route::post('/assets/{asset}/link-accessory', [AssetController::class, 'linkAccessory'])->name('assets.link-accessory');
         Route::delete('/assets/{asset}/unlink-accessory', [AssetController::class, 'unlinkAccessory'])->name('assets.unlink-accessory');
@@ -121,6 +130,8 @@ Route::middleware('auth')->group(function () {
 
     // Kit reserve — accessible à tous les utilisateurs authentifiés
     Route::post('/kits/{kit}/reserve', [KitController::class, 'reserve'])->name('kits.reserve');
+    // Vérification disponibilité kits (utilisée par le panier côté client)
+    Route::get('/api/kits/availability', [KitController::class, 'checkAvailability'])->name('kits.check-availability');
 
     // Reservations — index for admin only redirect logic is in controller
     Route::get('/reservations', [ReservationController::class, 'index'])->name('reservations.index');
@@ -256,6 +267,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
     Route::middleware('role:admin')->group(function () {
+        Route::get('/reports/movements',         [ReportController::class, 'movements'])->name('reports.movements');
+        Route::get('/reports/export-movements',  [ReportController::class, 'exportMovements'])->name('reports.export-movements');
         Route::get('/reports/export-csv',             [ReportController::class, 'exportCsv'])->name('reports.export-csv');
         Route::get('/reports/export-csv-licenses',    [ReportController::class, 'exportCsvLicenses'])->name('reports.export-csv-licenses');
         Route::get('/reports/export-csv-computers',   [ReportController::class, 'exportCsvComputers'])->name('reports.export-csv-computers');
@@ -271,6 +284,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/users/template', [AdminController::class, 'downloadTemplate'])->name('users.import-template');
         Route::post('/users/import/preview', [AdminController::class, 'importPreview'])->name('users.import-preview');
         Route::post('/users/import', [AdminController::class, 'importProcess'])->name('users.import');
+        // Bulk actions — AVANT les routes avec {user}
+        Route::post('/users/bulk-update', [AdminController::class, 'bulkUpdateUsers'])->name('users.bulk-update');
+        Route::post('/users/bulk-destroy', [AdminController::class, 'bulkDestroyUsers'])->name('users.bulk-destroy');
         // Routes avec paramètre {user}
         Route::get('/users/{user}', [AdminController::class, 'showUser'])->name('users.show');
         Route::put('/users/{user}', [AdminController::class, 'updateUser'])->name('users.update');
@@ -295,6 +311,14 @@ Route::middleware('auth')->group(function () {
         Route::put('/events/{event}', [\App\Http\Controllers\EventController::class, 'update'])->name('events.update');
         Route::delete('/events/{event}', [\App\Http\Controllers\EventController::class, 'destroy'])->name('events.destroy');
         Route::post('/events/{event}/reservations', [\App\Http\Controllers\EventController::class, 'createReservation'])->name('events.reservations.create');
+
+        // Diagrammes
+        Route::get('/diagrams', [\App\Http\Controllers\DiagramController::class, 'index'])->name('diagrams.index');
+        Route::post('/diagrams', [\App\Http\Controllers\DiagramController::class, 'store'])->name('diagrams.store');
+        Route::put('/diagrams/{diagram}', [\App\Http\Controllers\DiagramController::class, 'update'])->name('diagrams.update');
+        Route::delete('/diagrams/{diagram}', [\App\Http\Controllers\DiagramController::class, 'destroy'])->name('diagrams.destroy');
+        Route::post('/diagrams/{diagram}/attach-event', [\App\Http\Controllers\DiagramController::class, 'attachEvent'])->name('diagrams.attach-event');
+        Route::delete('/diagrams/{diagram}/detach-event/{event}', [\App\Http\Controllers\DiagramController::class, 'detachEvent'])->name('diagrams.detach-event');
     });
 
     // Waitlist — list d'attente pour les équipements non disponibles
@@ -326,9 +350,11 @@ Route::middleware('auth')->group(function () {
         Route::post('/recycling', [\App\Http\Controllers\RecyclingController::class, 'store'])->name('recycling.store');
         Route::post('/recycling/export-pdf', [\App\Http\Controllers\RecyclingController::class, 'exportPdf'])->name('recycling.export-pdf');
         Route::post('/recycling/export-csv', [\App\Http\Controllers\RecyclingController::class, 'exportCsv'])->name('recycling.export-csv');
+        Route::post('/recycling/bulk-archive', [\App\Http\Controllers\RecyclingController::class, 'bulkArchive'])->name('recycling.bulk-archive');
         Route::put('/recycling/{recyclingItem}', [\App\Http\Controllers\RecyclingController::class, 'update'])->name('recycling.update');
         Route::delete('/recycling/{recyclingItem}', [\App\Http\Controllers\RecyclingController::class, 'destroy'])->name('recycling.destroy');
         Route::post('/recycling/{recyclingItem}/photo', [\App\Http\Controllers\RecyclingController::class, 'uploadPhoto'])->name('recycling.upload-photo');
+        Route::post('/recycling/{recyclingItem}/unarchive', [\App\Http\Controllers\RecyclingController::class, 'unarchive'])->name('recycling.unarchive');
     });
 
     // Licences (admin only)
@@ -368,8 +394,17 @@ Route::middleware('auth')->group(function () {
 
     // Inventaire (admin only)
     Route::middleware('role:admin')->group(function () {
-        Route::get('/inventory', [\App\Http\Controllers\InventoryController::class, 'index'])->name('inventory.index');
-        Route::post('/inventory/session', [\App\Http\Controllers\InventoryController::class, 'session'])->name('inventory.session');
+        Route::get('/inventory',                                  [\App\Http\Controllers\InventoryController::class, 'index'])->name('inventory.index');
+        Route::post('/inventory/session',                         [\App\Http\Controllers\InventoryController::class, 'session'])->name('inventory.session');
+        Route::post('/inventory/save-report',                     [\App\Http\Controllers\InventoryController::class, 'saveReport'])->name('inventory.save-report');
+        // Historique — routes statiques AVANT {report}
+        Route::get('/inventory/history',                          [\App\Http\Controllers\InventoryController::class, 'history'])->name('inventory.history');
+        // Routes avec paramètre {report}
+        Route::get('/inventory/reports/{report}',                 [\App\Http\Controllers\InventoryController::class, 'showReport'])->name('inventory.reports.show');
+        Route::get('/inventory/reports/{report}/export',          [\App\Http\Controllers\InventoryController::class, 'exportReport'])->name('inventory.reports.export');
+        Route::patch('/inventory/reports/{report}',               [\App\Http\Controllers\InventoryController::class, 'updateReport'])->name('inventory.reports.update');
+        Route::patch('/inventory/reports/{report}/archive',       [\App\Http\Controllers\InventoryController::class, 'archiveReport'])->name('inventory.reports.archive');
+        Route::delete('/inventory/reports/{report}',              [\App\Http\Controllers\InventoryController::class, 'destroyReport'])->name('inventory.reports.destroy');
     });
 
     // Asset Statuses (admin only)
@@ -385,6 +420,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/models', [App\Http\Controllers\EquipmentModelController::class, 'index'])->name('models.index');
         Route::post('/models', [App\Http\Controllers\EquipmentModelController::class, 'store'])->name('models.store');
+        Route::post('/models/bulk-update', [App\Http\Controllers\EquipmentModelController::class, 'bulkUpdate'])->name('models.bulk-update');
         Route::put('/models/{model}', [App\Http\Controllers\EquipmentModelController::class, 'update'])->name('models.update');
         Route::delete('/models/{model}', [App\Http\Controllers\EquipmentModelController::class, 'destroy'])->name('models.destroy');
         Route::post('/models/{model}/duplicate', [App\Http\Controllers\EquipmentModelController::class, 'duplicate'])->name('models.duplicate');
@@ -406,6 +442,8 @@ Route::middleware('auth')->group(function () {
         // Returns / Overdue
         Route::get('/returns', [App\Http\Controllers\ReturnController::class, 'index'])->name('returns.index');
         Route::post('/returns/scan', [App\Http\Controllers\ReturnController::class, 'scanReturn'])->name('returns.scan');
+        Route::post('/returns/components-check', [App\Http\Controllers\ReturnController::class, 'recordComponentCheck'])->name('returns.components-check');
+        Route::post('/returns/{reservation}/{asset}/undo', [App\Http\Controllers\ReturnController::class, 'undoReturn'])->name('returns.undo');
         Route::post('/returns/{reservation}/reminder', [App\Http\Controllers\ReturnController::class, 'sendReminder'])->name('returns.reminder');
 
         // User Groups
@@ -432,17 +470,53 @@ Route::middleware('auth')->group(function () {
         Route::post('/room-reservations/{roomReservation}/reject', [RoomController::class, 'rejectReservation'])->name('room-reservations.reject');
     });
 
+    // ─── Lieux (Places) ──────────────────────────────────────────────────
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/places', [PlaceController::class, 'index'])->name('places.index');
+        // Routes statiques AVANT {place} pour éviter les conflits
+        Route::post('/places', [PlaceController::class, 'store'])->name('places.store');
+        Route::get('/places/{place}', [PlaceController::class, 'show'])->name('places.show');
+        Route::patch('/places/{place}', [PlaceController::class, 'update'])->name('places.update');
+        Route::delete('/places/{place}', [PlaceController::class, 'destroy'])->name('places.destroy');
+
+        // Affectation d'équipements par lieu — routes statiques AVANT {assignment}
+        Route::get('/asset-places', [AssetPlaceController::class, 'index'])->name('asset-places.index');
+        Route::post('/asset-places/validate-tag', [AssetPlaceController::class, 'validateTag'])->name('asset-places.validate-tag');
+        Route::post('/asset-places/bulk-store', [AssetPlaceController::class, 'bulkStore'])->name('asset-places.bulk-store');
+        Route::post('/asset-places/scan-return', [AssetPlaceController::class, 'scanReturn'])->name('asset-places.scan-return');
+        Route::post('/asset-places', [AssetPlaceController::class, 'store'])->name('asset-places.store');
+        Route::patch('/asset-places/{assignment}/return', [AssetPlaceController::class, 'returnAsset'])->name('asset-places.return');
+    });
+
     // ─── To-Do List ──────────────────────────────────────────────────────
     Route::get('/todo', [TodoController::class, 'index'])->name('todo.index');
     Route::post('/todo/projects', [TodoController::class, 'storeProject'])->name('todo.projects.store');
     Route::put('/todo/projects/{todoProject}', [TodoController::class, 'updateProject'])->name('todo.projects.update');
     Route::delete('/todo/projects/{todoProject}', [TodoController::class, 'destroyProject'])->name('todo.projects.destroy');
+    Route::patch('/todo/projects/{todoProject}/archive', [TodoController::class, 'archiveProject'])->name('todo.projects.archive');
+    Route::patch('/todo/projects/{todoProject}/unarchive', [TodoController::class, 'unarchiveProject'])->name('todo.projects.unarchive');
     Route::get('/todo/projects/{todoProject}/tasks', [TodoController::class, 'tasks'])->name('todo.tasks.index');
     Route::post('/todo/projects/{todoProject}/tasks', [TodoController::class, 'storeTask'])->name('todo.tasks.store');
     Route::patch('/todo/tasks/{todoTask}', [TodoController::class, 'updateTask'])->name('todo.tasks.update');
     Route::delete('/todo/tasks/{todoTask}', [TodoController::class, 'destroyTask'])->name('todo.tasks.destroy');
     Route::post('/todo/labels', [TodoController::class, 'storeLabel'])->name('todo.labels.store');
     Route::delete('/todo/labels/{todoLabel}', [TodoController::class, 'destroyLabel'])->name('todo.labels.destroy');
+
+    // ─── Commandes / Besoins en matériel ─────────────────────────────────
+    Route::get('/procurement', [\App\Http\Controllers\ProcurementController::class, 'index'])->name('procurement.index');
+    Route::post('/procurement/export-pdf', [\App\Http\Controllers\ProcurementController::class, 'exportPdf'])->name('procurement.export-pdf');
+    Route::post('/procurement/export-csv', [\App\Http\Controllers\ProcurementController::class, 'exportCsv'])->name('procurement.export-csv');
+    Route::post('/procurement/bulk-archive', [\App\Http\Controllers\ProcurementController::class, 'bulkArchive'])->name('procurement.bulk-archive');
+    Route::get('/procurement/form-fields', [\App\Http\Controllers\ProcurementController::class, 'getFormFields'])->name('procurement.form-fields');
+    Route::post('/procurement/form-fields', [\App\Http\Controllers\ProcurementController::class, 'saveFormFields'])->name('procurement.form-fields.save');
+    Route::post('/procurement', [\App\Http\Controllers\ProcurementController::class, 'store'])->name('procurement.store');
+    Route::post('/procurement/files', [\App\Http\Controllers\ProcurementController::class, 'storeFile'])->name('procurement.files.store');
+    Route::get('/procurement/files/{procurementFile}/download', [\App\Http\Controllers\ProcurementController::class, 'downloadFile'])->name('procurement.files.download');
+    Route::delete('/procurement/files/{procurementFile}', [\App\Http\Controllers\ProcurementController::class, 'destroyFile'])->name('procurement.files.destroy');
+    Route::get('/procurement/{procurementItem}/history', [\App\Http\Controllers\ProcurementController::class, 'history'])->name('procurement.history');
+    Route::put('/procurement/{procurementItem}', [\App\Http\Controllers\ProcurementController::class, 'update'])->name('procurement.update');
+    Route::delete('/procurement/{procurementItem}', [\App\Http\Controllers\ProcurementController::class, 'destroy'])->name('procurement.destroy');
+    Route::post('/procurement/{procurementItem}/unarchive', [\App\Http\Controllers\ProcurementController::class, 'unarchive'])->name('procurement.unarchive');
 
     // Notifications API (read-all MUST come before {id}/read to avoid param conflict)
     Route::get('/api/notifications', [App\Http\Controllers\NotificationController::class, 'index'])->name('notifications.index');

@@ -3,13 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Asset;
+use App\Models\AssetPlaceAssignment;
 use App\Models\Category;
 use App\Models\AssetMovement;
 use App\Models\EquipmentModel;
 use App\Models\Manufacturer;
+use App\Models\Place;
 use App\Models\ReservationWaitlist;
 use App\Models\Setting;
+use App\Models\TodoProject;
+use App\Models\TodoTask;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
@@ -36,6 +41,11 @@ class AssetController extends Controller
         $isAdmin = $request->user()->hasRole('admin');
         $reservableOn = $this->reservableFilterEnabled();
 
+        // Statuts dont les équipements sont masqués aux utilisateurs
+        $hiddenStatusKeys = !$isAdmin
+            ? \App\Models\AssetStatus::allCached()->where('hide_from_users', true)->pluck('key')->toArray()
+            : [];
+
         $baseQuery = fn() => Asset::with(array_filter([
                 'category', 'checkedOutTo', 'equipmentModel',
                 $isAdmin ? 'accessories' : null,
@@ -43,7 +53,9 @@ class AssetController extends Controller
             ->when(!$isAdmin && $reservableOn, fn($q) => $q->where('is_reservable', true))
             // Les accessoires (liés à un parent) sont masqués pour les utilisateurs :
             // ils sont automatiquement inclus lors de la réservation du parent.
-            ->when(!$isAdmin, fn($q) => $q->whereNull('parent_asset_id'));
+            ->when(!$isAdmin, fn($q) => $q->whereNull('parent_asset_id'))
+            // Masquer les assets dont le statut est configuré comme invisible pour les utilisateurs
+            ->when(!$isAdmin && !empty($hiddenStatusKeys), fn($q) => $q->whereNotIn('status', $hiddenStatusKeys));
 
         $query = $baseQuery()
             ->when($request->search, fn($q) => $q->where(function ($q2) use ($request) {
@@ -58,34 +70,41 @@ class AssetController extends Controller
             ->when($request->manufacturer, fn($q) => $q->where(function($q2) use ($request) {
                 $q2->where('manufacturer_id', $request->manufacturer)
                    ->orWhere('manufacturer', $request->manufacturer);
-            }));
+            }))
+            ->when($request->model, fn($q) => $q->where('equipment_model_id', $request->model));
 
         // Nombre d'éléments par page — min:12, max:500
         $perPage = max(12, min(500, (int) ($request->per_page ?? 24)));
 
         $assets = $query->orderBy('name')->paginate($perPage, ['*'], 'page', (int)($request->page ?? 1))->withQueryString()
-            ->through(fn($a) => [
-                'id'                    => $a->id,
-                'name'                  => $a->name,
-                'asset_tag'             => $a->asset_tag,
-                'serial'                => $a->serial,
-                'status'                => $a->status,
-                'status_label'          => $a->status_label,
-                'status_color'          => $a->status_color,
-                'is_reservable'         => $a->is_reservable,
-                'category'              => $a->category?->name,
-                'category_id'           => $a->category_id,
-                'location'              => $a->location,
-                'manufacturer'          => $a->manufacturer,
-                'image'                 => $this->getImageUrl($a->image),
-                'checked_out_to'        => $a->checkedOutTo ? ['name' => $a->checkedOutTo->name] : null,
-                'expected_return_at'    => $a->expected_return_at?->format('d/m/Y'),
-                'equipment_model_id'    => $a->equipment_model_id,
-                'model_name'            => $a->equipmentModel?->name,
-                'accessories'           => $isAdmin
-                    ? $a->accessories->map(fn($acc) => ['id' => $acc->id, 'name' => $acc->name])->values()
-                    : [],
-            ]);
+            ->through(function ($a) use ($isAdmin) {
+                $statusObj = \App\Models\AssetStatus::allCached()->firstWhere('key', $a->status);
+                return [
+                    'id'                    => $a->id,
+                    'name'                  => $a->name,
+                    'asset_tag'             => $a->asset_tag,
+                    'serial'                => $a->serial,
+                    'status'                => $a->status,
+                    'status_label'          => $a->status_label,
+                    'status_color'          => $a->status_color,
+                    'status_blocks_reservation' => $statusObj ? (bool) $statusObj->blocks_reservation : false,
+                    'is_reservable'         => $a->is_reservable,
+                    'category'              => $a->category?->name,
+                    'category_id'           => $a->category_id,
+                    'location'              => $a->location,
+                    'manufacturer'          => $a->manufacturer,
+                    'image'                 => $this->getImageUrl($a->image),
+                    'checked_out_to'        => $a->checkedOutTo ? ['name' => $a->checkedOutTo->name] : null,
+                    'expected_return_at'    => $a->expected_return_at?->format('d/m/Y'),
+                    'equipment_model_id'    => $a->equipment_model_id,
+                    'model_name'            => $a->equipmentModel?->name,
+                    'accessories'           => $isAdmin
+                        ? $a->accessories->map(fn($acc) => ['id' => $acc->id, 'name' => $acc->name])->values()
+                        : [],
+                    'label_to_create'       => $isAdmin ? (bool) $a->label_to_create : null,
+                    'label_to_apply'        => $isAdmin ? (bool) $a->label_to_apply  : null,
+                ];
+            });
 
         $categories = Category::withCount(['assets' => fn($q) =>
             $q->when(!$isAdmin && $reservableOn, fn($q2) => $q2->where('is_reservable', true))
@@ -107,6 +126,20 @@ class AssetController extends Controller
             ->orderBy('location')
             ->get();
 
+        // Lieux formels (places) pour le tab Lieux — source unique partagée avec Attribution
+        $places = \App\Models\Place::withCount('activeAssignments')
+            ->orderBy('is_storage', 'desc')
+            ->orderBy('name')
+            ->get(['id', 'name', 'description', 'color', 'is_storage'])
+            ->map(fn($p) => [
+                'id'               => $p->id,
+                'name'             => $p->name,
+                'description'      => $p->description,
+                'color'            => $p->color,
+                'is_storage'       => $p->is_storage,
+                'active_assignments_count' => $p->active_assignments_count,
+            ]);
+
         // Fabricants : entités Manufacturer (plus de distinct string)
         // Note: on filtre en PHP plutôt qu'avec HAVING pour compatibilité SQLite
         $manufacturers = Manufacturer::withCount(['assets' => fn($q) =>
@@ -121,9 +154,10 @@ class AssetController extends Controller
             'assets'                 => $assets,
             'categories'             => $categories,
             'locations'              => $locations,
+            'places'                 => $places,
             'manufacturers'          => $manufacturers,
             'models'                 => $models,
-            'filters'                => $request->only(['search', 'category', 'status', 'location', 'manufacturer', 'tab']),
+            'filters'                => $request->only(['search', 'category', 'status', 'location', 'manufacturer', 'tab', 'model']),
             'reservableFilterActive' => $reservableOn,
         ]);
     }
@@ -134,8 +168,15 @@ class AssetController extends Controller
         if (!$isAdmin && !$asset->is_reservable && $this->reservableFilterEnabled()) {
             abort(403);
         }
+        // Bloquer l'accès direct aux assets dont le statut est masqué aux utilisateurs
+        if (!$isAdmin) {
+            $statusObj = \App\Models\AssetStatus::allCached()->firstWhere('key', $asset->status);
+            if ($statusObj && $statusObj->hide_from_users) {
+                abort(403);
+            }
+        }
 
-        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files', 'activeAssignment.assignedToAsset', 'assignedAssets.asset']);
+        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files', 'activeAssignment.assignedToAsset', 'assignedAssets.asset', 'components', 'reports.user', 'reports.validatedBy']);
 
         $movements = $asset->movements->map(fn($m) => [
             'id'         => $m->id,
@@ -242,6 +283,7 @@ class AssetController extends Controller
                 'parent_asset'       => $asset->parentAsset ? ['id' => $asset->parentAsset->id, 'name' => $asset->parentAsset->name] : null,
                 'public_description' => $asset->public_description,
                 'custom_fields'      => $asset->custom_fields ?? [],
+                'condition_note'     => $asset->condition_note,
             ]),
             'accessories'       => $accessories,
             'assetFiles'        => $assetFiles,
@@ -259,6 +301,14 @@ class AssetController extends Controller
             'modelDocuments'    => $modelDocuments,
             'maintenances'      => $maintenances,
             'isOnWaitlist'      => $isOnWaitlist,
+            'components'        => $asset->components->map(fn($c) => [
+                'id'          => $c->id,
+                'name'        => $c->name,
+                'description' => $c->description,
+                'quantity'    => $c->quantity,
+                'sort_order'  => $c->sort_order,
+                'condition'   => $c->condition,
+            ])->values(),
             'activeReservation' => $activeReservation ? [
                 'id'         => $activeReservation->id,
                 'title'      => $activeReservation->title,
@@ -266,6 +316,22 @@ class AssetController extends Controller
                 'end_date'   => $activeReservation->end_date,
                 'user'       => ['name' => $activeReservation->user?->name],
             ] : null,
+            'reports' => $asset->reports
+                ->when(!$isAdmin, fn($col) => $col->where('is_validated', true))
+                ->map(fn($r) => [
+                    'id'           => $r->id,
+                    'type'         => $r->type,
+                    'type_label'   => $r->getTypeLabel(),
+                    'title'        => $r->title,
+                    'content'      => $r->content,
+                    'is_validated' => $r->is_validated,
+                    'admin_notes'  => $r->admin_notes,
+                    'validated_at' => $r->validated_at?->format('d/m/Y H:i'),
+                    'validated_by' => $r->validatedBy ? ['name' => $r->validatedBy->name] : null,
+                    'created_at'   => $r->created_at->format('d/m/Y H:i'),
+                    'user'         => $r->user ? ['id' => $r->user->id, 'name' => $r->user->name] : null,
+                    'reservation_id' => $r->reservation_id,
+                ])->values(),
         ]);
     }
 
@@ -289,10 +355,22 @@ class AssetController extends Controller
         return back()->with('success', 'Fiche publique mise à jour.');
     }
 
+    /** Mettre à jour la note d'état de l'équipement (visible publiquement) */
+    public function updateConditionNote(Request $request, Asset $asset)
+    {
+        $request->validate(['condition_note' => 'nullable|string|max:2000']);
+        $asset->update(['condition_note' => $request->condition_note ?: null]);
+        return response()->json(['ok' => true]);
+    }
+
     public function create(): Response
     {
         $categories = Category::orderBy('name')->get(['id', 'name']);
-        return Inertia::render('Assets/Form', ['categories' => $categories]);
+        $places = \App\Models\Place::orderBy('is_storage', 'desc')->orderBy('name')->get(['id', 'name', 'color', 'is_storage']);
+        return Inertia::render('Assets/Form', [
+            'categories' => $categories,
+            'places'     => $places,
+        ]);
     }
 
     /** Retourne les clés de statut valides depuis la DB (mise en cache) */
@@ -310,16 +388,31 @@ class AssetController extends Controller
             'model'         => 'nullable|string|max:255',
             'manufacturer'  => 'nullable|string|max:255',
             'category_id'   => 'nullable|exists:categories,id',
-            'location'      => 'nullable|string|max:255',
+            'place_id'      => 'nullable|exists:places,id',
             'status'        => 'required|in:' . $this->validStatusKeys(),
             'is_reservable' => 'boolean',
             'purchase_date' => 'nullable|date',
             'purchase_cost' => 'nullable|numeric|min:0',
             'notes'         => 'nullable|string',
-            'image'         => 'nullable|image|max:2048',
+            'image'         => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         $data['is_reservable'] = $request->boolean('is_reservable', true);
+
+        // Synchroniser location (texte) depuis le lieu sélectionné
+        if (!empty($data['place_id'])) {
+            $place = \App\Models\Place::find($data['place_id']);
+            $data['location'] = $place?->name;
+        } else {
+            $data['location'] = null;
+        }
+
+        // Normaliser les chaînes vides en null pour les champs nullable
+        foreach (['category_id', 'manufacturer', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
 
         if ($request->hasFile('image')) {
             $data['image'] = $request->file('image')->store('assets', 'public');
@@ -341,11 +434,23 @@ class AssetController extends Controller
     public function edit(Asset $asset): Response
     {
         $categories = Category::orderBy('name')->get(['id', 'name']);
+        $places = \App\Models\Place::orderBy('is_storage', 'desc')->orderBy('name')->get(['id', 'name', 'color', 'is_storage']);
+
+        $asset->load('equipmentModel.category');
+
         return Inertia::render('Assets/Form', [
-            'asset'      => array_merge($asset->toArray(), [
-                'image_url' => $this->getImageUrl($asset->image),
+            'asset' => array_merge($asset->toArray(), [
+                'image_url'       => $this->getImageUrl($asset->image),
+                'equipment_model' => $asset->equipmentModel ? [
+                    'id'            => $asset->equipmentModel->id,
+                    'name'          => $asset->equipmentModel->name,
+                    'manufacturer'  => $asset->equipmentModel->manufacturer,
+                    'category_id'   => $asset->equipmentModel->category_id,
+                    'category_name' => $asset->equipmentModel->category?->name,
+                ] : null,
             ]),
             'categories' => $categories,
+            'places'     => $places,
         ]);
     }
 
@@ -358,16 +463,31 @@ class AssetController extends Controller
             'model'         => 'nullable|string|max:255',
             'manufacturer'  => 'nullable|string|max:255',
             'category_id'   => 'nullable|exists:categories,id',
-            'location'      => 'nullable|string|max:255',
+            'place_id'      => 'nullable|exists:places,id',
             'status'        => 'required|in:' . $this->validStatusKeys(),
             'is_reservable' => 'boolean',
             'purchase_date' => 'nullable|date',
             'purchase_cost' => 'nullable|numeric|min:0',
             'notes'         => 'nullable|string',
-            'image'         => 'nullable|image|max:2048',
+            'image'         => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         $data['is_reservable'] = $request->boolean('is_reservable', $asset->is_reservable);
+
+        // Synchroniser location (texte) depuis le lieu sélectionné
+        if (!empty($data['place_id'])) {
+            $place = \App\Models\Place::find($data['place_id']);
+            $data['location'] = $place?->name;
+        } else {
+            $data['location'] = null;
+        }
+
+        // Normaliser les chaînes vides en null pour les champs nullable
+        foreach (['category_id', 'manufacturer', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
 
         if ($request->boolean('remove_image')) {
             if ($asset->image && !str_starts_with($asset->image, 'http')) {
@@ -381,6 +501,11 @@ class AssetController extends Controller
             $data['image'] = $request->file('image')->store('assets', 'public');
         } else {
             unset($data['image']); // conserver l'image existante
+        }
+
+        // Si l'asset est lié à un modèle, les champs hérités ne doivent pas être modifiés ici
+        if ($asset->equipment_model_id) {
+            unset($data['manufacturer'], $data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
         }
 
         $oldStatus = $asset->status;
@@ -420,6 +545,292 @@ class AssetController extends Controller
         return response()->json(['has_belge' => $asset->has_belge]);
     }
 
+    /** Toggle label_to_create — admin only */
+    /**
+     * Marque comme "done" toutes les tâches Todo liées à cet asset
+     * si les deux flags d'étiquette sont maintenant à false.
+     * Retourne le nombre de tâches complétées automatiquement.
+     */
+    private function autoCompleteLabelTasks(Asset $asset): int
+    {
+        if ($asset->label_to_create || $asset->label_to_apply) {
+            return 0;
+        }
+
+        return TodoTask::whereHas('assets', fn($q) => $q->where('assets.id', $asset->id))
+            ->where('status', '!=', 'done')
+            ->update(['status' => 'done']);
+    }
+
+    /**
+     * Scan d'une étiquette déjà créée mais pas encore collée :
+     * marque l'asset comme "à coller" et crée une tâche Todo liée.
+     */
+    public function labelScanApply(Request $request)
+    {
+        $request->validate(['asset_tag' => 'required|string|max:100']);
+
+        $asset = Asset::with('category')->where('asset_tag', $request->asset_tag)->first();
+
+        if (!$asset) {
+            return response()->json([
+                'error' => "Équipement « {$request->asset_tag} » introuvable dans l'inventaire.",
+            ], 404);
+        }
+
+        if ($asset->label_to_apply) {
+            return response()->json([
+                'warning' => "Cet équipement est déjà dans la liste des étiquettes à coller.",
+                'asset'   => $this->formatLabelAsset($asset),
+            ], 409);
+        }
+
+        // Marquer l'étiquette comme à coller (déjà créée)
+        $asset->update([
+            'label_to_apply'   => true,
+            'label_flagged_at' => $asset->label_flagged_at ?? now(),
+        ]);
+
+        // Trouver ou créer le projet "Étiquettage" partagé
+        $project = TodoProject::firstOrCreate(
+            ['name' => 'Étiquettage'],
+            [
+                'description' => 'Tâches d\'étiquettage générées automatiquement',
+                'color'       => '#F59E0B',
+                'is_shared'   => true,
+                'created_by'  => $request->user()->id,
+            ]
+        );
+
+        // Créer la tâche Todo
+        $task = TodoTask::create([
+            'project_id'  => $project->id,
+            'title'       => "Coller l'étiquette sur {$asset->name}",
+            'status'      => 'todo',
+            'priority'    => 'medium',
+            'created_by'  => $request->user()->id,
+        ]);
+        $task->assets()->attach($asset->id);
+
+        return response()->json([
+            'asset' => $this->formatLabelAsset($asset),
+            'task'  => ['id' => $task->id, 'title' => $task->title],
+        ], 201);
+    }
+
+    /** Formate un asset pour la réponse JSON de la page Étiquettes */
+    private function formatLabelAsset(Asset $asset): array
+    {
+        return [
+            'id'                     => $asset->id,
+            'name'                   => $asset->name,
+            'asset_tag'              => $asset->asset_tag,
+            'category'               => $asset->category?->name,
+            'location'               => $asset->location,
+            'image'                  => $this->getImageUrl($asset->image),
+            'label_to_create'        => (bool) $asset->label_to_create,
+            'label_to_apply'         => (bool) $asset->label_to_apply,
+            'label_flagged_at'       => $asset->label_flagged_at?->toIso8601String(),
+            'label_flagged_at_label' => $asset->label_flagged_at?->format('d/m/Y H:i'),
+            'label_sort_order'       => $asset->label_sort_order,
+        ];
+    }
+
+    /**
+     * Enregistre l'ordre personnalisé de la liste Étiquettes — admin only.
+     * Reçoit un tableau ordonné d'IDs : [id1, id2, id3, …]
+     */
+    public function labelsReorder(Request $request)
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer|exists:assets,id',
+        ]);
+
+        foreach ($request->ids as $position => $id) {
+            Asset::where('id', $id)->update(['label_sort_order' => $position + 1]);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function toggleLabelCreate(Asset $asset)
+    {
+        $newValue = !$asset->label_to_create;
+        $updates  = ['label_to_create' => $newValue];
+
+        // label_flagged_at
+        if ($newValue && !$asset->label_flagged_at) {
+            $updates['label_flagged_at'] = now();
+        } elseif (!$newValue && !$asset->label_to_apply) {
+            $updates['label_flagged_at'] = null;
+        }
+
+        // Auto-statut en_attente
+        $hadAny  = $asset->label_to_create || $asset->label_to_apply;
+        $willHave = $newValue || (bool) $asset->label_to_apply;
+        if (!$hadAny && $willHave) {
+            $updates['label_previous_status'] = $asset->status;
+            $updates['status'] = 'en_attente';
+        } elseif ($hadAny && !$willHave) {
+            if ($asset->status === 'en_attente' && $asset->label_previous_status) {
+                $updates['status'] = $asset->label_previous_status;
+            }
+            $updates['label_previous_status'] = null;
+        }
+
+        $asset->update($updates);
+        $asset->refresh();
+        $completed = $this->autoCompleteLabelTasks($asset);
+        return response()->json([
+            'label_to_create'        => $asset->label_to_create,
+            'label_flagged_at'       => $asset->label_flagged_at?->toIso8601String(),
+            'label_flagged_at_label' => $asset->label_flagged_at?->format('d/m/Y H:i'),
+            'tasks_auto_completed'   => $completed,
+            'status'                 => $asset->status,
+            'status_label'           => $asset->status_label,
+        ]);
+    }
+
+    /** Toggle label_to_apply — admin only */
+    public function toggleLabelApply(Asset $asset)
+    {
+        $newValue = !$asset->label_to_apply;
+        $updates  = ['label_to_apply' => $newValue];
+
+        // label_flagged_at
+        if ($newValue && !$asset->label_flagged_at) {
+            $updates['label_flagged_at'] = now();
+        } elseif (!$newValue && !$asset->label_to_create) {
+            $updates['label_flagged_at'] = null;
+        }
+
+        // Auto-statut en_attente
+        $hadAny  = $asset->label_to_create || $asset->label_to_apply;
+        $willHave = (bool) $asset->label_to_create || $newValue;
+        if (!$hadAny && $willHave) {
+            $updates['label_previous_status'] = $asset->status;
+            $updates['status'] = 'en_attente';
+        } elseif ($hadAny && !$willHave) {
+            if ($asset->status === 'en_attente' && $asset->label_previous_status) {
+                $updates['status'] = $asset->label_previous_status;
+            }
+            $updates['label_previous_status'] = null;
+        }
+
+        $asset->update($updates);
+        $asset->refresh();
+        $completed = $this->autoCompleteLabelTasks($asset);
+        return response()->json([
+            'label_to_apply'         => $asset->label_to_apply,
+            'label_flagged_at'       => $asset->label_flagged_at?->toIso8601String(),
+            'label_flagged_at_label' => $asset->label_flagged_at?->format('d/m/Y H:i'),
+            'tasks_auto_completed'   => $completed,
+            'status'                 => $asset->status,
+            'status_label'           => $asset->status_label,
+        ]);
+    }
+
+    /**
+     * Marquer en masse les flags étiquettes — admin only
+     */
+    public function bulkLabel(Request $request)
+    {
+        $request->validate([
+            'ids'             => 'required|array|min:1',
+            'ids.*'           => 'integer|exists:assets,id',
+            'label_to_create' => 'nullable|boolean',
+            'label_to_apply'  => 'nullable|boolean',
+        ]);
+
+        $setCreate  = $request->has('label_to_create');
+        $setApply   = $request->has('label_to_apply');
+        $wantCreate = $setCreate ? $request->boolean('label_to_create') : null;
+        $wantApply  = $setApply  ? $request->boolean('label_to_apply')  : null;
+
+        $assets = Asset::whereIn('id', $request->ids)->get();
+        $count  = 0;
+
+        foreach ($assets as $asset) {
+            $updates = [];
+
+            if ($setCreate) $updates['label_to_create'] = $wantCreate;
+            if ($setApply)  $updates['label_to_apply']  = $wantApply;
+
+            $finalCreate = $setCreate ? $wantCreate : (bool) $asset->label_to_create;
+            $finalApply  = $setApply  ? $wantApply  : (bool) $asset->label_to_apply;
+            $hadAny      = (bool) $asset->label_to_create || (bool) $asset->label_to_apply;
+            $willHave    = $finalCreate || $finalApply;
+
+            // label_flagged_at
+            if ($willHave && !$asset->label_flagged_at) {
+                $updates['label_flagged_at'] = now();
+            } elseif (!$willHave) {
+                $updates['label_flagged_at'] = null;
+            }
+
+            // Auto-statut en_attente
+            if (!$hadAny && $willHave) {
+                $updates['label_previous_status'] = $asset->status;
+                $updates['status'] = 'en_attente';
+            } elseif ($hadAny && !$willHave) {
+                if ($asset->status === 'en_attente' && $asset->label_previous_status) {
+                    $updates['status'] = $asset->label_previous_status;
+                }
+                $updates['label_previous_status'] = null;
+            }
+
+            if (!empty($updates)) {
+                $asset->update($updates);
+            }
+            $count++;
+        }
+
+        return back()->with('success', "{$count} équipement(s) mis à jour.");
+    }
+
+    /**
+     * Page dédiée : liste des équipements avec étiquette à créer/coller — admin only
+     */
+    public function labelsIndex()
+    {
+        $assets = Asset::with(['category'])
+            ->where(fn($q) => $q->where('label_to_create', true)->orWhere('label_to_apply', true))
+            ->orderByRaw('label_sort_order IS NULL ASC')  // nulls en dernier
+            ->orderBy('label_sort_order', 'asc')
+            ->orderBy('label_flagged_at', 'asc')
+            ->orderBy('name')
+            ->get()
+            ->map(fn($a) => [
+                'id'                     => $a->id,
+                'name'                   => $a->name,
+                'asset_tag'              => $a->asset_tag,
+                'category'               => $a->category?->name,
+                'location'               => $a->location,
+                'status'                 => $a->status,
+                'image'                  => $this->getImageUrl($a->image),
+                'label_to_create'        => (bool) $a->label_to_create,
+                'label_to_apply'         => (bool) $a->label_to_apply,
+                'label_flagged_at'       => $a->label_flagged_at?->toIso8601String(),
+                'label_flagged_at_label' => $a->label_flagged_at?->format('d/m/Y H:i'),
+                'label_sort_order'       => $a->label_sort_order,
+            ]);
+
+        return \Inertia\Inertia::render('Assets/Labels', [
+            'assets' => $assets,
+        ]);
+    }
+
+    /** Enregistrer le message de vérification pour le retour — admin only */
+    public function updateReturnCheckNote(Request $request, Asset $asset)
+    {
+        $request->validate([
+            'return_check_note' => 'nullable|string|max:500',
+        ]);
+        $asset->update(['return_check_note' => $request->input('return_check_note') ?: null]);
+        return response()->json(['return_check_note' => $asset->return_check_note]);
+    }
+
     public function destroy(Asset $asset)
     {
         $asset->delete();
@@ -448,6 +859,9 @@ class AssetController extends Controller
             'location'             => 'nullable|string|max:255',
             'is_reservable'        => 'nullable|in:0,1',
             'equipment_model_id'   => 'nullable|integer|exists:equipment_models,id',
+            'manufacturer_id'      => 'nullable|integer|exists:manufacturers,id',
+            'place_id'             => 'nullable|integer|exists:places,id',
+            'clear_place'          => 'nullable|boolean',
         ]);
 
         $updates = [];
@@ -461,13 +875,164 @@ class AssetController extends Controller
             $updates['is_reservable'] = (bool) $request->is_reservable;
         if ($request->has('equipment_model_id'))
             $updates['equipment_model_id'] = $request->equipment_model_id ?: null;
+        if ($request->has('manufacturer_id')) {
+            $updates['manufacturer_id'] = $request->manufacturer_id ?: null;
+            // Synchroniser le champ texte manufacturer pour cohérence
+            if ($request->manufacturer_id) {
+                $mfr = Manufacturer::find($request->manufacturer_id);
+                if ($mfr) $updates['manufacturer'] = $mfr->name;
+            } else {
+                $updates['manufacturer'] = null;
+            }
+        }
 
         if (!empty($updates)) {
             Asset::whereIn('id', $request->ids)->update($updates);
         }
 
+        // ── Mise à jour du lieu de rangement (sans créer d'affectation) ─────────
+        if ($request->has('place_id') || $request->boolean('clear_place')) {
+            $placeId = $request->place_id ?: null;
+            $locationText = null;
+            if ($placeId) {
+                $place = \App\Models\Place::find($placeId);
+                $locationText = $place?->name;
+            }
+            Asset::whereIn('id', $request->ids)->update([
+                'place_id' => $placeId,
+                'location' => $locationText,
+            ]);
+        }
+
         $count = count($request->ids);
         return back()->with('success', "{$count} équipement(s) mis à jour.");
+    }
+
+    /**
+     * Affectation formelle en masse à un lieu (crée AssetPlaceAssignment pour chaque asset).
+     */
+    public function bulkAssignPlace(Request $request)
+    {
+        $data = $request->validate([
+            'ids'                => 'required|array|min:1',
+            'ids.*'              => 'integer|exists:assets,id',
+            'place_id'           => 'required|integer|exists:places,id',
+            'return_expected_at' => 'nullable|date',
+            'notes'              => 'nullable|string|max:1000',
+        ]);
+
+        $place  = Place::findOrFail($data['place_id']);
+        $assets = Asset::whereIn('id', $data['ids'])->get();
+
+        // Pour un lieu de stockage, on fait juste la mise à jour texte sans affectation formelle
+        if ($place->is_storage) {
+            Asset::whereIn('id', $data['ids'])->update([
+                'place_id' => $place->id,
+                'location' => $place->name,
+            ]);
+            return back()->with('success', count($data['ids']) . " équipement(s) déplacés vers « {$place->name} ».");
+        }
+
+        $created = 0;
+        $skippedMessages = [];
+
+        foreach ($assets as $asset) {
+            // Équipement retiré
+            if ($asset->status === 'retired') {
+                $skippedMessages[] = "« {$asset->name} » (retiré de l'inventaire)";
+                continue;
+            }
+
+            // Déjà affecté à un autre lieu
+            if ($asset->activePlaceAssignment()->exists()) {
+                $existing = $asset->activePlaceAssignment()->with('place')->first();
+                if ($existing->place_id === $place->id) {
+                    // Même lieu — on met à jour la date et les notes si fournies
+                    $existing->update(array_filter([
+                        'return_expected_at' => $data['return_expected_at'] ?? $existing->return_expected_at,
+                        'notes'              => $data['notes'] ?? $existing->notes,
+                    ], fn($v) => $v !== null));
+                    $asset->update(['place_id' => $place->id, 'location' => $place->name]);
+                    $created++;
+                    continue;
+                }
+                $skippedMessages[] = "« {$asset->name} » (déjà affecté à « {$existing->place->name} »)";
+                continue;
+            }
+
+            // Créer l'affectation
+            AssetPlaceAssignment::create([
+                'asset_id'           => $asset->id,
+                'place_id'           => $place->id,
+                'assigned_by'        => Auth::id(),
+                'assigned_at'        => now(),
+                'return_expected_at' => $data['return_expected_at'] ?? null,
+                'notes'              => $data['notes'] ?? null,
+            ]);
+
+            // Mouvement
+            $notesMvt = "Affecté à « {$place->name} »";
+            if (!empty($data['return_expected_at'])) {
+                $notesMvt .= ' jusqu\'au ' . \Carbon\Carbon::parse($data['return_expected_at'])->format('d/m/Y H:i');
+            } else {
+                $notesMvt .= ' (permanent)';
+            }
+            AssetMovement::create([
+                'asset_id' => $asset->id,
+                'user_id'  => Auth::id(),
+                'action'   => 'place_assigned',
+                'notes'    => $notesMvt,
+            ]);
+
+            // Mettre à jour place_id + location + statut si disponible
+            $statusUpdate = $asset->status === 'available' ? ['status' => 'checked_out'] : [];
+            $asset->update(array_merge(['place_id' => $place->id, 'location' => $place->name], $statusUpdate));
+
+            $created++;
+        }
+
+        $msg = "{$created} équipement(s) affecté(s) à « {$place->name} ».";
+        if (!empty($skippedMessages)) {
+            $count = count($skippedMessages);
+            $msg .= " {$count} ignoré(s) : " . implode(', ', array_slice($skippedMessages, 0, 3));
+            if ($count > 3) $msg .= '…';
+        }
+
+        return back()->with('success', $msg);
+    }
+
+    public function bulkUpdateLabels(Request $request)
+    {
+        $request->validate([
+            'ids'              => 'required|array|min:1',
+            'ids.*'            => 'integer|exists:assets,id',
+            'label_to_create'  => 'nullable|boolean',
+            'label_to_apply'   => 'nullable|boolean',
+        ]);
+
+        $updates = [];
+        if ($request->has('label_to_create') && $request->label_to_create !== null) {
+            $updates['label_to_create'] = (bool) $request->label_to_create;
+        }
+        if ($request->has('label_to_apply') && $request->label_to_apply !== null) {
+            $updates['label_to_apply'] = (bool) $request->label_to_apply;
+        }
+
+        if (!empty($updates)) {
+            Asset::whereIn('id', $request->ids)->update($updates);
+
+            // Si les deux flags passent à false, auto-compléter les tâches Todo liées
+            $settingToCreate = $updates['label_to_create'] ?? null;
+            $settingToApply  = $updates['label_to_apply']  ?? null;
+            if ($settingToCreate === false && $settingToApply === false) {
+                TodoTask::whereHas('assets', fn($q) => $q->whereIn('assets.id', $request->ids))
+                    ->where('status', '!=', 'done')
+                    ->update(['status' => 'done']);
+            }
+        }
+
+        $count = count($request->ids);
+        return back()->with('success', "Étiquettes mises à jour pour {$count} équipement(s).");
     }
 
     public function duplicate(Asset $asset)

@@ -23,9 +23,12 @@ class AssetStatusController extends Controller
         $data = $request->validate([
             'key'                => ['required', 'string', 'max:50', 'regex:/^[a-z0-9_]+$/', 'unique:asset_statuses,key'],
             'label'              => ['required', 'string', 'max:100'],
+            'description'        => ['nullable', 'string', 'max:500'],
             'color'              => ['required', 'string', 'in:' . implode(',', array_keys(AssetStatus::colorPalette()))],
             'blocks_reservation' => ['boolean'],
             'is_active'          => ['boolean'],
+            'user_visible'       => ['boolean'],
+            'hide_from_users'    => ['boolean'],
             'sort_order'         => ['integer', 'min:0'],
         ], [
             'key.regex'  => 'La clé ne doit contenir que des lettres minuscules, chiffres et underscores.',
@@ -49,9 +52,12 @@ class AssetStatusController extends Controller
         $data = $request->validate([
             'key'                => $keyRule,
             'label'              => ['required', 'string', 'max:100'],
+            'description'        => ['nullable', 'string', 'max:500'],
             'color'              => ['required', 'string', 'in:' . implode(',', array_keys(AssetStatus::colorPalette()))],
             'blocks_reservation' => ['boolean'],
             'is_active'          => ['boolean'],
+            'user_visible'       => ['boolean'],
+            'hide_from_users'    => ['boolean'],
             'sort_order'         => ['integer', 'min:0'],
         ]);
 

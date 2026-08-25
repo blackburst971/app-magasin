@@ -36,6 +36,17 @@ class SupplierController extends Controller
         return back()->with('success', 'Fournisseur créé avec succès.');
     }
 
+    /** Création rapide depuis un formulaire inline (retourne JSON). */
+    public function quickStore(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $supplier = Supplier::firstOrCreate(['name' => trim($data['name'])]);
+        return response()->json(['id' => $supplier->id, 'name' => $supplier->name]);
+    }
+
     public function update(Request $request, Supplier $supplier)
     {
         $data = $request->validate([

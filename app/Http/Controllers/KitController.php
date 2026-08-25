@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Kit;
+use App\Models\KitCategory;
 use App\Models\KitMissingItem;
 use App\Models\Asset;
 use App\Models\Reservation;
@@ -29,17 +30,18 @@ class KitController extends Controller
     /** Liste des kits — page admin */
     public function index()
     {
-        $kits = Kit::with(['assets.category', 'pendingMissingItems.asset', 'pendingMissingItems.responsibleUser'])
+        $kits = Kit::with(['assets.category', 'category', 'pendingMissingItems.asset', 'pendingMissingItems.responsibleUser'])
             ->withCount('assets')
             ->orderBy('name')
             ->get()
             ->map(fn($k) => [
-                'id'           => $k->id,
-                'name'         => $k->name,
-                'description'  => $k->description,
-                'notes'        => $k->notes,
-                'image'        => $this->getImageUrl($k->image),
-                'status'       => $k->status,
+                'id'             => $k->id,
+                'name'           => $k->name,
+                'description'    => $k->description,
+                'notes'          => $k->notes,
+                'condition_note' => $k->condition_note,
+                'image'          => $this->getImageUrl($k->image),
+                'status'         => $k->status,
                 'status_label' => $k->status_label,
                 'status_color' => $k->status_color,
                 'is_reservable'=> $k->is_reservable,
@@ -51,6 +53,9 @@ class KitController extends Controller
                     'category'  => $a->category?->name,
                     'image'     => $this->getImageUrl($a->image),
                 ]),
+                'category'     => $k->category ? ['id' => $k->category->id, 'name' => $k->category->name, 'color' => $k->category->color] : null,
+                'in_preparation' => $k->assets->isNotEmpty() && $k->assets->every(fn($a) => $a->status === 'en_preparation'),
+                'partially_in_preparation' => $k->assets->contains(fn($a) => $a->status === 'en_preparation'),
                 'pending_missing_count' => $k->pendingMissingItems->count(),
                 'pending_missing_items' => $k->pendingMissingItems->map(fn($m) => [
                     'id'               => $m->id,
@@ -63,19 +68,24 @@ class KitController extends Controller
 
         $availableAssets = Asset::with('category')
             ->whereDoesntHave('kits')
-            ->where('is_reservable', true)
+            ->whereNotIn('status', ['retired'])
             ->orderBy('name')
-            ->get(['id', 'name', 'asset_tag', 'category_id', 'image'])
+            ->get(['id', 'name', 'asset_tag', 'category_id', 'image', 'is_reservable', 'status'])
             ->map(fn($a) => [
-                'id'        => $a->id,
-                'name'      => $a->name,
-                'asset_tag' => $a->asset_tag,
-                'category'  => $a->category?->name,
-                'image'     => $this->getImageUrl($a->image),
+                'id'            => $a->id,
+                'name'          => $a->name,
+                'asset_tag'     => $a->asset_tag,
+                'category'      => $a->category?->name,
+                'image'         => $this->getImageUrl($a->image),
+                'is_reservable' => (bool) $a->is_reservable,
+                'status'        => $a->status,
             ]);
+
+        $categories = KitCategory::orderBy('position')->orderBy('name')->get(['id', 'name', 'color', 'description', 'position']);
 
         return Inertia::render('Kits/Index', [
             'kits'            => $kits,
+            'kitCategories'   => $categories,
             'availableAssets' => auth()->user()->hasRole('admin') ? $availableAssets : [],
         ]);
     }
@@ -84,12 +94,13 @@ class KitController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name'        => 'required|string|max:255',
-            'description' => 'nullable|string|max:1000',
-            'notes'       => 'nullable|string|max:1000',
-            'asset_ids'   => 'required|array|min:1',
-            'asset_ids.*' => 'exists:assets,id',
-            'image'       => 'nullable|image|max:2048',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:1000',
+            'notes'           => 'nullable|string|max:1000',
+            'kit_category_id' => 'nullable|exists:kit_categories,id',
+            'asset_ids'       => 'required|array|min:1',
+            'asset_ids.*'     => 'exists:assets,id',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         $imagePath = null;
@@ -98,14 +109,18 @@ class KitController extends Controller
         }
 
         $kit = Kit::create([
-            'name'        => $data['name'],
-            'description' => $data['description'] ?? null,
-            'notes'       => $data['notes'] ?? null,
-            'image'       => $imagePath,
-            'status'      => 'available',
+            'name'            => $data['name'],
+            'description'     => $data['description'] ?? null,
+            'notes'           => $data['notes'] ?? null,
+            'image'           => $imagePath,
+            'status'          => 'available',
+            'kit_category_id' => $data['kit_category_id'] ?? null,
         ]);
 
         $kit->assets()->sync($data['asset_ids']);
+
+        // Les équipements ajoutés à un kit ne sont plus réservables individuellement
+        Asset::whereIn('id', $data['asset_ids'])->update(['is_reservable' => false]);
 
         return back()->with('success', "Kit « {$kit->name} » créé.");
     }
@@ -114,15 +129,16 @@ class KitController extends Controller
     public function update(Request $request, Kit $kit)
     {
         $data = $request->validate([
-            'name'         => 'required|string|max:255',
-            'description'  => 'nullable|string|max:1000',
-            'notes'        => 'nullable|string|max:1000',
-            'status'       => 'required|in:available,partial,unavailable',
-            'is_reservable'=> 'boolean',
-            'asset_ids'    => 'nullable|array',
-            'asset_ids.*'  => 'exists:assets,id',
-            'image'        => 'nullable|image|max:2048',
-            'remove_image' => 'nullable|boolean',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:1000',
+            'notes'           => 'nullable|string|max:1000',
+            'status'          => 'required|in:available,partial,unavailable',
+            'is_reservable'   => 'boolean',
+            'kit_category_id' => 'nullable|exists:kit_categories,id',
+            'asset_ids'       => 'nullable|array',
+            'asset_ids.*'     => 'exists:assets,id',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
+            'remove_image'    => 'nullable|boolean',
         ]);
 
         $imagePath = $kit->image;
@@ -137,16 +153,36 @@ class KitController extends Controller
         }
 
         $kit->update([
-            'name'         => $data['name'],
-            'description'  => $data['description'] ?? null,
-            'notes'        => $data['notes'] ?? null,
-            'image'        => $imagePath,
-            'status'       => $data['status'],
-            'is_reservable'=> $data['is_reservable'] ?? $kit->is_reservable,
+            'name'            => $data['name'],
+            'description'     => $data['description'] ?? null,
+            'notes'           => $data['notes'] ?? null,
+            'image'           => $imagePath,
+            'status'          => $data['status'],
+            'is_reservable'   => $data['is_reservable'] ?? $kit->is_reservable,
+            'kit_category_id' => $data['kit_category_id'] ?? null,
         ]);
 
         if (isset($data['asset_ids'])) {
-            $kit->assets()->sync($data['asset_ids']);
+            $oldAssetIds = $kit->assets->pluck('id')->toArray();
+            $newAssetIds = $data['asset_ids'];
+
+            $removedIds = array_diff($oldAssetIds, $newAssetIds);
+            $addedIds   = array_diff($newAssetIds, $oldAssetIds);
+
+            $kit->assets()->sync($newAssetIds);
+
+            // Restaurer is_reservable pour les équipements retirés du kit (si pas dans un autre kit)
+            foreach ($removedIds as $id) {
+                $asset = Asset::find($id);
+                if ($asset && !$asset->kits()->exists()) {
+                    $asset->update(['is_reservable' => true]);
+                }
+            }
+
+            // Masquer de la réservation les équipements ajoutés au kit
+            if ($addedIds) {
+                Asset::whereIn('id', $addedIds)->update(['is_reservable' => false]);
+            }
         }
 
         return back()->with('success', 'Kit mis à jour.');
@@ -155,9 +191,60 @@ class KitController extends Controller
     /** Supprimer un kit */
     public function destroy(Kit $kit)
     {
+        $assetIds = $kit->assets->pluck('id')->toArray();
         $kit->assets()->detach();
         $kit->delete();
+
+        // Restaurer is_reservable pour les équipements qui ne sont plus dans aucun kit
+        foreach ($assetIds as $id) {
+            $asset = Asset::find($id);
+            if ($asset && !$asset->kits()->exists()) {
+                $asset->update(['is_reservable' => true]);
+            }
+        }
+
         return back()->with('success', 'Kit supprimé.');
+    }
+
+    /** Mettre à jour la note d'état du kit (visible par les utilisateurs) */
+    public function updateConditionNote(Request $request, Kit $kit)
+    {
+        $request->validate(['condition_note' => 'nullable|string|max:2000']);
+        $kit->update(['condition_note' => $request->condition_note ?: null]);
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Rechercher un équipement par code-barres pour l'ajouter à un kit.
+     * Admin only.
+     */
+    public function assetLookup(Request $request)
+    {
+        $request->validate(['asset_tag' => 'required|string']);
+
+        $asset = Asset::with('category')->where('asset_tag', $request->asset_tag)->first();
+
+        if (!$asset) {
+            return response()->json(['found' => false, 'error' => 'Équipement introuvable.'], 404);
+        }
+
+        if ($asset->status === 'retired') {
+            return response()->json(['found' => false, 'error' => "Équipement retiré de l'inventaire."], 422);
+        }
+
+        $inKit = $asset->kits()->first();
+
+        return response()->json([
+            'found'         => true,
+            'id'            => $asset->id,
+            'name'          => $asset->name,
+            'asset_tag'     => $asset->asset_tag,
+            'category'      => $asset->category?->name,
+            'image'         => $this->getImageUrl($asset->image),
+            'is_reservable' => (bool) $asset->is_reservable,
+            'status'        => $asset->status,
+            'in_kit'        => $inKit ? ['id' => $inKit->id, 'name' => $inKit->name] : null,
+        ]);
     }
 
     /**
@@ -284,6 +371,114 @@ class KitController extends Controller
                 'asset'   => Asset::find($data['asset_id'])?->only(['id', 'name', 'asset_tag']),
             ],
         ]);
+    }
+
+    /**
+     * Retourne le statut actuel de plusieurs kits (pour rafraîchir le panier).
+     * GET /api/kits/statuses?ids[]=1&ids[]=2
+     */
+    public function statuses(Request $request)
+    {
+        $ids = array_filter(array_map('intval', (array) $request->input('ids', [])));
+        if (empty($ids)) return response()->json([]);
+
+        $kits = Kit::with('assets')->whereIn('id', $ids)->get();
+
+        $statusLabels = [
+            'available'   => 'Disponible',
+            'unavailable' => 'Indisponible',
+            'partial'     => 'Partiel',
+            'missing'     => 'Incomplet',
+        ];
+
+        return response()->json($kits->map(fn($kit) => [
+            'id'           => $kit->id,
+            'status'       => $kit->status,
+            'status_label' => $statusLabels[$kit->status] ?? $kit->status,
+        ])->values());
+    }
+
+    /**
+     * Vérifie la disponibilité d'un ou plusieurs kits sur une période donnée.
+     * GET /api/kits/availability?kit_ids[]=1&kit_ids[]=2&start=...&end=...
+     */
+    public function checkAvailability(Request $request)
+    {
+        $kitIds = array_filter(array_map('intval', (array) $request->input('kit_ids', [])));
+        $start  = $request->input('start');
+        $end    = $request->input('end');
+
+        if (empty($kitIds) || !$start || !$end) {
+            return response()->json([]);
+        }
+
+        $startDt = new \DateTime($start);
+        $endDt   = new \DateTime($end);
+
+        $kits = Kit::with('assets')->whereIn('id', $kitIds)->get();
+
+        return response()->json($kits->map(function ($kit) use ($startDt, $endDt) {
+            if (!$kit->is_reservable || $kit->status === 'unavailable') {
+                return [
+                    'id'     => $kit->id,
+                    'status' => 'unavailable',
+                    'reason' => 'Kit non disponible à la réservation.',
+                ];
+            }
+
+            $worstStatus = 'available';
+            $worstReason = null;
+
+            foreach ($kit->assets as $asset) {
+                $avail = $asset->getAvailabilityForPeriod($startDt, $endDt);
+                if ($avail['status'] === 'unavailable') {
+                    $worstStatus = 'unavailable';
+                    $worstReason = $avail['reason'];
+                    break; // Un seul asset indisponible suffit
+                } elseif ($avail['status'] === 'warning' && $worstStatus === 'available') {
+                    $worstStatus = 'warning';
+                    $worstReason = $avail['reason'];
+                }
+            }
+
+            return [
+                'id'     => $kit->id,
+                'status' => $worstStatus,
+                'reason' => $worstReason,
+            ];
+        })->values());
+    }
+
+    // ─── Catégories de kits ───────────────────────────────────────────────────
+
+    public function storeCategory(Request $request)
+    {
+        $data = $request->validate([
+            'name'        => 'required|string|max:255',
+            'color'       => 'required|string|max:7',
+            'description' => 'nullable|string|max:500',
+        ]);
+        $data['position'] = KitCategory::max('position') + 1;
+        $category = KitCategory::create($data);
+        return response()->json(['id' => $category->id, 'name' => $category->name, 'color' => $category->color, 'description' => $category->description, 'position' => $category->position]);
+    }
+
+    public function updateCategory(Request $request, KitCategory $kitCategory)
+    {
+        $data = $request->validate([
+            'name'        => 'required|string|max:255',
+            'color'       => 'required|string|max:7',
+            'description' => 'nullable|string|max:500',
+        ]);
+        $kitCategory->update($data);
+        return response()->json(['ok' => true]);
+    }
+
+    public function destroyCategory(KitCategory $kitCategory)
+    {
+        // Détacher les kits liés (nullable FK, mis à null automatiquement)
+        $kitCategory->delete();
+        return back()->with('success', "Catégorie « {$kitCategory->name} » supprimée.");
     }
 
     /**

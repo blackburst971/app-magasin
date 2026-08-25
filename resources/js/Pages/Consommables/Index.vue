@@ -9,6 +9,7 @@ import {
   ArrowUpTrayIcon, PhotoIcon, XMarkIcon, ArchiveBoxIcon,
   ExclamationTriangleIcon, CheckCircleIcon, ClockIcon,
   AdjustmentsHorizontalIcon, ArrowPathIcon,
+  Squares2X2Icon, ListBulletIcon, ViewColumnsIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -29,6 +30,10 @@ function switchTab(tab) {
     preserveState: true, preserveScroll: true, replace: true,
   })
 }
+
+// ─── Mode d'affichage ─────────────────────────────────────────────────────────
+const viewMode = ref(localStorage.getItem('consommables_view') ?? 'grid')
+watch(viewMode, v => localStorage.setItem('consommables_view', v))
 
 // ─── Filtres liste ────────────────────────────────────────────────────────────
 const search          = ref(props.filters?.search ?? '')
@@ -55,9 +60,9 @@ watch(search, () => { clearTimeout(searchTimer); searchTimer = setTimeout(applyF
 watch([selectedCat, onlyRequestable], applyFilters)
 
 // ─── Modal création / édition ─────────────────────────────────────────────────
-const showFormModal    = ref(false)
-const editTarget       = ref(null)
-const imagePreview     = ref(null)
+const showFormModal = ref(false)
+const editTarget    = ref(null)
+const imagePreview  = ref(null)
 
 const form = useForm({
   name:           '',
@@ -74,53 +79,55 @@ const form = useForm({
 })
 
 function openCreate() {
-  editTarget.value  = null
+  editTarget.value   = null
   imagePreview.value = null
   form.reset()
-  form.unit = 'pièce'
-  form.quantity = 0
-  form.min_stock = 0
+  form.unit           = 'pièce'
+  form.quantity       = 0
+  form.min_stock      = 0
   form.is_requestable = false
   showFormModal.value = true
 }
 
 function openEdit(c) {
-  editTarget.value       = c
-  imagePreview.value     = c.image_url ?? null
-  form.name              = c.name
-  form.reference         = c.reference
-  form.unit              = c.unit
-  form.quantity          = c.quantity
-  form.min_stock         = c.min_stock
-  form.category_id       = c.category_id ?? ''
-  form.is_requestable    = c.is_requestable
-  form.unit_cost         = c.unit_cost ?? ''
-  form.description       = c.description ?? ''
-  form.image             = null
-  form.remove_image      = false
-  showFormModal.value    = true
+  editTarget.value    = c
+  imagePreview.value  = c.image_url ?? null
+  form.name           = c.name
+  form.reference      = c.reference
+  form.unit           = c.unit
+  form.quantity       = c.quantity  ?? 0
+  form.min_stock      = c.min_stock ?? 0
+  form.category_id    = c.category_id ?? ''
+  form.is_requestable = c.is_requestable
+  form.unit_cost      = c.unit_cost ?? ''
+  form.description    = c.description ?? ''
+  form.image          = null
+  form.remove_image   = false
+  showFormModal.value = true
 }
 
 function onImageChange(e) {
   const file = e.target.files[0]
   if (!file) return
-  form.image        = file
-  form.remove_image = false
+  form.image         = file
+  form.remove_image  = false
   imagePreview.value = URL.createObjectURL(file)
 }
 
 function removeImage() {
-  form.image        = null
-  form.remove_image = true
+  form.image         = null
+  form.remove_image  = true
   imagePreview.value = null
 }
 
 function submitForm() {
   if (editTarget.value) {
-    form.put(route('consommables.update', editTarget.value.id), {
-      forceFormData: true,
-      onSuccess: () => { showFormModal.value = false },
-    })
+    form
+      .transform(data => ({ ...data, _method: 'put' }))
+      .post(route('consommables.update', editTarget.value.id), {
+        forceFormData: true,
+        onSuccess: () => { showFormModal.value = false },
+      })
   } else {
     form.post(route('consommables.store'), {
       forceFormData: true,
@@ -134,7 +141,7 @@ function deleteConsommable(c) {
   router.delete(route('consommables.destroy', c.id))
 }
 
-// ─── Ajustement de stock (admin) ───────────────────────────────────────────────
+// ─── Ajustement de stock (admin) ──────────────────────────────────────────────
 const adjustTarget  = ref(null)
 const adjustDelta   = ref(1)
 const adjustNotes   = ref('')
@@ -142,10 +149,10 @@ const adjustLoading = ref(false)
 const adjustError   = ref(null)
 
 function openAdjust(c) {
-  adjustTarget.value  = c
-  adjustDelta.value   = 1
-  adjustNotes.value   = ''
-  adjustError.value   = null
+  adjustTarget.value = c
+  adjustDelta.value  = 1
+  adjustNotes.value  = ''
+  adjustError.value  = null
 }
 
 function closeAdjust() { adjustTarget.value = null }
@@ -155,7 +162,6 @@ function quickAdjust(c, delta) {
   adjustDelta.value  = delta
   adjustNotes.value  = ''
   adjustError.value  = null
-  // Ouvre le modal pour que l'admin puisse ajouter un motif avant de valider
 }
 
 async function doAdjust() {
@@ -177,14 +183,14 @@ async function doAdjust() {
 }
 
 // ─── Modal demande utilisateur ────────────────────────────────────────────────
-const showRequestModal  = ref(false)
-const requestTarget     = ref(null)
-const requestForm       = useForm({ quantity: 1, notes: '' })
+const showRequestModal = ref(false)
+const requestTarget    = ref(null)
+const requestForm      = useForm({ quantity: 1, notes: '' })
 
 function openRequest(c) {
-  requestTarget.value   = c
-  requestForm.quantity  = 1
-  requestForm.notes     = ''
+  requestTarget.value    = c
+  requestForm.quantity   = 1
+  requestForm.notes      = ''
   showRequestModal.value = true
 }
 
@@ -205,9 +211,9 @@ function approveRequest(r) {
 }
 
 function openReject(r) {
-  rejectTarget.value       = r
-  rejectForm.admin_notes   = ''
-  showRejectModal.value    = true
+  rejectTarget.value     = r
+  rejectForm.admin_notes = ''
+  showRejectModal.value  = true
 }
 
 function submitReject() {
@@ -223,7 +229,7 @@ function cancelRequest(r) {
 
 // ─── Import CSV ───────────────────────────────────────────────────────────────
 const showImport     = ref(false)
-const importStep     = ref(1)   // 1: upload, 2: mapping, 3: résultats
+const importStep     = ref(1)
 const importSep      = ref('semicolon')
 const importFile     = ref(null)
 const importHeaders  = ref([])
@@ -248,14 +254,14 @@ const csvFields = [
 ]
 
 function openImport() {
-  importStep.value   = 1
-  importFile.value   = null
+  importStep.value    = 1
+  importFile.value    = null
   importHeaders.value = []
   importPreview.value = []
   importMapping.value = {}
   importResults.value = null
-  importError.value  = null
-  showImport.value   = true
+  importError.value   = null
+  showImport.value    = true
 }
 
 function onImportFile(e) {
@@ -266,11 +272,9 @@ async function previewImport() {
   if (!importFile.value) return
   importLoading.value = true
   importError.value   = null
-
   const fd = new FormData()
   fd.append('file', importFile.value)
   fd.append('separator', importSep.value)
-
   try {
     const { data } = await axios.post(route('consommables.import.preview'), fd)
     importHeaders.value  = data.headers
@@ -288,13 +292,11 @@ async function previewImport() {
 async function processImport() {
   importLoading.value = true
   importError.value   = null
-
   const fd = new FormData()
   fd.append('file', importFile.value)
   fd.append('separator', importSep.value)
   fd.append('qty_mode', importQtyMode.value)
   Object.entries(importMapping.value).forEach(([k, v]) => fd.append(`mapping[${k}]`, v))
-
   try {
     const { data } = await axios.post(route('consommables.import.process'), fd)
     importResults.value = data
@@ -317,9 +319,15 @@ watch(reqStatus, (val) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function stockBadge(c) {
-  if (c.is_out_of_stock) return { label: 'Épuisé', cls: 'bg-red-100 text-red-700' }
+  if (c.is_out_of_stock) return { label: 'Épuisé',      cls: 'bg-red-100 text-red-700' }
   if (c.is_low_stock)    return { label: 'Stock faible', cls: 'bg-orange-100 text-orange-700' }
   return null
+}
+
+function stockColor(c) {
+  if (c.is_out_of_stock) return 'text-red-500'
+  if (c.is_low_stock)    return 'text-orange-500'
+  return 'text-emerald-600'
 }
 </script>
 
@@ -375,121 +383,392 @@ function stockBadge(c) {
       <!-- ══════════════════════════════════ -->
       <div v-if="activeTab === 'list'">
 
-        <!-- Filtres -->
-        <div class="flex flex-wrap gap-3 mb-5">
+        <!-- Barre outils : filtres + mode d'affichage -->
+        <div class="flex flex-wrap gap-3 mb-5 items-center">
+          <!-- Recherche -->
           <div class="relative flex-1 min-w-48">
             <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input v-model="search" type="text" placeholder="Rechercher…"
               class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
+          <!-- Catégorie -->
           <select v-model="selectedCat"
             class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
             <option value="">Toutes les catégories</option>
             <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
+          <!-- Demandables -->
           <label v-if="isAdmin" class="flex items-center gap-2 text-sm text-gray-600 px-3 py-2 border border-gray-300 rounded-lg bg-white cursor-pointer hover:bg-gray-50">
             <input type="checkbox" v-model="onlyRequestable" class="rounded" />
             Demandables seulement
           </label>
+
+          <!-- Sélecteur de mode d'affichage -->
+          <div class="flex border border-gray-200 rounded-lg overflow-hidden shadow-sm flex-shrink-0 ml-auto">
+            <button @click="viewMode = 'gallery'" :title="'Galerie'"
+              :class="['px-3 py-2 transition flex items-center gap-1.5 text-sm', viewMode === 'gallery'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50']">
+              <PhotoIcon class="w-4 h-4" />
+              <span class="hidden sm:inline text-xs font-medium">Galerie</span>
+            </button>
+            <button @click="viewMode = 'grid'" :title="'Grille'"
+              :class="['px-3 py-2 border-l border-gray-200 transition flex items-center gap-1.5 text-sm', viewMode === 'grid'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50']">
+              <Squares2X2Icon class="w-4 h-4" />
+              <span class="hidden sm:inline text-xs font-medium">Grille</span>
+            </button>
+            <button @click="viewMode = 'compact'" :title="'Compact'"
+              :class="['px-3 py-2 border-l border-gray-200 transition flex items-center gap-1.5 text-sm', viewMode === 'compact'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50']">
+              <ViewColumnsIcon class="w-4 h-4" />
+              <span class="hidden sm:inline text-xs font-medium">Compact</span>
+            </button>
+            <button @click="viewMode = 'list'" :title="'Liste'"
+              :class="['px-3 py-2 border-l border-gray-200 transition flex items-center gap-1.5 text-sm', viewMode === 'list'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50']">
+              <ListBulletIcon class="w-4 h-4" />
+              <span class="hidden sm:inline text-xs font-medium">Liste</span>
+            </button>
+          </div>
         </div>
 
-        <!-- Grille -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <div v-if="consommables.data.length === 0" class="col-span-full text-center text-gray-400 py-16">
-            <ArchiveBoxIcon class="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p class="font-medium">Aucun consommable trouvé</p>
-          </div>
+        <!-- État vide -->
+        <div v-if="consommables.data.length === 0"
+          class="text-center text-gray-400 py-20 bg-white rounded-xl border border-gray-200">
+          <ArchiveBoxIcon class="w-14 h-14 mx-auto mb-3 opacity-20" />
+          <p class="font-medium text-gray-500">Aucun consommable trouvé</p>
+          <p class="text-sm mt-1">Modifiez les filtres ou créez un nouveau consommable.</p>
+        </div>
 
+        <!-- ══ MODE GALERIE ══ : grandes cartes, image en vedette, pleine vue -->
+        <div v-else-if="viewMode === 'gallery'"
+          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           <div v-for="c in consommables.data" :key="c.id"
-            class="bg-white rounded-xl border shadow-sm hover:shadow-md transition flex flex-col overflow-hidden group">
+            class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg transition-shadow flex flex-col overflow-hidden group">
 
-            <!-- Image / fond -->
-            <div class="h-24 w-full bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+            <!-- Zone image : grande, fond blanc, image entière visible -->
+            <div class="relative h-52 bg-white flex items-center justify-center p-5 border-b border-gray-100 flex-shrink-0">
               <img v-if="c.image_url" :src="c.image_url" :alt="c.name"
-                class="h-full w-full object-cover" />
-              <ArchiveBoxIcon v-else class="w-10 h-10 text-gray-200" />
-            </div>
+                class="max-h-full max-w-full object-contain" />
+              <ArchiveBoxIcon v-else class="w-16 h-16 text-gray-150 opacity-20" />
 
-            <!-- Corps -->
-            <div class="p-4 flex-1 flex flex-col gap-1">
-              <div class="flex items-start justify-between gap-2">
-                <p class="font-semibold text-gray-900 text-sm leading-tight">{{ c.name }}</p>
+              <!-- Badges superposés -->
+              <div class="absolute top-2.5 left-2.5 flex flex-col gap-1">
+                <span v-if="stockBadge(c)"
+                  :class="['text-xs font-semibold px-2 py-0.5 rounded-full shadow-sm', stockBadge(c).cls]">
+                  {{ stockBadge(c).label }}
+                </span>
                 <span v-if="c.is_requestable && !isAdmin"
-                  class="flex-shrink-0 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+                  class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 shadow-sm">
                   Demandable
                 </span>
               </div>
-              <p class="text-xs text-gray-400 font-mono">{{ c.reference }}</p>
-              <p v-if="c.category" class="text-xs text-gray-500">{{ c.category }}</p>
 
-              <!-- Stock -->
-              <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <span class="text-2xl font-bold" :class="c.is_out_of_stock ? 'text-red-500' : c.is_low_stock ? 'text-orange-500' : 'text-gray-900'">
-                  {{ c.quantity }}
-                </span>
-                <span class="text-xs text-gray-500">{{ c.unit }}(s)</span>
-                <span v-if="stockBadge(c)"
-                  :class="['text-xs font-medium px-2 py-0.5 rounded-full', stockBadge(c).cls]">
-                  {{ stockBadge(c).label }}
-                </span>
-              </div>
-              <p v-if="c.min_stock > 0" class="text-xs text-gray-400">Seuil alerte : {{ c.min_stock }}</p>
-
-              <!-- Boutons rapides ajustement stock (admin) -->
-              <div v-if="isAdmin" class="mt-3 pt-3 border-t border-gray-100">
-                <p class="text-xs text-gray-500 mb-2 font-medium">Ajuster le stock</p>
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <button @click="quickAdjust(c, -1)"
-                    class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition font-mono">
-                    −1
-                  </button>
-                  <button @click="quickAdjust(c, 1)"
-                    class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono">
-                    +1
-                  </button>
-                  <button @click="quickAdjust(c, 5)"
-                    class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono">
-                    +5
-                  </button>
-                  <button @click="quickAdjust(c, 10)"
-                    class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono">
-                    +10
-                  </button>
-                  <button @click="openAdjust(c)"
-                    class="px-2 py-1 text-xs border border-blue-200 bg-blue-50 rounded-lg text-blue-600 hover:bg-blue-100 transition flex items-center gap-1">
-                    <AdjustmentsHorizontalIcon class="w-3 h-3" /> Autre
-                  </button>
-                </div>
-              </div>
-
-              <!-- Bouton Demander (user) -->
-              <div v-if="!isAdmin && c.is_requestable" class="mt-3 pt-3 border-t border-gray-100">
-                <button @click="openRequest(c)"
-                  :disabled="c.is_out_of_stock"
-                  class="w-full py-2 text-sm font-medium rounded-lg transition"
-                  :class="c.is_out_of_stock
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'">
-                  {{ c.is_out_of_stock ? 'Stock épuisé' : 'Demander' }}
+              <!-- Overlay actions admin au survol -->
+              <div v-if="isAdmin"
+                class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <button @click.stop="openEdit(c)"
+                  class="p-2 bg-white rounded-xl text-gray-700 hover:text-blue-600 shadow-md transition">
+                  <PencilIcon class="w-4 h-4" />
+                </button>
+                <button @click.stop="deleteConsommable(c)"
+                  class="p-2 bg-white rounded-xl text-gray-700 hover:text-red-600 shadow-md transition">
+                  <TrashIcon class="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            <!-- Actions admin -->
-            <div v-if="isAdmin" class="flex items-center gap-1 px-3 pb-3 pt-0">
-              <button @click="openEdit(c)"
-                class="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition">
-                <PencilIcon class="w-3 h-3" /> Modifier
-              </button>
-              <span v-if="c.is_requestable" class="ml-auto text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-medium">
-                Demandable
+            <!-- Corps -->
+            <div class="p-4 flex-1 flex flex-col gap-1">
+              <p class="font-bold text-gray-900 text-sm leading-tight">{{ c.name }}</p>
+              <p class="text-xs text-gray-400 font-mono">{{ c.reference }}</p>
+              <span v-if="c.category"
+                class="self-start text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full mt-0.5">
+                {{ c.category }}
               </span>
-              <button @click="deleteConsommable(c)"
-                class="ml-auto text-xs text-gray-300 hover:text-red-500 border border-gray-200 hover:border-red-200 p-1.5 rounded-lg transition">
-                <TrashIcon class="w-3.5 h-3.5" />
+
+              <!-- Stock -->
+              <div class="mt-auto pt-3 flex items-end justify-between gap-2">
+                <div class="flex items-baseline gap-1.5">
+                  <span class="text-3xl font-black leading-none" :class="stockColor(c)">
+                    {{ c.quantity }}
+                  </span>
+                  <span class="text-xs text-gray-400 font-medium">{{ c.unit }}(s)</span>
+                </div>
+                <div class="text-right">
+                  <p v-if="c.min_stock > 0" class="text-xs text-gray-400">seuil : {{ c.min_stock }}</p>
+                  <p v-if="c.unit_cost" class="text-xs text-gray-500 font-medium">{{ Number(c.unit_cost).toFixed(2) }} €/u</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barre actions admin -->
+            <div v-if="isAdmin" class="border-t border-gray-100 px-3 py-2.5 flex items-center gap-1.5">
+              <button @click="quickAdjust(c, -1)"
+                class="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition font-mono font-bold">
+                −1
+              </button>
+              <button @click="quickAdjust(c, 1)"
+                class="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono font-bold">
+                +1
+              </button>
+              <button @click="quickAdjust(c, 5)"
+                class="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono font-bold">
+                +5
+              </button>
+              <button @click="openAdjust(c)"
+                class="px-2 py-1.5 text-xs border border-blue-200 bg-blue-50 rounded-lg text-blue-600 hover:bg-blue-100 transition">
+                <AdjustmentsHorizontalIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <!-- Bouton Demander (user) -->
+            <div v-if="!isAdmin && c.is_requestable" class="p-3 border-t border-gray-100">
+              <button @click="openRequest(c)" :disabled="c.is_out_of_stock"
+                class="w-full py-2 text-sm font-medium rounded-lg transition"
+                :class="c.is_out_of_stock
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'">
+                {{ c.is_out_of_stock ? 'Stock épuisé' : 'Demander' }}
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- ══ MODE GRILLE ══ : cartes moyennes équilibrées -->
+        <div v-else-if="viewMode === 'grid'"
+          class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div v-for="c in consommables.data" :key="c.id"
+            class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden group">
+
+            <!-- Image carrée, pleine vue -->
+            <div class="relative aspect-square bg-white flex items-center justify-center p-4 border-b border-gray-100 flex-shrink-0">
+              <img v-if="c.image_url" :src="c.image_url" :alt="c.name"
+                class="max-h-full max-w-full object-contain" />
+              <ArchiveBoxIcon v-else class="w-10 h-10 opacity-15 text-gray-400" />
+
+              <div class="absolute top-1.5 left-1.5 flex flex-col gap-1">
+                <span v-if="stockBadge(c)"
+                  :class="['text-xs font-semibold px-1.5 py-0.5 rounded-full', stockBadge(c).cls]">
+                  {{ stockBadge(c).label }}
+                </span>
+              </div>
+
+              <div v-if="isAdmin"
+                class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <button @click.stop="openEdit(c)"
+                  class="p-1.5 bg-white rounded-lg text-gray-700 hover:text-blue-600 shadow transition">
+                  <PencilIcon class="w-3.5 h-3.5" />
+                </button>
+                <button @click.stop="deleteConsommable(c)"
+                  class="p-1.5 bg-white rounded-lg text-gray-700 hover:text-red-600 shadow transition">
+                  <TrashIcon class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Info -->
+            <div class="p-3 flex-1 flex flex-col gap-1">
+              <p class="font-semibold text-gray-900 text-xs leading-snug line-clamp-2">{{ c.name }}</p>
+              <p class="text-xs text-gray-400 font-mono truncate">{{ c.reference }}</p>
+              <span v-if="c.category" class="self-start text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">
+                {{ c.category }}
+              </span>
+
+              <div class="mt-auto pt-2 flex items-baseline justify-between gap-1">
+                <span class="text-2xl font-black leading-none" :class="stockColor(c)">{{ c.quantity }}</span>
+                <span class="text-xs text-gray-400">{{ c.unit }}</span>
+              </div>
+            </div>
+
+            <!-- Actions rapides admin -->
+            <div v-if="isAdmin" class="flex border-t border-gray-100">
+              <button @click="quickAdjust(c, -1)"
+                class="flex-1 py-1.5 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600 transition font-mono font-bold border-r border-gray-100">
+                −1
+              </button>
+              <button @click="quickAdjust(c, 1)"
+                class="flex-1 py-1.5 text-xs text-gray-500 hover:bg-green-50 hover:text-green-600 transition font-mono font-bold border-r border-gray-100">
+                +1
+              </button>
+              <button @click="openAdjust(c)"
+                class="px-3 py-1.5 text-xs text-blue-500 hover:bg-blue-50 transition">
+                <AdjustmentsHorizontalIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <!-- Bouton Demander (user) -->
+            <div v-if="!isAdmin && c.is_requestable" class="p-2 border-t border-gray-100">
+              <button @click="openRequest(c)" :disabled="c.is_out_of_stock"
+                class="w-full py-1.5 text-xs font-medium rounded-lg transition"
+                :class="c.is_out_of_stock
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'">
+                {{ c.is_out_of_stock ? 'Épuisé' : 'Demander' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ MODE COMPACT ══ : petites vignettes, max d'items visibles -->
+        <div v-else-if="viewMode === 'compact'"
+          class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+          <div v-for="c in consommables.data" :key="c.id"
+            class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden group cursor-pointer"
+            @click="isAdmin ? openEdit(c) : (c.is_requestable ? openRequest(c) : null)">
+
+            <!-- Vignette image, pleine vue -->
+            <div class="relative aspect-square bg-white flex items-center justify-center p-2 flex-shrink-0">
+              <img v-if="c.image_url" :src="c.image_url" :alt="c.name"
+                class="max-h-full max-w-full object-contain" />
+              <ArchiveBoxIcon v-else class="w-6 h-6 opacity-15 text-gray-400" />
+
+              <!-- Indicateur stock -->
+              <div class="absolute bottom-1 right-1">
+                <span :class="['w-2 h-2 rounded-full block',
+                  c.is_out_of_stock ? 'bg-red-500' : c.is_low_stock ? 'bg-orange-400' : 'bg-emerald-500']" />
+              </div>
+            </div>
+
+            <!-- Label -->
+            <div class="px-2 pb-2 flex-1 flex flex-col border-t border-gray-100 pt-1.5">
+              <p class="text-xs font-semibold text-gray-800 leading-tight line-clamp-2">{{ c.name }}</p>
+              <div class="mt-auto flex items-center justify-between pt-1">
+                <span class="text-sm font-black" :class="stockColor(c)">{{ c.quantity }}</span>
+                <span class="text-xs text-gray-400">{{ c.unit }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ MODE LISTE ══ : tableau dense avec toutes les infos -->
+        <div v-else-if="viewMode === 'list'"
+          class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="px-4 py-3 w-16 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Photo</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Désignation</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Catégorie</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Prix/u</th>
+                <th v-if="isAdmin" class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide hidden xl:table-cell">Ajuster</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="c in consommables.data" :key="c.id"
+                class="hover:bg-blue-50/30 transition group">
+
+                <!-- Miniature -->
+                <td class="px-4 py-2.5">
+                  <div class="w-14 h-14 bg-white rounded-lg border border-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm">
+                    <img v-if="c.image_url" :src="c.image_url" :alt="c.name"
+                      class="max-h-full max-w-full object-contain p-1" />
+                    <ArchiveBoxIcon v-else class="w-6 h-6 text-gray-200" />
+                  </div>
+                </td>
+
+                <!-- Nom + Ref -->
+                <td class="px-4 py-2.5">
+                  <p class="font-semibold text-gray-900 text-sm">{{ c.name }}</p>
+                  <p class="text-xs text-gray-400 font-mono mt-0.5">{{ c.reference }}</p>
+                  <div class="flex gap-1 mt-1 flex-wrap">
+                    <span v-if="stockBadge(c)"
+                      :class="['text-xs font-medium px-1.5 py-0.5 rounded-full', stockBadge(c).cls]">
+                      {{ stockBadge(c).label }}
+                    </span>
+                    <span v-if="c.is_requestable && !isAdmin"
+                      class="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      Demandable
+                    </span>
+                    <span v-if="c.is_requestable && isAdmin"
+                      class="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-500">
+                      Demandable
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Catégorie -->
+                <td class="px-4 py-2.5 hidden md:table-cell">
+                  <span v-if="c.category"
+                    class="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full font-medium">
+                    {{ c.category }}
+                  </span>
+                  <span v-else class="text-gray-300 text-sm">—</span>
+                </td>
+
+                <!-- Stock -->
+                <td class="px-4 py-2.5 text-right">
+                  <span class="text-xl font-black" :class="stockColor(c)">{{ c.quantity }}</span>
+                  <p class="text-xs text-gray-400">{{ c.unit }}(s)</p>
+                  <p v-if="c.min_stock > 0" class="text-xs text-gray-300">min {{ c.min_stock }}</p>
+                </td>
+
+                <!-- Prix unitaire -->
+                <td class="px-4 py-2.5 text-right hidden lg:table-cell">
+                  <span v-if="c.unit_cost" class="text-sm font-semibold text-gray-700">
+                    {{ Number(c.unit_cost).toFixed(2) }} €
+                  </span>
+                  <span v-else class="text-gray-300">—</span>
+                </td>
+
+                <!-- Ajustement rapide (admin) -->
+                <td v-if="isAdmin" class="px-4 py-2.5 hidden xl:table-cell">
+                  <div class="flex items-center justify-center gap-1">
+                    <button @click="quickAdjust(c, -1)"
+                      class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition font-mono font-bold">
+                      −1
+                    </button>
+                    <button @click="quickAdjust(c, 1)"
+                      class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono font-bold">
+                      +1
+                    </button>
+                    <button @click="quickAdjust(c, 5)"
+                      class="px-2 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition font-mono font-bold">
+                      +5
+                    </button>
+                    <button @click="openAdjust(c)"
+                      class="p-1.5 text-xs border border-blue-200 bg-blue-50 rounded-lg text-blue-600 hover:bg-blue-100 transition">
+                      <AdjustmentsHorizontalIcon class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </td>
+
+                <!-- Actions -->
+                <td class="px-4 py-2.5">
+                  <div class="flex items-center justify-center gap-1.5">
+                    <!-- Admin : ajuster (visible sur mobile, cachés en xl) -->
+                    <button v-if="isAdmin" @click="openAdjust(c)"
+                      class="xl:hidden p-1.5 text-gray-400 hover:text-blue-600 border border-gray-200 hover:border-blue-300 rounded-lg transition">
+                      <AdjustmentsHorizontalIcon class="w-4 h-4" />
+                    </button>
+                    <button v-if="isAdmin" @click="openEdit(c)"
+                      class="p-1.5 text-gray-400 hover:text-blue-600 border border-gray-200 hover:border-blue-300 rounded-lg transition">
+                      <PencilIcon class="w-4 h-4" />
+                    </button>
+                    <button v-if="isAdmin" @click="deleteConsommable(c)"
+                      class="p-1.5 text-gray-300 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition">
+                      <TrashIcon class="w-4 h-4" />
+                    </button>
+                    <!-- User -->
+                    <button v-if="!isAdmin && c.is_requestable" @click="openRequest(c)"
+                      :disabled="c.is_out_of_stock"
+                      class="px-3 py-1.5 text-xs font-medium rounded-lg transition"
+                      :class="c.is_out_of_stock
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'">
+                      {{ c.is_out_of_stock ? 'Épuisé' : 'Demander' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <!-- Pagination -->
@@ -546,19 +825,15 @@ function stockBadge(c) {
                   <p class="font-medium text-gray-900">{{ r.consommable }}</p>
                   <p class="text-xs text-gray-400 font-mono">{{ r.reference }}</p>
                 </td>
-                <td class="px-4 py-3 font-semibold">
-                  {{ r.quantity }} {{ r.unit }}
-                </td>
+                <td class="px-4 py-3 font-semibold">{{ r.quantity }} {{ r.unit }}</td>
                 <td v-if="isAdmin" class="px-4 py-3 text-gray-600">{{ r.user }}</td>
                 <td class="px-4 py-3 text-gray-500 text-xs">{{ r.created_at }}</td>
                 <td class="px-4 py-3">
                   <StatusBadge :status="r.status" :label="r.status_label" :color="r.status_color" />
                 </td>
                 <td class="px-4 py-3">
-                  <!-- Actions admin -->
                   <div v-if="isAdmin && r.status === 'pending'" class="flex gap-2">
-                    <button @click="approveRequest(r)"
-                      :disabled="approveForm.processing"
+                    <button @click="approveRequest(r)" :disabled="approveForm.processing"
                       class="flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
                       <CheckCircleIcon class="w-3.5 h-3.5" /> Approuver
                     </button>
@@ -567,11 +842,9 @@ function stockBadge(c) {
                       <XMarkIcon class="w-3.5 h-3.5" /> Refuser
                     </button>
                   </div>
-                  <!-- Note admin si traitée -->
                   <p v-else-if="r.admin_notes" class="text-xs text-gray-500 italic max-w-xs truncate" :title="r.admin_notes">
                     {{ r.admin_notes }}
                   </p>
-                  <!-- Annulation utilisateur -->
                   <button v-if="!isAdmin && r.status === 'pending'" @click="cancelRequest(r)"
                     class="text-xs text-red-500 hover:text-red-700 hover:underline">
                     Annuler
@@ -609,24 +882,25 @@ function stockBadge(c) {
         </div>
 
         <div class="space-y-4">
-          <!-- Image -->
+          <!-- Image : prévisualisation pleine vue -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">Photo</label>
             <div class="flex items-center gap-4">
-              <div class="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
-                <img v-if="imagePreview" :src="imagePreview" class="w-full h-full object-cover rounded-xl" />
+              <div class="w-24 h-24 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0 p-2">
+                <img v-if="imagePreview" :src="imagePreview" class="max-h-full max-w-full object-contain" />
                 <PhotoIcon v-else class="w-8 h-8 text-gray-300" />
               </div>
               <div class="flex flex-col gap-2">
                 <label class="cursor-pointer inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline font-medium">
                   <PhotoIcon class="w-4 h-4" />
-                  {{ imagePreview ? 'Changer' : 'Ajouter une photo' }}
+                  {{ imagePreview ? 'Changer la photo' : 'Ajouter une photo' }}
                   <input type="file" accept="image/*" class="hidden" @change="onImageChange" />
                 </label>
                 <button v-if="imagePreview" @click="removeImage"
                   class="inline-flex items-center gap-1 text-xs text-red-500 hover:underline">
                   <XMarkIcon class="w-3.5 h-3.5" /> Supprimer
                 </button>
+                <p class="text-xs text-gray-400">JPEG, PNG, GIF, WEBP — max 2 Mo</p>
               </div>
             </div>
           </div>
@@ -648,7 +922,7 @@ function stockBadge(c) {
               <p v-if="form.errors.reference" class="text-red-500 text-xs mt-1">{{ form.errors.reference }}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Unité</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Unité <span class="text-red-500">*</span></label>
               <input v-model="form.unit" type="text" placeholder="pièce, ramette, L…"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
@@ -862,7 +1136,7 @@ function stockBadge(c) {
           <span class="text-gray-500">Résultats</span>
         </div>
 
-        <!-- Étape 1 : Upload -->
+        <!-- Étape 1 -->
         <div v-if="importStep === 1" class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">Séparateur CSV</label>
@@ -875,7 +1149,6 @@ function stockBadge(c) {
               </label>
             </div>
           </div>
-
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">Fichier CSV <span class="text-red-500">*</span></label>
             <label class="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
@@ -887,36 +1160,29 @@ function stockBadge(c) {
               <input type="file" accept=".csv,.txt" class="hidden" @change="onImportFile" />
             </label>
           </div>
-
           <p v-if="importError" class="text-red-500 text-sm p-3 bg-red-50 rounded-lg">{{ importError }}</p>
-
           <div class="flex justify-end gap-3">
             <button @click="showImport = false" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
             <button @click="previewImport" :disabled="!importFile || importLoading"
               class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-              <ArrowPathIcon v-if="importLoading" class="w-4 h-4 animate-spin" />
-              Suivant
+              <ArrowPathIcon v-if="importLoading" class="w-4 h-4 animate-spin" /> Suivant
             </button>
           </div>
         </div>
 
-        <!-- Étape 2 : Mapping -->
+        <!-- Étape 2 -->
         <div v-if="importStep === 2" class="space-y-4">
           <div class="flex items-center justify-between">
             <p class="text-sm text-gray-600">{{ importRowCount }} ligne(s) détectée(s)</p>
             <div class="flex gap-3">
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" v-model="importQtyMode" value="increment" class="text-blue-600" />
-                Additionner la quantité
+                <input type="radio" v-model="importQtyMode" value="increment" class="text-blue-600" /> Additionner
               </label>
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" v-model="importQtyMode" value="replace" class="text-blue-600" />
-                Remplacer
+                <input type="radio" v-model="importQtyMode" value="replace" class="text-blue-600" /> Remplacer
               </label>
             </div>
           </div>
-
-          <!-- Mapping colonnes -->
           <div class="border rounded-xl overflow-hidden">
             <table class="w-full text-sm">
               <thead class="bg-gray-50 border-b">
@@ -938,8 +1204,6 @@ function stockBadge(c) {
               </tbody>
             </table>
           </div>
-
-          <!-- Prévisualisation -->
           <div v-if="importPreview.length > 0">
             <p class="text-sm font-medium text-gray-700 mb-2">Aperçu (5 premières lignes)</p>
             <div class="overflow-x-auto rounded-xl border">
@@ -951,28 +1215,23 @@ function stockBadge(c) {
                 </thead>
                 <tbody class="divide-y">
                   <tr v-for="(row, i) in importPreview" :key="i" class="hover:bg-gray-50">
-                    <td v-for="h in importHeaders" :key="h" class="px-3 py-2 text-gray-600 whitespace-nowrap max-w-32 truncate">
-                      {{ row[h] }}
-                    </td>
+                    <td v-for="h in importHeaders" :key="h" class="px-3 py-2 text-gray-600 whitespace-nowrap max-w-32 truncate">{{ row[h] }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
-
           <p v-if="importError" class="text-red-500 text-sm p-3 bg-red-50 rounded-lg">{{ importError }}</p>
-
           <div class="flex justify-between gap-3">
             <button @click="importStep = 1" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">← Retour</button>
             <button @click="processImport" :disabled="importLoading"
               class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-              <ArrowPathIcon v-if="importLoading" class="w-4 h-4 animate-spin" />
-              Importer
+              <ArrowPathIcon v-if="importLoading" class="w-4 h-4 animate-spin" /> Importer
             </button>
           </div>
         </div>
 
-        <!-- Étape 3 : Résultats -->
+        <!-- Étape 3 -->
         <div v-if="importStep === 3 && importResults" class="space-y-4">
           <div class="grid grid-cols-2 gap-4">
             <div class="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
@@ -984,7 +1243,6 @@ function stockBadge(c) {
               <p class="text-sm text-blue-600 mt-1">Mis à jour</p>
             </div>
           </div>
-
           <div v-if="importResults.errors.length > 0" class="p-4 bg-red-50 rounded-xl border border-red-200">
             <p class="text-sm font-semibold text-red-700 mb-2 flex items-center gap-1.5">
               <ExclamationTriangleIcon class="w-4 h-4" /> {{ importResults.errors.length }} erreur(s)
@@ -993,13 +1251,11 @@ function stockBadge(c) {
               <li v-for="e in importResults.errors" :key="e" class="text-xs text-red-600">{{ e }}</li>
             </ul>
           </div>
-
           <button @click="showImport = false"
             class="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800">
             Fermer
           </button>
         </div>
-
       </div>
     </div>
 

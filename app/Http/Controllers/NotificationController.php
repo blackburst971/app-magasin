@@ -23,6 +23,17 @@ class NotificationController extends Controller
         return response()->json($notifications);
     }
 
+    /**
+     * Retourne uniquement le nombre de notifications non lues (sans les marquer comme lues).
+     * Utilisé pour le polling en arrière-plan.
+     */
+    public function unreadCount()
+    {
+        return response()->json([
+            'count' => Auth::user()->unreadNotifications()->count(),
+        ]);
+    }
+
     public function markRead(string $id)
     {
         Auth::user()->notifications()->where('id', $id)->first()?->markAsRead();

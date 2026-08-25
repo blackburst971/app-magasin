@@ -1,21 +1,40 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useForm, router } from '@inertiajs/vue3'
 import axios from 'axios'
 import {
   PlusIcon, TrashIcon, PencilIcon, PhotoIcon,
   DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon,
   MagnifyingGlassIcon, XMarkIcon, AdjustmentsHorizontalIcon,
-  ArchiveBoxXMarkIcon,
+  ArchiveBoxXMarkIcon, ArchiveBoxIcon, ArrowUturnLeftIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
-  items:  Array,
-  assets: Array,
+  items:         Array,
+  archivedItems: { type: Array, default: () => [] },
+  assets:        Array,
+  isAdmin:       { type: Boolean, default: false },
+  myUserId:      { type: Number,  default: null },
 })
 
-// ─── Sélection ───────────────────────────────────────────────────────────────
+// ─── Onglet actif ────────────────────────────────────────────────────────────
+const activeTab = ref('active') // 'active' | 'archives'
+
+// ─── Rafraîchissement automatique ────────────────────────────────────────────
+let pollInterval = null
+onMounted(() => {
+  pollInterval = setInterval(() => {
+    router.reload({ only: ['items', 'archivedItems'], preserveScroll: true })
+  }, 30_000)
+})
+onUnmounted(() => clearInterval(pollInterval))
+
+function canEdit(item) {
+  return props.isAdmin || item.created_by_user_id === props.myUserId
+}
+
+// ─── Sélection (onglet actif) ─────────────────────────────────────────────────
 const selectedIds = ref(new Set())
 const allSelected = computed(() =>
   props.items.length > 0 && props.items.every(i => selectedIds.value.has(i.id))
@@ -33,7 +52,44 @@ function toggleSelect(id) {
   selectedIds.value = s
 }
 
-// ─── Colonnes visibles (persistées en localStorage) ──────────────────────────
+// ─── Sélection (onglet archives) ─────────────────────────────────────────────
+const selectedArchiveIds = ref(new Set())
+const allArchivesSelected = computed(() =>
+  props.archivedItems.length > 0 && props.archivedItems.every(i => selectedArchiveIds.value.has(i.id))
+)
+function toggleArchiveSelectAll() {
+  if (allArchivesSelected.value) {
+    selectedArchiveIds.value = new Set()
+  } else {
+    selectedArchiveIds.value = new Set(props.archivedItems.map(i => i.id))
+  }
+}
+function toggleArchiveSelect(id) {
+  const s = new Set(selectedArchiveIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  selectedArchiveIds.value = s
+}
+
+// ─── Archivage ────────────────────────────────────────────────────────────────
+const archiving = ref(false)
+
+function archiveSelected() {
+  if (selectedIds.value.size === 0) return
+  const count = selectedIds.value.size
+  if (!confirm(`Archiver ${count} équipement(s) ? Ils seront visibles dans l'onglet Archives.`)) return
+  archiving.value = true
+  router.post(route('recycling.bulk-archive'), { ids: [...selectedIds.value] }, {
+    onSuccess: () => { selectedIds.value = new Set() },
+    onFinish:  () => { archiving.value = false },
+  })
+}
+
+function unarchiveItem(item) {
+  if (!confirm(`Restaurer « ${item.designation} » dans la liste active ?`)) return
+  router.post(route('recycling.unarchive', item.id))
+}
+
+// ─── Colonnes visibles ────────────────────────────────────────────────────────
 const ALL_COLS = [
   { key: 'serial_number', label: 'N° de série' },
   { key: 'reference',     label: 'Référence' },
@@ -41,12 +97,22 @@ const ALL_COLS = [
   { key: 'model_name',    label: 'Modèle' },
   { key: 'notes',         label: 'Notes' },
   { key: 'photo',         label: 'Photo' },
-  { key: 'created_by',   label: 'Créé par' },
+  { key: 'created_by',    label: 'Créé par' },
+  { key: 'created_at',    label: 'Créé le' },
 ]
+const DEFAULT_COLS = ['serial_number', 'reference', 'brand', 'model_name', 'photo', 'created_by', 'created_at']
 const savedCols = (() => {
-  try { return JSON.parse(localStorage.getItem('recycling_cols')) } catch { return null }
+  try {
+    const parsed = JSON.parse(localStorage.getItem('recycling_cols'))
+    if (!parsed) return null
+    // Ajouter les nouvelles colonnes si elles n'étaient pas encore dans les préférences sauvegardées
+    const merged = new Set(parsed)
+    if (!merged.has('created_by')) merged.add('created_by')
+    if (!merged.has('created_at')) merged.add('created_at')
+    return [...merged]
+  } catch { return null }
 })()
-const visibleCols = ref(new Set(savedCols ?? ['serial_number', 'reference', 'brand', 'model_name', 'photo']))
+const visibleCols = ref(new Set(savedCols ?? DEFAULT_COLS))
 function toggleCol(key) {
   const s = new Set(visibleCols.value)
   s.has(key) ? s.delete(key) : s.add(key)
@@ -56,11 +122,12 @@ function toggleCol(key) {
 const showColToggle = ref(false)
 
 // ─── Formulaire Add / Edit ────────────────────────────────────────────────────
-const showFormModal  = ref(false)
-const formMode       = ref('add') // 'add' | 'edit'
-const editingItem    = ref(null)
-const photoPreview   = ref(null)
-const photoInputEl   = ref(null)
+const showFormModal   = ref(false)
+const formMode        = ref('add')
+const editingItem     = ref(null)
+const photoPreview    = ref(null)
+const photoInputEl    = ref(null)
+const addSuccessCount = ref(0)
 
 const form = useForm({
   asset_id:      null,
@@ -75,14 +142,10 @@ const form = useForm({
   extra_fields:  {},
   remove_photo:  false,
 })
-const extraFieldPairs = ref([]) // [{key:'', value:''}]
+const extraFieldPairs = ref([])
 
-function addExtraField() {
-  extraFieldPairs.value.push({ key: '', value: '' })
-}
-function removeExtraField(i) {
-  extraFieldPairs.value.splice(i, 1)
-}
+function addExtraField()      { extraFieldPairs.value.push({ key: '', value: '' }) }
+function removeExtraField(i)  { extraFieldPairs.value.splice(i, 1) }
 function buildExtraFields() {
   const obj = {}
   for (const { key, value } of extraFieldPairs.value) {
@@ -91,64 +154,77 @@ function buildExtraFields() {
   return obj
 }
 
-function openAdd(prefill = null) {
-  formMode.value  = 'add'
-  editingItem.value = null
+function resetAddForm(prefill = null) {
   form.reset()
+  form.asset_id      = prefill?.id ?? null
+  form.designation   = prefill?.name ?? ''
+  form.serial_number = prefill?.serial_number ?? ''
+  form.reference     = ''
+  form.brand         = prefill?.brand ?? ''
+  form.model_name    = prefill?.model_name ?? ''
+  form.quantity      = 1
+  form.notes         = ''
+  form.photo         = null
+  form.remove_photo  = false
   photoPreview.value = null
   extraFieldPairs.value = []
-  if (prefill) {
-    form.asset_id      = prefill.id
-    form.designation   = prefill.name
-    form.serial_number = prefill.serial_number ?? ''
-    form.brand         = prefill.brand ?? ''
-    form.model_name    = prefill.model_name ?? ''
-  }
-  showFormModal.value = true
+  if (photoInputEl.value) photoInputEl.value.value = ''
+}
+
+function openAdd(prefill = null) {
+  formMode.value        = 'add'
+  editingItem.value     = null
+  addSuccessCount.value = 0
+  resetAddForm(prefill)
+  showFormModal.value         = true
   showAddInventoryModal.value = false
 }
 function openEdit(item) {
-  formMode.value     = 'edit'
-  editingItem.value  = item
-  form.asset_id      = item.asset_id
-  form.designation   = item.designation
-  form.serial_number = item.serial_number ?? ''
-  form.reference     = item.reference ?? ''
-  form.brand         = item.brand ?? ''
-  form.model_name    = item.model_name ?? ''
-  form.quantity      = item.quantity
-  form.notes         = item.notes ?? ''
-  form.photo         = null
-  form.remove_photo  = false
-  photoPreview.value = item.photo_url ?? null
+  formMode.value        = 'edit'
+  editingItem.value     = item
+  addSuccessCount.value = 0
+  form.asset_id         = item.asset_id
+  form.designation      = item.designation
+  form.serial_number    = item.serial_number ?? ''
+  form.reference        = item.reference ?? ''
+  form.brand            = item.brand ?? ''
+  form.model_name       = item.model_name ?? ''
+  form.quantity         = item.quantity
+  form.notes            = item.notes ?? ''
+  form.photo            = null
+  form.remove_photo     = false
+  photoPreview.value    = item.photo_url ?? null
   extraFieldPairs.value = Object.entries(item.extra_fields ?? {}).map(([key, value]) => ({ key, value }))
-  showFormModal.value = true
+  showFormModal.value   = true
 }
 
 function onPhotoChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
-  form.photo = file
+  form.photo         = file
   photoPreview.value = URL.createObjectURL(file)
 }
 function removePhoto() {
-  form.photo        = null
-  form.remove_photo = true
+  form.photo         = null
+  form.remove_photo  = true
   photoPreview.value = null
   if (photoInputEl.value) photoInputEl.value.value = ''
 }
 
 function submitForm() {
   form.extra_fields = buildExtraFields()
-  const options = {
-    forceFormData: true,
-    onSuccess: () => { showFormModal.value = false },
-  }
   if (formMode.value === 'add') {
-    form.post(route('recycling.store'), options)
+    form.transform(data => data)
+    form.post(route('recycling.store'), {
+      forceFormData: true,
+      onSuccess: () => { addSuccessCount.value++; resetAddForm() },
+    })
   } else {
     form.transform(data => ({ ...data, _method: 'PUT' }))
-        .post(route('recycling.update', editingItem.value.id), options)
+    form.post(route('recycling.update', editingItem.value.id), {
+      forceFormData: true,
+      onSuccess: () => { showFormModal.value = false },
+    })
   }
 }
 
@@ -161,8 +237,8 @@ function deleteItem(item) {
 
 // ─── Modal inventaire ─────────────────────────────────────────────────────────
 const showAddInventoryModal = ref(false)
-const inventorySearch = ref('')
-const filteredInventory = computed(() => {
+const inventorySearch       = ref('')
+const filteredInventory     = computed(() => {
   const q = inventorySearch.value.toLowerCase()
   if (!q) return props.assets
   return props.assets.filter(a =>
@@ -172,23 +248,42 @@ const filteredInventory = computed(() => {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 const exportLoading = ref(false)
-async function exportSelected(format) {
-  if (selectedIds.value.size === 0) return
+const exportError   = ref('')
+async function exportSelected(format, ids = null) {
+  const exportIds = ids ?? [...selectedIds.value]
+  if (exportIds.length === 0) return
   exportLoading.value = true
+  exportError.value   = ''
   try {
     const res = await axios.post(
       route(format === 'pdf' ? 'recycling.export-pdf' : 'recycling.export-csv'),
-      { ids: [...selectedIds.value] },
+      { ids: exportIds },
       { responseType: 'blob' }
     )
-    const ext = format === 'pdf' ? 'pdf' : 'csv'
-    const url = URL.createObjectURL(new Blob([res.data]))
-    const a   = document.createElement('a')
+    const ext  = format === 'pdf' ? 'pdf' : 'csv'
+    const mime = format === 'pdf' ? 'application/pdf' : 'text/csv'
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: mime })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
     a.href     = url
     a.download = `decheterie-${new Date().toISOString().slice(0, 10)}.${ext}`
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
-  } catch {}
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 200)
+  } catch (err) {
+    if (err?.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text()
+        const json = JSON.parse(text)
+        exportError.value = json.message || `Erreur ${err.response.status}`
+      } catch {
+        exportError.value = `Erreur ${err?.response?.status ?? ''} lors de l'export.`
+      }
+    } else {
+      exportError.value = err?.response?.data?.message || "Erreur lors de l'export. Veuillez réessayer."
+    }
+  }
   exportLoading.value = false
 }
 </script>
@@ -204,7 +299,8 @@ async function exportSelected(format) {
             <ArchiveBoxXMarkIcon class="w-7 h-7 text-red-600" />
             Déchèterie
           </h1>
-          <p class="text-sm text-gray-500 mt-0.5">Répertoriez les équipements à éliminer et exportez des listes.</p>
+          <p v-if="isAdmin" class="text-sm text-gray-500 mt-0.5">Répertoriez les équipements à éliminer et exportez des listes.</p>
+          <p v-else class="text-sm text-gray-500 mt-0.5">Signalez du matériel défectueux ou à éliminer. L'admin sera notifié.</p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <!-- Colonnes -->
@@ -240,113 +336,296 @@ async function exportSelected(format) {
         </div>
       </div>
 
-      <!-- Barre de sélection/export -->
-      <Transition enter-active-class="transition duration-200" enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0"
-                  leave-active-class="transition duration-150" leave-from-class="opacity-100" leave-to-class="opacity-0">
-        <div v-if="selectedIds.size > 0"
-             class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
-          <span class="text-sm font-semibold text-red-700 dark:text-red-300">
-            {{ selectedIds.size }} équipement(s) sélectionné(s)
+      <!-- Onglets (admin uniquement pour Archives) -->
+      <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+        <button @click="activeTab = 'active'; selectedIds = new Set()"
+                :class="['px-4 py-2.5 text-sm font-medium rounded-t-lg transition border-b-2 -mb-px',
+                  activeTab === 'active'
+                    ? 'border-red-500 text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 hover:border-gray-300']">
+          <span class="flex items-center gap-1.5">
+            <ArchiveBoxXMarkIcon class="w-4 h-4" />
+            Liste active
+            <span class="ml-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-bold px-1.5 py-0.5 rounded-full">
+              {{ items.length }}
+            </span>
           </span>
-          <div class="flex items-center gap-2 ml-auto flex-wrap">
-            <button @click="exportSelected('pdf')" :disabled="exportLoading"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
-              <DocumentArrowDownIcon class="w-4 h-4" />
-              Exporter PDF
-            </button>
-            <button @click="exportSelected('csv')" :disabled="exportLoading"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
-              <TableCellsIcon class="w-4 h-4" />
-              Exporter CSV/Excel
-            </button>
-            <button @click="selectedIds = new Set()"
-                    class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition">
-              Désélectionner
-            </button>
-          </div>
-        </div>
-      </Transition>
-
-      <!-- Tableau -->
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div v-if="items.length === 0" class="py-20 text-center">
-          <ArchiveBoxXMarkIcon class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-          <p class="text-gray-500 dark:text-gray-400">Aucun équipement dans la liste déchèterie.</p>
-          <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Ajoutez des équipements à éliminer.</p>
-        </div>
-
-        <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead class="bg-gray-50 dark:bg-gray-900/50">
-            <tr>
-              <th class="w-10 px-4 py-3">
-                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
-                       class="rounded border-gray-300" />
-              </th>
-              <th class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Désignation</th>
-              <th v-if="visibleCols.has('photo')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Photo</th>
-              <th v-if="visibleCols.has('serial_number')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">N° de série</th>
-              <th v-if="visibleCols.has('reference')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Référence</th>
-              <th v-if="visibleCols.has('brand')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Marque</th>
-              <th v-if="visibleCols.has('model_name')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Modèle</th>
-              <th class="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-400">Qté</th>
-              <th v-if="visibleCols.has('notes')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Notes</th>
-              <th v-if="visibleCols.has('created_by')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Créé par</th>
-              <th class="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-400">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-            <tr v-for="item in items" :key="item.id"
-                :class="selectedIds.has(item.id) ? 'bg-red-50 dark:bg-red-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'">
-              <td class="px-4 py-3">
-                <input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item.id)"
-                       class="rounded border-gray-300" />
-              </td>
-              <td class="px-4 py-3">
-                <p class="font-semibold text-gray-900 dark:text-white">{{ item.designation }}</p>
-                <p v-if="item.asset_tag" class="text-xs text-gray-400 font-mono">{{ item.asset_tag }}</p>
-              </td>
-              <td v-if="visibleCols.has('photo')" class="px-4 py-3">
-                <img v-if="item.photo_url" :src="item.photo_url" :alt="item.designation"
-                     class="w-12 h-12 object-cover rounded-lg border border-gray-200" />
-                <span v-else class="text-gray-300 dark:text-gray-600 text-lg">—</span>
-              </td>
-              <td v-if="visibleCols.has('serial_number')" class="px-4 py-3 font-mono text-gray-700 dark:text-gray-300 text-xs">
-                {{ item.serial_number || '—' }}
-              </td>
-              <td v-if="visibleCols.has('reference')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
-                {{ item.reference || '—' }}
-              </td>
-              <td v-if="visibleCols.has('brand')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
-                {{ item.brand || '—' }}
-              </td>
-              <td v-if="visibleCols.has('model_name')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
-                {{ item.model_name || '—' }}
-              </td>
-              <td class="px-4 py-3 text-center font-bold text-gray-900 dark:text-white">
-                {{ item.quantity }}
-              </td>
-              <td v-if="visibleCols.has('notes')" class="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate text-xs">
-                {{ item.notes || '—' }}
-              </td>
-              <td v-if="visibleCols.has('created_by')" class="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
-                {{ item.created_by }}
-              </td>
-              <td class="px-4 py-3">
-                <div class="flex items-center justify-end gap-1">
-                  <button @click="openEdit(item)"
-                          class="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Modifier">
-                    <PencilIcon class="w-4 h-4" />
-                  </button>
-                  <button @click="deleteItem(item)"
-                          class="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Supprimer">
-                    <TrashIcon class="w-4 h-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        </button>
+        <button v-if="isAdmin" @click="activeTab = 'archives'"
+                :class="['px-4 py-2.5 text-sm font-medium rounded-t-lg transition border-b-2 -mb-px',
+                  activeTab === 'archives'
+                    ? 'border-amber-500 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 hover:border-gray-300']">
+          <span class="flex items-center gap-1.5">
+            <ArchiveBoxIcon class="w-4 h-4" />
+            Archives
+            <span v-if="archivedItems.length > 0"
+                  class="ml-1 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-xs font-bold px-1.5 py-0.5 rounded-full">
+              {{ archivedItems.length }}
+            </span>
+          </span>
+        </button>
       </div>
+
+      <!-- ══ ONGLET : LISTE ACTIVE ══ -->
+      <template v-if="activeTab === 'active'">
+        <!-- Barre de sélection/action (admin uniquement) -->
+        <Transition enter-active-class="transition duration-200" enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0"
+                    leave-active-class="transition duration-150" leave-from-class="opacity-100" leave-to-class="opacity-0">
+          <div v-if="isAdmin && selectedIds.size > 0"
+               class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+            <span class="text-sm font-semibold text-red-700 dark:text-red-300">
+              {{ selectedIds.size }} équipement(s) sélectionné(s)
+            </span>
+            <div class="flex items-center gap-2 ml-auto flex-wrap">
+              <!-- Archiver -->
+              <button @click="archiveSelected" :disabled="archiving"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg transition disabled:opacity-50">
+                <ArchiveBoxIcon class="w-4 h-4" />
+                Archiver
+              </button>
+              <!-- Export PDF -->
+              <button @click="exportSelected('pdf')" :disabled="exportLoading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+                <DocumentArrowDownIcon class="w-4 h-4" />
+                Exporter PDF
+              </button>
+              <!-- Export CSV -->
+              <button @click="exportSelected('csv')" :disabled="exportLoading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+                <TableCellsIcon class="w-4 h-4" />
+                Exporter CSV
+              </button>
+              <button @click="selectedIds = new Set()"
+                      class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition">
+                Désélectionner
+              </button>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- Erreur export -->
+        <p v-if="exportError" class="text-sm text-red-600 font-medium">{{ exportError }}</p>
+
+        <!-- Tableau actif -->
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div v-if="items.length === 0" class="py-20 text-center">
+            <ArchiveBoxXMarkIcon class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+            <p class="text-gray-500 dark:text-gray-400">Aucun équipement dans la liste déchèterie.</p>
+            <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Ajoutez des équipements à éliminer.</p>
+          </div>
+
+          <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-900/50">
+              <tr>
+                <th v-if="isAdmin" class="w-10 px-4 py-3">
+                  <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
+                         class="rounded border-gray-300" />
+                </th>
+                <th class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Désignation</th>
+                <th v-if="visibleCols.has('photo')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Photo</th>
+                <th v-if="visibleCols.has('serial_number')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">N° de série</th>
+                <th v-if="visibleCols.has('reference')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Référence</th>
+                <th v-if="visibleCols.has('brand')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Marque</th>
+                <th v-if="visibleCols.has('model_name')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Modèle</th>
+                <th class="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-400">Qté</th>
+                <th v-if="visibleCols.has('notes')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Notes</th>
+                <th v-if="visibleCols.has('created_by')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Créé par</th>
+                <th v-if="visibleCols.has('created_at')" class="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400">Créé le</th>
+                <th class="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-400">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+              <tr v-for="item in items" :key="item.id"
+                  :class="selectedIds.has(item.id) ? 'bg-red-50 dark:bg-red-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'">
+                <td v-if="isAdmin" class="px-4 py-3">
+                  <input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item.id)"
+                         class="rounded border-gray-300" />
+                </td>
+                <td class="px-4 py-3">
+                  <p class="font-semibold text-gray-900 dark:text-white">{{ item.designation }}</p>
+                  <p v-if="item.asset_tag" class="text-xs text-gray-400 font-mono">{{ item.asset_tag }}</p>
+                </td>
+                <td v-if="visibleCols.has('photo')" class="px-4 py-3">
+                  <img v-if="item.photo_url" :src="item.photo_url" :alt="item.designation"
+                       class="w-12 h-12 object-cover rounded-lg border border-gray-200" />
+                  <span v-else class="text-gray-300 dark:text-gray-600 text-lg">—</span>
+                </td>
+                <td v-if="visibleCols.has('serial_number')" class="px-4 py-3 font-mono text-gray-700 dark:text-gray-300 text-xs">
+                  {{ item.serial_number || '—' }}
+                </td>
+                <td v-if="visibleCols.has('reference')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
+                  {{ item.reference || '—' }}
+                </td>
+                <td v-if="visibleCols.has('brand')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
+                  {{ item.brand || '—' }}
+                </td>
+                <td v-if="visibleCols.has('model_name')" class="px-4 py-3 text-gray-700 dark:text-gray-300">
+                  {{ item.model_name || '—' }}
+                </td>
+                <td class="px-4 py-3 text-center font-bold text-gray-900 dark:text-white">
+                  {{ item.quantity }}
+                </td>
+                <td v-if="visibleCols.has('notes')" class="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate text-xs">
+                  {{ item.notes || '—' }}
+                </td>
+                <td v-if="visibleCols.has('created_by')" class="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                  {{ item.created_by || '—' }}
+                </td>
+                <td v-if="visibleCols.has('created_at')" class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  {{ item.created_at }}
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center justify-end gap-1">
+                    <template v-if="canEdit(item)">
+                      <button @click="openEdit(item)"
+                              class="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Modifier">
+                        <PencilIcon class="w-4 h-4" />
+                      </button>
+                      <button @click="deleteItem(item)"
+                              class="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Supprimer">
+                        <TrashIcon class="w-4 h-4" />
+                      </button>
+                    </template>
+                    <span v-else class="text-xs text-gray-300 italic px-2">—</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- ══ ONGLET : ARCHIVES (admin uniquement) ══ -->
+      <template v-if="activeTab === 'archives' && isAdmin">
+        <div class="flex items-center gap-2 mb-1">
+          <ArchiveBoxIcon class="w-4 h-4 text-amber-500" />
+          <p class="text-sm text-gray-500 dark:text-gray-400">
+            Équipements archivés après confirmation de leur envoi en déchèterie.
+            Ils peuvent être restaurés dans la liste active si nécessaire.
+          </p>
+        </div>
+
+        <!-- Barre sélection/export archives -->
+        <Transition enter-active-class="transition duration-200" enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0"
+                    leave-active-class="transition duration-150" leave-from-class="opacity-100" leave-to-class="opacity-0">
+          <div v-if="selectedArchiveIds.size > 0"
+               class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+            <span class="text-sm font-semibold text-amber-700 dark:text-amber-300">
+              {{ selectedArchiveIds.size }} archivé(s) sélectionné(s)
+            </span>
+            <div class="flex items-center gap-2 ml-auto flex-wrap">
+              <button @click="exportSelected('pdf', [...selectedArchiveIds])" :disabled="exportLoading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+                <DocumentArrowDownIcon class="w-4 h-4" />
+                Exporter PDF
+              </button>
+              <button @click="exportSelected('csv', [...selectedArchiveIds])" :disabled="exportLoading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition disabled:opacity-50">
+                <TableCellsIcon class="w-4 h-4" />
+                Exporter CSV
+              </button>
+              <button @click="selectedArchiveIds = new Set()"
+                      class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition">
+                Désélectionner
+              </button>
+            </div>
+          </div>
+        </Transition>
+
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow border border-amber-200 dark:border-amber-800/50 overflow-hidden">
+          <div v-if="archivedItems.length === 0" class="py-20 text-center">
+            <ArchiveBoxIcon class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+            <p class="text-gray-500 dark:text-gray-400">Aucun équipement archivé.</p>
+            <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">
+              Sélectionnez des éléments dans la liste active et cliquez sur « Archiver ».
+            </p>
+          </div>
+
+          <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+            <thead class="bg-amber-50 dark:bg-amber-900/20">
+              <tr>
+                <th class="w-10 px-4 py-3">
+                  <input type="checkbox" :checked="allArchivesSelected" @change="toggleArchiveSelectAll"
+                         class="rounded border-amber-300" />
+                </th>
+                <th class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Désignation</th>
+                <th v-if="visibleCols.has('photo')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Photo</th>
+                <th v-if="visibleCols.has('serial_number')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">N° de série</th>
+                <th v-if="visibleCols.has('reference')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Référence</th>
+                <th v-if="visibleCols.has('brand')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Marque</th>
+                <th v-if="visibleCols.has('model_name')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Modèle</th>
+                <th class="px-4 py-3 text-center font-semibold text-amber-800 dark:text-amber-300">Qté</th>
+                <th v-if="visibleCols.has('notes')" class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Notes</th>
+                <th class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Créé le</th>
+                <th class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Créé par</th>
+                <th class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Archivé le</th>
+                <th class="px-4 py-3 text-left font-semibold text-amber-800 dark:text-amber-300">Archivé par</th>
+                <th class="px-4 py-3 text-right font-semibold text-amber-800 dark:text-amber-300">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+              <tr v-for="item in archivedItems" :key="item.id"
+                  :class="selectedArchiveIds.has(item.id) ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-amber-50/50 dark:hover:bg-amber-900/10 opacity-90'">
+                <td class="px-4 py-3">
+                  <input type="checkbox" :checked="selectedArchiveIds.has(item.id)" @change="toggleArchiveSelect(item.id)"
+                         class="rounded border-amber-300" />
+                </td>
+                <td class="px-4 py-3">
+                  <p class="font-semibold text-gray-700 dark:text-gray-300">{{ item.designation }}</p>
+                  <p v-if="item.asset_tag" class="text-xs text-gray-400 font-mono">{{ item.asset_tag }}</p>
+                </td>
+                <td v-if="visibleCols.has('photo')" class="px-4 py-3">
+                  <img v-if="item.photo_url" :src="item.photo_url" :alt="item.designation"
+                       class="w-12 h-12 object-cover rounded-lg border border-gray-200 opacity-75" />
+                  <span v-else class="text-gray-300 dark:text-gray-600 text-lg">—</span>
+                </td>
+                <td v-if="visibleCols.has('serial_number')" class="px-4 py-3 font-mono text-gray-600 dark:text-gray-400 text-xs">
+                  {{ item.serial_number || '—' }}
+                </td>
+                <td v-if="visibleCols.has('reference')" class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                  {{ item.reference || '—' }}
+                </td>
+                <td v-if="visibleCols.has('brand')" class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                  {{ item.brand || '—' }}
+                </td>
+                <td v-if="visibleCols.has('model_name')" class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                  {{ item.model_name || '—' }}
+                </td>
+                <td class="px-4 py-3 text-center font-bold text-gray-700 dark:text-gray-300">
+                  {{ item.quantity }}
+                </td>
+                <td v-if="visibleCols.has('notes')" class="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate text-xs">
+                  {{ item.notes || '—' }}
+                </td>
+                <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  {{ item.created_at }}
+                </td>
+                <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                  {{ item.created_by || '—' }}
+                </td>
+                <td class="px-4 py-3 text-xs text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                  {{ item.archived_at }}
+                </td>
+                <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                  {{ item.archived_by || '—' }}
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center justify-end">
+                    <button @click="unarchiveItem(item)"
+                            class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 transition"
+                            title="Restaurer dans la liste active">
+                      <ArrowUturnLeftIcon class="w-3.5 h-3.5" />
+                      Restaurer
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
     </div>
 
     <!-- ─── Modal : Ajouter depuis l'inventaire ─────────────────────────────── -->
@@ -386,9 +665,16 @@ async function exportSelected(format) {
            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
         <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-xl overflow-y-auto max-h-[90vh]">
           <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 class="font-bold text-gray-900 dark:text-white">
-              {{ formMode === 'add' ? 'Ajouter un équipement' : 'Modifier la fiche' }}
-            </h2>
+            <div>
+              <h2 class="font-bold text-gray-900 dark:text-white">
+                {{ formMode === 'add' ? 'Ajouter un équipement' : 'Modifier la fiche' }}
+              </h2>
+              <Transition enter-active-class="transition duration-300" enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0">
+                <p v-if="addSuccessCount > 0" class="text-xs text-emerald-600 font-medium mt-0.5">
+                  ✓ {{ addSuccessCount }} équipement{{ addSuccessCount > 1 ? 's ajoutés' : ' ajouté' }} — formulaire prêt pour la prochaine saisie
+                </p>
+              </Transition>
+            </div>
             <button @click="showFormModal = false" class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
               <XMarkIcon class="w-5 h-5" />
             </button>
@@ -447,7 +733,6 @@ async function exportSelected(format) {
             <div>
               <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Photo</label>
               <div class="flex items-start gap-3">
-                <!-- Prévisualisation -->
                 <div v-if="photoPreview" class="relative">
                   <img :src="photoPreview" alt="Photo"
                        class="w-24 h-24 object-cover rounded-xl border border-gray-200 dark:border-gray-700" />
@@ -456,16 +741,13 @@ async function exportSelected(format) {
                     <XMarkIcon class="w-3 h-3" />
                   </button>
                 </div>
-                <!-- Boutons upload -->
                 <div class="flex flex-col gap-2">
-                  <!-- Appareil photo (mobile) -->
                   <label class="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg cursor-pointer transition">
                     <PhotoIcon class="w-4 h-4" />
                     Prendre une photo
                     <input ref="photoInputEl" type="file" accept="image/*" capture="environment"
                            @change="onPhotoChange" class="hidden" />
                   </label>
-                  <!-- Fichier depuis galerie/PC -->
                   <label class="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer transition">
                     <ArrowUpTrayIcon class="w-4 h-4" />
                     Importer un fichier
@@ -475,8 +757,8 @@ async function exportSelected(format) {
               </div>
             </div>
 
-            <!-- Champs personnalisés -->
-            <div>
+            <!-- Champs personnalisés (admin uniquement) -->
+            <div v-if="isAdmin">
               <div class="flex items-center justify-between mb-2">
                 <label class="text-xs font-semibold text-gray-600 dark:text-gray-400">Champs personnalisés</label>
                 <button type="button" @click="addExtraField"
@@ -502,8 +784,12 @@ async function exportSelected(format) {
             <p v-if="form.errors.designation" class="text-xs text-red-600">{{ form.errors.designation }}</p>
 
             <!-- Boutons -->
-            <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-              <button type="button" @click="showFormModal = false"
+            <div class="flex justify-between gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+              <button v-if="formMode === 'add'" type="button" @click="showFormModal = false"
+                      class="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition">
+                {{ addSuccessCount > 0 ? 'Terminer' : 'Annuler' }}
+              </button>
+              <button v-else type="button" @click="showFormModal = false"
                       class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition">
                 Annuler
               </button>

@@ -83,7 +83,13 @@ const exportCsv     = (type) => {
 
         <!-- Recent movements -->
         <div class="bg-white rounded-xl shadow-sm border p-6">
-          <h2 class="font-semibold mb-4">📋 Mouvements récents</h2>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold">📋 Mouvements récents</h2>
+            <a v-if="isAdmin" :href="route('reports.movements')"
+              class="text-xs text-blue-600 hover:underline font-medium">
+              Voir tout l'historique →
+            </a>
+          </div>
           <div class="space-y-2 max-h-64 overflow-y-auto">
             <div v-for="m in recentMovements" :key="m.asset" class="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg text-sm">
               <div>
@@ -96,6 +102,10 @@ const exportCsv     = (type) => {
               </div>
             </div>
           </div>
+          <a v-if="isAdmin" :href="route('reports.movements')"
+            class="mt-3 block text-center text-xs text-gray-500 hover:text-blue-600 transition border border-dashed border-gray-200 rounded-lg py-2 hover:border-blue-300">
+            Historique complet des mouvements
+          </a>
         </div>
       </div>
 

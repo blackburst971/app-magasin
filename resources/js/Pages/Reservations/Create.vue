@@ -1,7 +1,7 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import AssetThumbnail from '@/Components/AssetThumbnail.vue'
-import { useForm, Head } from '@inertiajs/vue3'
+import { useForm, Head, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import axios from 'axios'
 
@@ -12,6 +12,11 @@ const props = defineProps({
   examProcessStart: { type: Number, default: 7 },
   examProcessEnd:   { type: Number, default: 9 },
 })
+
+function goBack() {
+  if (window.history.length > 1) window.history.back()
+  else router.visit(route('reservations.index'))
+}
 
 const form = useForm({
   title: '',
@@ -289,7 +294,7 @@ const submit = () => form.post(route('reservations.store'))
 
         <!-- ── Actions ── -->
         <div class="flex gap-3">
-          <a :href="route('reservations.index')" class="flex-1 border border-gray-300 py-2.5 rounded-lg text-sm text-center hover:bg-gray-50">Annuler</a>
+          <button type="button" @click="goBack" class="flex-1 border border-gray-300 py-2.5 rounded-lg text-sm text-center hover:bg-gray-50">Annuler</button>
           <button type="submit" :disabled="form.processing || !canSubmit"
             class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {{ form.processing ? 'Envoi...' : 'Soumettre la demande' }}

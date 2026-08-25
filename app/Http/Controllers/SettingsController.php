@@ -66,7 +66,11 @@ class SettingsController extends Controller
             'calendar_visibility_etudiant'   => 'calendar',
             'calendar_visibility_personnel'  => 'calendar',
             // Fonctionnalités optionnelles
-            'todo_enabled'                   => 'features',
+            'todo_enabled'                              => 'features',
+            // Accès page Commandes par rôle
+            'section_procurement_professeur_read'   => 'procurement',
+            'section_procurement_professeur_write'  => 'procurement',
+            'section_procurement_professeur_export' => 'procurement',
         ];
 
         foreach ($request->all() as $key => $value) {

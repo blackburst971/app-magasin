@@ -7,9 +7,10 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import axios from 'axios'
 import {
   MagnifyingGlassIcon, PlusIcon,
-  ShoppingCartIcon, CheckIcon, EyeIcon, PencilIcon,
+  ShoppingCartIcon, CheckIcon, EyeIcon, PencilIcon, TrashIcon,
   MapPinIcon, TagIcon, BuildingStorefrontIcon,
   ListBulletIcon, Squares2X2Icon, PhotoIcon, XMarkIcon,
+  Cog6ToothIcon, EyeSlashIcon, Bars3Icon, WrenchScrewdriverIcon,
 } from '@heroicons/vue/24/outline'
 
 const page    = usePage()
@@ -17,8 +18,10 @@ const cart    = useCartStore()
 const isAdmin = computed(() => page.props.auth.user?.is_admin)
 
 // Statuts dynamiques triés par sort_order
+// Les admins voient tous les statuts, les utilisateurs seulement ceux marqués user_visible
 const assetStatuses = computed(() =>
   Object.values(page.props.assetStatuses ?? {})
+    .filter(s => isAdmin.value || s.user_visible)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 )
 
@@ -26,6 +29,7 @@ const props = defineProps({
   assets:                 Object,
   categories:             Array,
   locations:              Array,
+  places:                 Array,
   manufacturers:          Array,
   models:                 Array,
   filters:                Object,
@@ -37,6 +41,7 @@ const selectedCategory = ref(props.filters?.category     ?? '')
 const selectedStatus   = ref(props.filters?.status       ?? '')
 const selectedLocation = ref(props.filters?.location     ?? '')
 const selectedMfr      = ref(props.filters?.manufacturer ?? '')
+const selectedModel    = ref(props.filters?.model        ?? '')
 
 // ── Persistance de la recherche via sessionStorage ──────────────────────────
 const STORAGE_KEY = 'assets_filters'
@@ -46,7 +51,7 @@ onMounted(() => {
   const hasServerFilters =
     props.filters?.search || props.filters?.category ||
     props.filters?.status || props.filters?.location ||
-    props.filters?.manufacturer
+    props.filters?.manufacturer || props.filters?.model
 
   if (!hasServerFilters) {
     try {
@@ -67,8 +72,9 @@ onMounted(() => {
   }
 })
 
-// Sauvegarder les filtres à chaque changement
+// Sauvegarder les filtres à chaque changement + vider la sélection
 watch([search, selectedCategory, selectedStatus, selectedLocation, selectedMfr], () => {
+  selectedIds.value = []
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       search:       search.value,
@@ -84,8 +90,10 @@ watch([search, selectedCategory, selectedStatus, selectedLocation, selectedMfr],
 // Onglet actif — depuis le paramètre URL tab
 const activeTab = ref(props.filters?.tab ?? 'list')
 
-// View mode: 'list' or 'grid' — default to 'grid' for non-admin users
-const viewMode = ref(isAdmin.value ? 'list' : 'grid')
+// View mode: 'list' ou 'grid' — persisté dans localStorage
+const _defaultView = isAdmin.value ? 'list' : 'grid'
+const viewMode = ref(localStorage.getItem('assets_view') ?? _defaultView)
+watch(viewMode, v => localStorage.setItem('assets_view', v))
 
 // Model grouping toggle (for list view)
 const groupByModel = ref(false)
@@ -104,6 +112,7 @@ function routeParams(extra = {}) {
     status:       selectedStatus.value   || undefined,
     location:     selectedLocation.value || undefined,
     manufacturer: selectedMfr.value      || undefined,
+    model:        selectedModel.value    || undefined,
     per_page:     currentPerPage.value,
     tab,
     ...extra,
@@ -181,7 +190,8 @@ function filterByCategory(catId) {
 
 function clearFilters() {
   search.value = ''; selectedCategory.value = ''; selectedStatus.value = ''
-  selectedLocation.value = ''; selectedMfr.value = ''; resetAndFilter()
+  selectedLocation.value = ''; selectedMfr.value = ''; selectedModel.value = ''
+  resetAndFilter()
 }
 
 async function toggleReservable(asset) {
@@ -199,8 +209,27 @@ function isReservable(asset) {
   return localReservable.value[asset.id] ?? asset.is_reservable
 }
 
+// Alerte panier pour équipement sorti
+const checkedOutAlert = ref(null) // asset à confirmer
+
 function toggleCart(asset) {
-  cart.hasItem(asset.id) ? cart.removeItem(asset.id) : cart.addItem(asset)
+  if (cart.hasItem(asset.id)) {
+    cart.removeItem(asset.id)
+    return
+  }
+  // Si l'équipement est sorti, afficher une alerte avant d'ajouter
+  if (asset.status === 'checked_out') {
+    checkedOutAlert.value = asset
+    return
+  }
+  cart.addItem(asset)
+}
+
+function confirmAddCheckedOut() {
+  if (checkedOutAlert.value) {
+    cart.addItem(checkedOutAlert.value)
+    checkedOutAlert.value = null
+  }
 }
 
 const catColors = [
@@ -211,7 +240,9 @@ const catColors = [
 ]
 const catColor = (i) => catColors[i % catColors.length]
 
-// ─── Édition de catégorie (admin) ────────────────────────────────────────────
+// ─── Gestion des catégories (admin) ──────────────────────────────────────────
+
+// Édition
 const showCatEditModal = ref(false)
 const catEditTarget    = ref(null)
 const catEditForm      = useForm({ name: '', description: '', color: '#3B82F6', image: null })
@@ -242,10 +273,129 @@ function submitCatEdit() {
   })
 }
 
+// Création
+const showCatCreateModal = ref(false)
+const catCreateForm      = useForm({ name: '', description: '', color: '#3B82F6', image: null })
+const catCreatePreview   = ref(null)
+
+function openCatCreate(e) {
+  e.stopPropagation()
+  catCreateForm.reset()
+  catCreateForm.color    = '#3B82F6'
+  catCreatePreview.value = null
+  showCatCreateModal.value = true
+}
+
+function onCatCreateImage(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  catCreateForm.image = file
+  catCreatePreview.value = URL.createObjectURL(file)
+}
+
+function submitCatCreate() {
+  catCreateForm.post(route('categories.store'), {
+    forceFormData: true,
+    onSuccess: () => { showCatCreateModal.value = false },
+  })
+}
+
+// Suppression
+const showCatDeleteModal = ref(false)
+const catDeleteTarget    = ref(null)
+const catDeleteReassign  = ref('')
+const catDeleteForm      = useForm({})
+
+function openCatDelete(cat, e) {
+  e.stopPropagation()
+  catDeleteTarget.value   = cat
+  catDeleteReassign.value = ''
+  showCatDeleteModal.value = true
+}
+
+function submitCatDelete() {
+  catDeleteForm.transform(() => ({
+    reassign_to: catDeleteReassign.value || null,
+  })).delete(route('categories.destroy', catDeleteTarget.value.id), {
+    onSuccess: () => { showCatDeleteModal.value = false; catDeleteTarget.value = null },
+  })
+}
+
+// ─── Configuration des colonnes (admin) ──────────────────────────────────────
+
+const ALL_ADMIN_COLUMNS = [
+  { key: 'name',           label: 'Équipement'   },
+  { key: 'asset_tag',      label: 'Tag'          },
+  { key: 'category',       label: 'Catégorie'    },
+  { key: 'model',          label: 'Modèle'       },
+  { key: 'location',       label: 'Emplacement'  },
+  { key: 'manufacturer',   label: 'Fabricant'    },
+  { key: 'status',         label: 'Statut'       },
+  { key: 'checked_out_to', label: 'Affecté à'    },
+  { key: 'return_date',    label: 'Retour prévu' },
+  { key: 'accessories',    label: 'Accessoires'  },
+  { key: 'label',          label: 'Étiquette'    },
+  { key: 'reservable',     label: 'Réservable'   },
+]
+const COL_STORAGE_KEY = 'admin_assets_cols_v2'
+
+function getDefaultCols() {
+  return ALL_ADMIN_COLUMNS.map(c => ({ key: c.key, visible: true }))
+}
+function loadCols() {
+  try {
+    const raw = localStorage.getItem(COL_STORAGE_KEY)
+    if (!raw) return getDefaultCols()
+    const parsed = JSON.parse(raw)
+    const allKeys = ALL_ADMIN_COLUMNS.map(c => c.key)
+    const valid = parsed.filter(c => allKeys.includes(c.key))
+    allKeys.forEach(k => { if (!valid.find(c => c.key === k)) valid.push({ key: k, visible: true }) })
+    return valid
+  } catch { return getDefaultCols() }
+}
+
+const showColPanel  = ref(false)
+const colDragKey    = ref(null)
+const colDragTarget = ref(null)
+const columnsConfig = ref(loadCols())
+
+watch(columnsConfig, val => localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(val)), { deep: true })
+
+const visibleAdminCols = computed(() => columnsConfig.value.filter(c => c.visible))
+
+function colLabel(key) { return ALL_ADMIN_COLUMNS.find(c => c.key === key)?.label ?? key }
+function toggleCol(key) { const c = columnsConfig.value.find(c => c.key === key); if (c) c.visible = !c.visible }
+
+function onColDragStart(e, key) {
+  colDragKey.value = key
+  e.dataTransfer.effectAllowed = 'move'
+}
+function onColDragEnter(key) { colDragTarget.value = key }
+function onColDragOver(e)    { e.preventDefault() }
+function onColDrop(targetKey) {
+  if (!colDragKey.value || colDragKey.value === targetKey) { colDragKey.value = null; colDragTarget.value = null; return }
+  const arr  = [...columnsConfig.value]
+  const from = arr.findIndex(c => c.key === colDragKey.value)
+  const to   = arr.findIndex(c => c.key === targetKey)
+  const [item] = arr.splice(from, 1)
+  arr.splice(to, 0, item)
+  columnsConfig.value = arr
+  colDragKey.value = null; colDragTarget.value = null
+}
+function onColDragEnd() { colDragKey.value = null; colDragTarget.value = null }
+function resetCols() { columnsConfig.value = getDefaultCols() }
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const activeFiltersCount = computed(() =>
-  [selectedCategory.value, selectedStatus.value, selectedLocation.value, selectedMfr.value, search.value]
+  [selectedCategory.value, selectedStatus.value, selectedLocation.value, selectedMfr.value, search.value, selectedModel.value]
     .filter(Boolean).length
 )
+
+const activeModelName = computed(() => {
+  if (!selectedModel.value) return null
+  return props.models?.find(m => String(m.id) === String(selectedModel.value))?.name ?? null
+})
 
 // Grouped assets by model
 const groupedAssets = computed(() => {
@@ -296,12 +446,30 @@ const showBulkEditModal   = ref(false)
 const bulkProcessing      = ref(false)
 
 const bulkEditForm = ref({
-  updateStatus:    false, status:              '',
-  updateCategory:  false, category_id:         '',
-  updateLocation:  false, location:            '',
-  updateReservable:false, is_reservable:       '',
-  updateModel:     false, equipment_model_id:  '',
+  updateStatus:       false, status:             '',
+  updateCategory:     false, category_id:        '',
+  updateLocation:     false, location:           '',
+  updateReservable:   false, is_reservable:      '',
+  updateModel:        false, equipment_model_id: '',
+  updateManufacturer: false, manufacturer_id:    '',
+  updatePlace:        false, place_id:           '',
+  // Champs affectation formelle de lieu
+  assignReturn:       false, return_expected_at: '',
+  assignNotes:        '',
 })
+
+// Lieu sélectionné dans le bulk edit (pour détecter storage vs affectation)
+const bulkSelectedPlace = computed(() =>
+  bulkEditForm.value.place_id
+    ? props.places?.find(p => p.id === bulkEditForm.value.place_id || String(p.id) === String(bulkEditForm.value.place_id))
+    : null
+)
+const bulkPlaceIsStorage = computed(() => bulkSelectedPlace.value?.is_storage ?? false)
+const bulkPlaceNeedsFormalAssign = computed(() =>
+  bulkEditForm.value.updatePlace &&
+  bulkEditForm.value.place_id &&
+  !bulkPlaceIsStorage.value
+)
 
 const allOnPageSelected = computed(() => {
   const pageIds = props.assets.data.map(a => a.id)
@@ -327,11 +495,15 @@ function toggleSelect(id) {
 
 function openBulkEdit() {
   bulkEditForm.value = {
-    updateStatus:    false, status:             '',
-    updateCategory:  false, category_id:        '',
-    updateLocation:  false, location:           '',
-    updateReservable:false, is_reservable:      '',
-    updateModel:     false, equipment_model_id: '',
+    updateStatus:       false, status:             '',
+    updateCategory:     false, category_id:        '',
+    updateLocation:     false, location:           '',
+    updateReservable:   false, is_reservable:      '',
+    updateModel:        false, equipment_model_id: '',
+    updateManufacturer: false, manufacturer_id:    '',
+    updatePlace:        false, place_id:           '',
+    assignReturn:       false, return_expected_at: '',
+    assignNotes:        '',
   }
   showBulkEditModal.value = true
 }
@@ -345,12 +517,61 @@ function executeBulkDelete() {
 }
 
 function executeBulkUpdate() {
+  // ── Cas affectation formelle à un lieu non-stockage ──────────────────────
+  if (bulkPlaceNeedsFormalAssign.value) {
+    // Si d'autres champs sont également cochés, les appliquer d'abord via bulk-update
+    const hasOtherUpdates =
+      bulkEditForm.value.updateStatus || bulkEditForm.value.updateCategory ||
+      bulkEditForm.value.updateLocation || bulkEditForm.value.updateReservable ||
+      bulkEditForm.value.updateModel || bulkEditForm.value.updateManufacturer
+
+    const doAssign = () => {
+      const payload = {
+        ids:      [...selectedIds.value],
+        place_id: bulkEditForm.value.place_id,
+        notes:    bulkEditForm.value.assignNotes || null,
+        return_expected_at: bulkEditForm.value.assignReturn
+          ? (bulkEditForm.value.return_expected_at || null)
+          : null,
+      }
+      router.post(route('assets.bulk-assign-place'), payload, {
+        onSuccess: () => { showBulkEditModal.value = false; selectedIds.value = [] },
+        onFinish:  () => { bulkProcessing.value = false },
+      })
+    }
+
+    if (hasOtherUpdates) {
+      const otherPayload = { ids: [...selectedIds.value] }
+      if (bulkEditForm.value.updateStatus)       otherPayload.status             = bulkEditForm.value.status
+      if (bulkEditForm.value.updateCategory)     otherPayload.category_id        = bulkEditForm.value.category_id || null
+      if (bulkEditForm.value.updateLocation)     otherPayload.location           = bulkEditForm.value.location
+      if (bulkEditForm.value.updateReservable)   otherPayload.is_reservable      = bulkEditForm.value.is_reservable
+      if (bulkEditForm.value.updateModel)        otherPayload.equipment_model_id = bulkEditForm.value.equipment_model_id || null
+      if (bulkEditForm.value.updateManufacturer) otherPayload.manufacturer_id    = bulkEditForm.value.manufacturer_id || null
+
+      bulkProcessing.value = true
+      router.post(route('assets.bulk-update'), otherPayload, {
+        onSuccess: doAssign,
+        onError:   () => { bulkProcessing.value = false },
+      })
+    } else {
+      bulkProcessing.value = true
+      doAssign()
+    }
+    return
+  }
+
+  // ── Cas standard ─────────────────────────────────────────────────────────
   const payload = { ids: [...selectedIds.value] }
-  if (bulkEditForm.value.updateStatus)     payload.status               = bulkEditForm.value.status
-  if (bulkEditForm.value.updateCategory)   payload.category_id          = bulkEditForm.value.category_id || null
-  if (bulkEditForm.value.updateLocation)   payload.location             = bulkEditForm.value.location
-  if (bulkEditForm.value.updateReservable) payload.is_reservable        = bulkEditForm.value.is_reservable
-  if (bulkEditForm.value.updateModel)      payload.equipment_model_id   = bulkEditForm.value.equipment_model_id || null
+  if (bulkEditForm.value.updateStatus)       payload.status             = bulkEditForm.value.status
+  if (bulkEditForm.value.updateCategory)     payload.category_id        = bulkEditForm.value.category_id || null
+  if (bulkEditForm.value.updateLocation)     payload.location           = bulkEditForm.value.location
+  if (bulkEditForm.value.updateReservable)   payload.is_reservable      = bulkEditForm.value.is_reservable
+  if (bulkEditForm.value.updateModel)        payload.equipment_model_id = bulkEditForm.value.equipment_model_id || null
+  if (bulkEditForm.value.updateManufacturer) payload.manufacturer_id    = bulkEditForm.value.manufacturer_id || null
+  if (bulkEditForm.value.updatePlace) {
+    payload.place_id = bulkEditForm.value.place_id || null
+  }
   bulkProcessing.value = true
   router.post(route('assets.bulk-update'), payload, {
     onSuccess: () => { showBulkEditModal.value = false; selectedIds.value = [] },
@@ -361,6 +582,33 @@ function executeBulkUpdate() {
 function duplicateAsset(assetId) {
   if (!confirm('Dupliquer cet équipement ? Un nouvel asset identique sera créé avec un tag unique.')) return
   router.post(route('assets.duplicate', assetId))
+}
+
+// ─── Étiquettes en masse ─────────────────────────────────────────────────────
+const showBulkLabelModal  = ref(false)
+const bulkLabelProcessing = ref(false)
+const bulkLabelForm       = ref({
+  updateLabelToCreate: false, label_to_create: true,
+  updateLabelToApply:  false, label_to_apply:  true,
+})
+
+function openBulkLabel() {
+  bulkLabelForm.value = {
+    updateLabelToCreate: false, label_to_create: true,
+    updateLabelToApply:  false, label_to_apply:  true,
+  }
+  showBulkLabelModal.value = true
+}
+
+function executeBulkLabel() {
+  const payload = { ids: [...selectedIds.value] }
+  if (bulkLabelForm.value.updateLabelToCreate) payload.label_to_create = bulkLabelForm.value.label_to_create
+  if (bulkLabelForm.value.updateLabelToApply)  payload.label_to_apply  = bulkLabelForm.value.label_to_apply
+  bulkLabelProcessing.value = true
+  router.post(route('assets.bulk-label'), payload, {
+    onSuccess: () => { showBulkLabelModal.value = false; selectedIds.value = [] },
+    onFinish:  () => { bulkLabelProcessing.value = false },
+  })
 }
 
 // ─── Réservation groupée depuis la sélection ─────────────────────────────────
@@ -490,6 +738,10 @@ function executeBulkReserve() {
                     class="flex items-center gap-1.5 bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 transition">
               📅 Réserver ({{ selectedIds.length }})
             </button>
+            <button @click="openBulkLabel"
+                    class="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 transition">
+              🏷 Étiquettes
+            </button>
             <button @click="openBulkEdit"
                     class="flex items-center gap-1.5 bg-white text-blue-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition">
               ✏️ Modifier ({{ selectedIds.length }})
@@ -520,6 +772,14 @@ function executeBulkReserve() {
             <TagIcon class="w-3 h-3" /> {{ categories.find(c => String(c.id) === String(selectedCategory))?.name }}
             <button @click="selectedCategory=''; applyFilters()" class="ml-1 hover:text-purple-900 font-bold">×</button>
           </span>
+          <span v-if="selectedStatus" class="flex items-center gap-1 bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full text-xs">
+            🔖 {{ assetStatuses.find(s => s.key === selectedStatus)?.label ?? selectedStatus }}
+            <button @click="selectedStatus=''; applyFilters()" class="ml-1 hover:text-orange-900 font-bold">×</button>
+          </span>
+          <span v-if="selectedModel" class="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full text-xs">
+            🧩 Modèle : {{ activeModelName }}
+            <button @click="selectedModel=''; applyFilters()" class="ml-1 hover:text-indigo-900 font-bold">×</button>
+          </span>
           <button @click="clearFilters" class="text-gray-400 hover:text-gray-600 underline text-xs">Tout effacer</button>
         </div>
 
@@ -540,7 +800,7 @@ function executeBulkReserve() {
             <option value="">Tous fabricants</option>
             <option v-for="m in manufacturers" :key="m.id" :value="m.id">{{ m.name }}</option>
           </select>
-          <select v-if="isAdmin" v-model="selectedStatus" @change="applyFilters"
+          <select v-model="selectedStatus" @change="applyFilters"
                   class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-36">
             <option value="">Tous statuts</option>
             <option v-for="s in assetStatuses" :key="s.key" :value="s.key">{{ s.label }}</option>
@@ -618,7 +878,13 @@ function executeBulkReserve() {
                       class="w-full flex items-center justify-center gap-1.5 text-xs text-gray-600 border border-gray-200 py-1.5 rounded-lg hover:bg-gray-50 transition">
                   <EyeIcon class="w-3.5 h-3.5" /> Voir la fiche
                 </Link>
-                <button @click="toggleCart(asset)"
+                <!-- Statut bloquant (maintenance, en préparation…) : bouton désactivé -->
+                <div v-if="asset.status_blocks_reservation"
+                     class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-yellow-50 text-yellow-700 border border-yellow-200 cursor-not-allowed">
+                  <WrenchScrewdriverIcon class="w-4 h-4" />
+                  {{ asset.status_label }}
+                </div>
+                <button v-else @click="toggleCart(asset)"
                         class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition"
                         :class="cart.hasItem(asset.id)
                           ? 'bg-green-100 text-green-700 hover:bg-green-200'
@@ -639,6 +905,15 @@ function executeBulkReserve() {
 
         <!-- ═══ LIST VIEW ═══ -->
         <div v-else class="bg-white rounded-xl shadow-sm border overflow-hidden">
+
+          <!-- Barre de colonnes (admin, vue liste normale) -->
+          <div v-if="isAdmin && !groupByModel" class="flex items-center justify-end gap-2 px-4 py-2 border-b bg-gray-50">
+            <span class="text-xs text-gray-400">{{ visibleAdminCols.length }} colonne(s) affichée(s)</span>
+            <button @click="showColPanel = true"
+                    class="flex items-center gap-1.5 text-xs text-gray-600 hover:text-blue-600 border border-gray-300 hover:border-blue-400 px-3 py-1.5 rounded-lg transition bg-white hover:bg-blue-50">
+              <Cog6ToothIcon class="w-3.5 h-3.5" /> Colonnes
+            </button>
+          </div>
 
           <!-- Grouped by model -->
           <template v-if="groupByModel && groupedAssets">
@@ -698,15 +973,22 @@ function executeBulkReserve() {
                         <Link :href="route('assets.show', asset.id)" class="text-xs text-blue-600 hover:underline">Voir</Link>
                         <Link :href="route('assets.edit', asset.id)" class="text-xs text-gray-600 hover:underline">Modifier</Link>
                       </div>
-                      <button v-else @click="toggleCart(asset)"
-                              class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition"
-                              :class="cart.hasItem(asset.id)
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'">
-                        <CheckIcon v-if="cart.hasItem(asset.id)" class="w-3.5 h-3.5" />
-                        <ShoppingCartIcon v-else class="w-3.5 h-3.5" />
-                        {{ cart.hasItem(asset.id) ? 'Dans le panier' : 'Ajouter' }}
-                      </button>
+                      <template v-else>
+                        <span v-if="asset.status_blocks_reservation"
+                              class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-yellow-50 text-yellow-700 border border-yellow-200 cursor-not-allowed whitespace-nowrap">
+                          <WrenchScrewdriverIcon class="w-3.5 h-3.5" />
+                          {{ asset.status_label }}
+                        </span>
+                        <button v-else @click="toggleCart(asset)"
+                                class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition"
+                                :class="cart.hasItem(asset.id)
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'">
+                          <CheckIcon v-if="cart.hasItem(asset.id)" class="w-3.5 h-3.5" />
+                          <ShoppingCartIcon v-else class="w-3.5 h-3.5" />
+                          {{ cart.hasItem(asset.id) ? 'Dans le panier' : 'Ajouter' }}
+                        </button>
+                      </template>
                     </td>
                   </tr>
                 </tbody>
@@ -714,164 +996,269 @@ function executeBulkReserve() {
             </div>
           </template>
 
-          <!-- Normal table (no grouping) -->
-          <table v-else class="w-full text-sm">
-            <thead>
-              <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
-                <!-- Checkbox "Tout sélectionner" (admin) -->
-                <th v-if="isAdmin" class="px-3 py-3 w-10 text-center">
-                  <input type="checkbox" :checked="allOnPageSelected"
-                         @change="toggleSelectAll"
-                         :title="allOnPageSelected ? 'Tout désélectionner' : 'Tout sélectionner'"
-                         class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                </th>
-                <th class="px-4 py-3 text-left">Équipement</th>
-                <th class="px-4 py-3 text-left hidden md:table-cell">Tag</th>
-                <th class="px-4 py-3 text-left hidden lg:table-cell">Catégorie</th>
-                <th class="px-4 py-3 text-left hidden lg:table-cell">Emplacement</th>
-                <th class="px-4 py-3 text-left">Statut</th>
-                <th v-if="isAdmin" class="px-4 py-3 text-left hidden xl:table-cell">Affecté à</th>
-                <th v-if="isAdmin" class="px-4 py-3 text-left hidden xl:table-cell">Retour prévu</th>
-                <th v-if="isAdmin" class="px-4 py-3 text-left hidden 2xl:table-cell">Accessoires</th>
-                <th v-if="isAdmin" class="px-4 py-3 text-center">Réservable</th>
-                <th class="px-4 py-3 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="asset in assets.data" :key="asset.id"
-                  class="border-b hover:bg-gray-50 transition"
-                  :class="[
-                    { 'opacity-60': isAdmin && !isReservable(asset) },
-                    isAdmin && selectedIds.includes(asset.id) ? 'bg-blue-50' : '',
-                  ]">
+          <!-- Normal table (no grouping) — Admin : colonnes dynamiques / User : colonnes fixes -->
+          <template v-else>
 
-                <!-- Checkbox sélection (admin) -->
-                <td v-if="isAdmin" class="px-3 py-3 w-10 text-center">
-                  <input type="checkbox" :checked="selectedIds.includes(asset.id)"
-                         @change="toggleSelect(asset.id)"
-                         class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                </td>
+            <!-- ═══ TABLE ADMIN (colonnes configurables + scroll horizontal) ═══ -->
+            <div v-if="isAdmin" class="overflow-x-auto">
+              <table class="text-sm" style="min-width:max-content;width:100%">
+                <thead>
+                  <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+                    <!-- Checkbox fixe gauche -->
+                    <th class="sticky left-0 z-20 bg-gray-50 px-3 py-3 w-10 text-center border-r border-gray-200">
+                      <input type="checkbox" :checked="allOnPageSelected" @change="toggleSelectAll"
+                             class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                    </th>
+                    <!-- Colonnes configurables -->
+                    <template v-for="col in visibleAdminCols" :key="col.key">
+                      <th v-if="col.key==='name'"           class="px-4 py-3 text-left whitespace-nowrap">Équipement</th>
+                      <th v-else-if="col.key==='asset_tag'" class="px-4 py-3 text-left whitespace-nowrap">Tag</th>
+                      <th v-else-if="col.key==='category'"  class="px-4 py-3 text-left whitespace-nowrap">Catégorie</th>
+                      <th v-else-if="col.key==='model'"     class="px-4 py-3 text-left whitespace-nowrap">Modèle</th>
+                      <th v-else-if="col.key==='location'"  class="px-4 py-3 text-left whitespace-nowrap">Emplacement</th>
+                      <th v-else-if="col.key==='manufacturer'" class="px-4 py-3 text-left whitespace-nowrap">Fabricant</th>
+                      <th v-else-if="col.key==='status'"    class="px-4 py-3 text-left whitespace-nowrap">Statut</th>
+                      <th v-else-if="col.key==='checked_out_to'" class="px-4 py-3 text-left whitespace-nowrap">Affecté à</th>
+                      <th v-else-if="col.key==='return_date'"    class="px-4 py-3 text-left whitespace-nowrap">Retour prévu</th>
+                      <th v-else-if="col.key==='accessories'"    class="px-4 py-3 text-left whitespace-nowrap">Accessoires</th>
+                      <th v-else-if="col.key==='label'"     class="px-4 py-3 text-center whitespace-nowrap">Étiquette</th>
+                      <th v-else-if="col.key==='reservable'" class="px-4 py-3 text-center whitespace-nowrap">Réservable</th>
+                    </template>
+                    <!-- Actions fixes droite -->
+                    <th class="sticky right-0 z-20 bg-gray-50 px-4 py-3 text-left whitespace-nowrap border-l border-gray-200">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="asset in assets.data" :key="asset.id"
+                      class="border-b hover:bg-gray-50 transition"
+                      :class="[
+                        { 'opacity-60': !isReservable(asset) },
+                        selectedIds.includes(asset.id) ? 'bg-blue-50 hover:bg-blue-100' : '',
+                      ]">
 
-                <td class="px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                      <img v-if="asset.image" :src="asset.image" class="w-9 h-9 rounded-lg object-cover" />
-                      <span v-else class="text-lg">📦</span>
+                    <!-- Checkbox fixe gauche -->
+                    <td class="sticky left-0 z-10 px-3 py-3 w-10 text-center border-r border-gray-200"
+                        :class="selectedIds.includes(asset.id) ? 'bg-blue-50' : 'bg-white'">
+                      <input type="checkbox" :checked="selectedIds.includes(asset.id)"
+                             @change="toggleSelect(asset.id)"
+                             class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                    </td>
+
+                    <!-- Colonnes configurables -->
+                    <template v-for="col in visibleAdminCols" :key="col.key">
+                      <!-- Équipement -->
+                      <td v-if="col.key==='name'" class="px-4 py-3">
+                        <div class="flex items-center gap-3">
+                          <div class="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                            <img v-if="asset.image" :src="asset.image" class="w-9 h-9 rounded-lg object-cover" />
+                            <span v-else class="text-lg">📦</span>
+                          </div>
+                          <div class="min-w-0">
+                            <p class="font-medium text-gray-900 whitespace-nowrap">{{ asset.name }}</p>
+                            <p class="text-xs text-gray-400 font-mono">{{ asset.asset_tag }}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <!-- Tag -->
+                      <td v-else-if="col.key==='asset_tag'" class="px-4 py-3 text-gray-500 font-mono text-xs whitespace-nowrap">
+                        {{ asset.asset_tag }}
+                      </td>
+                      <!-- Catégorie -->
+                      <td v-else-if="col.key==='category'" class="px-4 py-3">
+                        <button v-if="asset.category" @click="filterByCategory(asset.category_id)"
+                                class="text-gray-600 hover:text-blue-600 hover:underline text-left text-sm whitespace-nowrap">
+                          {{ asset.category }}
+                        </button>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Modèle -->
+                      <td v-else-if="col.key==='model'" class="px-4 py-3">
+                        <Link v-if="asset.equipment_model_id"
+                              :href="route('models.index') + '?highlight=' + asset.equipment_model_id"
+                              class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline whitespace-nowrap">
+                          🧩 {{ asset.model_name }}
+                        </Link>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Emplacement -->
+                      <td v-else-if="col.key==='location'" class="px-4 py-3">
+                        <button v-if="asset.location" @click="filterByLocation(asset.location)"
+                                class="text-gray-600 hover:text-blue-600 hover:underline text-sm flex items-center gap-1 whitespace-nowrap">
+                          <MapPinIcon class="w-3 h-3 text-gray-400" /> {{ asset.location }}
+                        </button>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Fabricant -->
+                      <td v-else-if="col.key==='manufacturer'" class="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {{ asset.manufacturer || '—' }}
+                      </td>
+                      <!-- Statut -->
+                      <td v-else-if="col.key==='status'" class="px-4 py-3">
+                        <div class="flex items-center gap-1.5">
+                          <StatusBadge :status="asset.status" type="asset" />
+                          <span v-if="asset.label_to_create || asset.label_to_apply"
+                                class="text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 whitespace-nowrap"
+                                :title="asset.label_to_create && asset.label_to_apply ? 'Étiquette à créer et à coller' : asset.label_to_create ? 'Étiquette à créer' : 'Étiquette à coller'">
+                            🏷️
+                          </span>
+                        </div>
+                      </td>
+                      <!-- Affecté à -->
+                      <td v-else-if="col.key==='checked_out_to'" class="px-4 py-3">
+                        <span v-if="asset.checked_out_to" class="text-sm text-gray-800 font-medium whitespace-nowrap">
+                          👤 {{ asset.checked_out_to.name }}
+                        </span>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Retour prévu -->
+                      <td v-else-if="col.key==='return_date'" class="px-4 py-3">
+                        <span v-if="asset.expected_return_at" class="text-sm text-orange-600 font-medium whitespace-nowrap">
+                          {{ asset.expected_return_at }}
+                        </span>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Accessoires -->
+                      <td v-else-if="col.key==='accessories'" class="px-4 py-3">
+                        <template v-if="asset.accessories?.length">
+                          <div class="flex flex-col gap-1">
+                            <Link v-for="acc in asset.accessories" :key="acc.id"
+                                  :href="route('assets.show', acc.id)"
+                                  class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline whitespace-nowrap">
+                              🔗 {{ acc.name }}
+                            </Link>
+                          </div>
+                        </template>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Étiquette -->
+                      <td v-else-if="col.key==='label'" class="px-4 py-3 text-center">
+                        <template v-if="asset.label_to_create || asset.label_to_apply">
+                          <span v-if="asset.label_to_create && asset.label_to_apply"
+                                class="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-300 whitespace-nowrap">
+                            ✏️📌 Créer + Coller
+                          </span>
+                          <span v-else-if="asset.label_to_create"
+                                class="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">
+                            ✏️ À créer
+                          </span>
+                          <span v-else
+                                class="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-300 whitespace-nowrap">
+                            📌 À coller
+                          </span>
+                        </template>
+                        <span v-else class="text-gray-300 text-xs">—</span>
+                      </td>
+                      <!-- Réservable -->
+                      <td v-else-if="col.key==='reservable'" class="px-4 py-3 text-center">
+                        <div class="flex flex-col items-center gap-1">
+                          <button @click="toggleReservable(asset)"
+                                  class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                                  :class="isReservable(asset) ? 'bg-green-500' : 'bg-gray-300'">
+                            <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                                  :class="isReservable(asset) ? 'translate-x-6' : 'translate-x-1'" />
+                          </button>
+                          <span class="text-xs" :class="isReservable(asset) ? 'text-green-600' : 'text-gray-400'">
+                            {{ isReservable(asset) ? 'Visible' : 'Masqué' }}
+                          </span>
+                        </div>
+                      </td>
+                    </template>
+
+                    <!-- Actions fixes droite -->
+                    <td class="sticky right-0 z-10 px-4 py-3 border-l border-gray-200"
+                        :class="selectedIds.includes(asset.id) ? 'bg-blue-50' : 'bg-white'">
+                      <div class="flex gap-2 flex-nowrap whitespace-nowrap">
+                        <Link :href="route('assets.show', asset.id)"
+                              class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                          <EyeIcon class="w-3.5 h-3.5" /> Voir
+                        </Link>
+                        <Link :href="route('assets.edit', asset.id)"
+                              class="inline-flex items-center gap-1 text-xs text-gray-600 hover:underline">
+                          <PencilIcon class="w-3.5 h-3.5" /> Modifier
+                        </Link>
+                        <button @click="duplicateAsset(asset.id)"
+                                class="inline-flex items-center gap-1 text-xs text-purple-600 hover:underline">
+                          📋 Dupliquer
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr v-if="assets.data.length === 0">
+                    <td :colspan="visibleAdminCols.length + 2" class="px-4 py-12 text-center text-gray-400">
+                      <p class="text-4xl mb-2">📦</p>
+                      <p class="font-medium">Aucun équipement trouvé</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- ═══ TABLE NON-ADMIN (colonnes fixes) ═══ -->
+            <table v-else class="w-full text-sm">
+              <thead>
+                <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+                  <th class="px-4 py-3 text-left">Équipement</th>
+                  <th class="px-4 py-3 text-left hidden md:table-cell">Tag</th>
+                  <th class="px-4 py-3 text-left hidden lg:table-cell">Catégorie</th>
+                  <th class="px-4 py-3 text-left hidden lg:table-cell">Emplacement</th>
+                  <th class="px-4 py-3 text-left">Statut</th>
+                  <th class="px-4 py-3 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="asset in assets.data" :key="asset.id" class="border-b hover:bg-gray-50 transition">
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-3">
+                      <div class="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                        <img v-if="asset.image" :src="asset.image" class="w-9 h-9 rounded-lg object-cover" />
+                        <span v-else class="text-lg">📦</span>
+                      </div>
+                      <div>
+                        <p class="font-medium text-gray-900">{{ asset.name }}</p>
+                        <p class="text-xs text-gray-500 md:hidden">{{ asset.asset_tag }}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p class="font-medium text-gray-900">{{ asset.name }}</p>
-                      <p class="text-xs text-gray-500 md:hidden">{{ asset.asset_tag }}</p>
-                    </div>
-                  </div>
-                </td>
-
-                <td class="px-4 py-3 text-gray-500 hidden md:table-cell font-mono text-xs">{{ asset.asset_tag }}</td>
-
-                <td class="px-4 py-3 hidden lg:table-cell">
-                  <button v-if="asset.category" @click="filterByCategory(asset.category_id)"
-                          class="text-gray-600 hover:text-blue-600 hover:underline text-left text-sm">
-                    {{ asset.category }}
-                  </button>
-                  <span v-else class="text-gray-400">—</span>
-                </td>
-
-                <td class="px-4 py-3 hidden lg:table-cell">
-                  <button v-if="asset.location" @click="filterByLocation(asset.location)"
-                          class="text-gray-600 hover:text-blue-600 hover:underline text-left text-sm flex items-center gap-1">
-                    <MapPinIcon class="w-3 h-3 text-gray-400" /> {{ asset.location }}
-                  </button>
-                  <span v-else class="text-gray-400">—</span>
-                </td>
-
-                <td class="px-4 py-3"><StatusBadge :status="asset.status" type="asset" /></td>
-
-                <!-- Affecté à (admin) -->
-                <td v-if="isAdmin" class="px-4 py-3 hidden xl:table-cell">
-                  <span v-if="asset.checked_out_to" class="text-sm text-gray-800 font-medium">
-                    👤 {{ asset.checked_out_to.name }}
-                  </span>
-                  <span v-else class="text-gray-300 text-xs">—</span>
-                </td>
-
-                <!-- Retour prévu -->
-                <td v-if="isAdmin" class="px-4 py-3 hidden xl:table-cell">
-                  <span v-if="asset.expected_return_at" class="text-sm text-orange-600 font-medium">
-                    {{ asset.expected_return_at }}
-                  </span>
-                  <span v-else class="text-gray-300">—</span>
-                </td>
-
-                <!-- Accessoires (admin) -->
-                <td v-if="isAdmin" class="px-4 py-3 hidden 2xl:table-cell">
-                  <template v-if="asset.accessories && asset.accessories.length > 0">
-                    <div class="flex flex-col gap-1">
-                      <Link v-for="acc in asset.accessories" :key="acc.id"
-                            :href="route('assets.show', acc.id)"
-                            class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline whitespace-nowrap">
-                        🔗 {{ acc.name }}
-                      </Link>
-                    </div>
-                  </template>
-                  <span v-else class="text-gray-300 text-xs">—</span>
-                </td>
-
-                <td v-if="isAdmin" class="px-4 py-3">
-                  <div class="flex flex-col items-center gap-1">
-                    <button @click="toggleReservable(asset)"
-                            :title="isReservable(asset) ? 'Désactiver pour les utilisateurs' : 'Activer pour les utilisateurs'"
-                            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-                            :class="isReservable(asset) ? 'bg-green-500' : 'bg-gray-300'">
-                      <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
-                            :class="isReservable(asset) ? 'translate-x-6' : 'translate-x-1'" />
-                    </button>
-                    <span class="text-xs" :class="isReservable(asset) ? 'text-green-600' : 'text-gray-400'">
-                      {{ isReservable(asset) ? 'Visible' : 'Masqué' }}
+                  </td>
+                  <td class="px-4 py-3 text-gray-500 hidden md:table-cell font-mono text-xs">{{ asset.asset_tag }}</td>
+                  <td class="px-4 py-3 hidden lg:table-cell">
+                    <span v-if="asset.category" class="text-sm text-gray-600">{{ asset.category }}</span>
+                    <span v-else class="text-gray-400">—</span>
+                  </td>
+                  <td class="px-4 py-3 hidden lg:table-cell">
+                    <span v-if="asset.location" class="text-sm text-gray-600 flex items-center gap-1">
+                      <MapPinIcon class="w-3 h-3 text-gray-400" /> {{ asset.location }}
                     </span>
-                  </div>
-                </td>
-
-                <td class="px-4 py-3">
-                  <div v-if="isAdmin" class="flex gap-2 flex-wrap">
-                    <Link :href="route('assets.show', asset.id)"
-                          class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                      <EyeIcon class="w-3.5 h-3.5" /> Voir
-                    </Link>
-                    <Link :href="route('assets.edit', asset.id)"
-                          class="inline-flex items-center gap-1 text-xs text-gray-600 hover:underline">
-                      <PencilIcon class="w-3.5 h-3.5" /> Modifier
-                    </Link>
-                    <button @click="duplicateAsset(asset.id)"
-                            class="inline-flex items-center gap-1 text-xs text-purple-600 hover:underline">
-                      📋 Dupliquer
-                    </button>
-                  </div>
-                  <div v-else class="flex items-center gap-2">
-                    <Link :href="route('assets.show', asset.id)"
-                          class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 hover:underline">
-                      <EyeIcon class="w-3.5 h-3.5" /> Voir
-                    </Link>
-                    <button @click="toggleCart(asset)"
-                          class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition"
-                          :class="cart.hasItem(asset.id)
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'">
-                    <CheckIcon v-if="cart.hasItem(asset.id)" class="w-3.5 h-3.5" />
-                    <ShoppingCartIcon v-else class="w-3.5 h-3.5" />
-                    {{ cart.hasItem(asset.id) ? 'Dans le panier' : 'Ajouter au panier' }}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-
-              <tr v-if="assets.data.length === 0">
-                <td :colspan="isAdmin ? 10 : 6" class="px-4 py-12 text-center text-gray-400">
-                  <p class="text-4xl mb-2">📦</p>
-                  <p class="font-medium">Aucun équipement trouvé</p>
-                  <p v-if="!isAdmin" class="text-sm mt-1">Aucun équipement n'est disponible à l'emprunt pour le moment.</p>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    <span v-else class="text-gray-400">—</span>
+                  </td>
+                  <td class="px-4 py-3"><StatusBadge :status="asset.status" type="asset" /></td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <Link :href="route('assets.show', asset.id)"
+                            class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 hover:underline">
+                        <EyeIcon class="w-3.5 h-3.5" /> Voir
+                      </Link>
+                      <button @click="toggleCart(asset)"
+                            class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition"
+                            :class="cart.hasItem(asset.id)
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-blue-100 text-blue-700 hover:bg-blue-200'">
+                        <CheckIcon v-if="cart.hasItem(asset.id)" class="w-3.5 h-3.5" />
+                        <ShoppingCartIcon v-else class="w-3.5 h-3.5" />
+                        {{ cart.hasItem(asset.id) ? 'Dans le panier' : 'Ajouter au panier' }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="assets.data.length === 0">
+                  <td colspan="6" class="px-4 py-12 text-center text-gray-400">
+                    <p class="text-4xl mb-2">📦</p>
+                    <p class="font-medium">Aucun équipement disponible à l'emprunt.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
 
           <!-- Pagination (liste) -->
           <div class="px-4 py-3 border-t bg-gray-50">
@@ -988,7 +1375,13 @@ function executeBulkReserve() {
 
       <!-- ══ ONGLET CATÉGORIES ══ -->
       <div v-if="activeTab === 'categories'">
-        <p class="text-sm text-gray-500 mb-4">{{ categories.length }} catégorie(s) · Cliquez pour voir les équipements</p>
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-sm text-gray-500">{{ categories.length }} catégorie(s) · Cliquez pour filtrer les équipements</p>
+          <button v-if="isAdmin" @click="openCatCreate($event)"
+                  class="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition shadow-sm">
+            <PlusIcon class="w-4 h-4" /> Nouvelle catégorie
+          </button>
+        </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           <div v-for="(cat, i) in categories" :key="cat.id" class="relative group">
             <button @click="filterByCategory(cat.id)"
@@ -1010,12 +1403,19 @@ function executeBulkReserve() {
                 <p class="text-xs text-gray-400">équipement(s)</p>
               </div>
             </button>
-            <!-- Bouton édition (admin seulement) -->
-            <button v-if="isAdmin" @click="openCatEdit(cat, $event)"
-                    class="absolute top-2 right-2 w-7 h-7 rounded-lg bg-white/90 shadow border border-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-500"
-                    title="Modifier la catégorie">
-              <PencilIcon class="w-3.5 h-3.5" />
-            </button>
+            <!-- Boutons admin (au survol) -->
+            <template v-if="isAdmin">
+              <button @click="openCatEdit(cat, $event)"
+                      class="absolute top-2 right-10 w-7 h-7 rounded-lg bg-white/90 shadow border border-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-500"
+                      title="Modifier la catégorie">
+                <PencilIcon class="w-3.5 h-3.5" />
+              </button>
+              <button @click="openCatDelete(cat, $event)"
+                      class="absolute top-2 right-2 w-7 h-7 rounded-lg bg-white/90 shadow border border-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-red-50 hover:border-red-300 hover:text-red-600 text-gray-500"
+                      title="Supprimer la catégorie">
+                <TrashIcon class="w-3.5 h-3.5" />
+              </button>
+            </template>
           </div>
 
           <div v-if="categories.length === 0" class="col-span-full text-center text-gray-400 py-12">
@@ -1027,26 +1427,53 @@ function executeBulkReserve() {
 
       <!-- ══ ONGLET LIEUX ══ -->
       <div v-if="activeTab === 'locations'">
-        <p class="text-sm text-gray-500 mb-4">{{ locations.length }} lieu(x) de stockage · Cliquez pour voir les équipements</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <button v-for="loc in locations" :key="loc.location"
-                  @click="filterByLocation(loc.location)"
-                  class="bg-white rounded-xl border shadow-sm p-5 text-left hover:shadow-md hover:border-blue-300 transition group flex items-center gap-4">
-            <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition">
-              <MapPinIcon class="w-6 h-6 text-blue-500" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="font-semibold text-gray-900 group-hover:text-blue-600 transition truncate">{{ loc.location }}</p>
-              <p class="text-sm text-gray-500 mt-0.5">{{ loc.asset_count }} équipement(s)</p>
-            </div>
-            <span class="text-2xl font-bold text-gray-200 group-hover:text-blue-200 transition flex-shrink-0">
-              {{ loc.asset_count }}
-            </span>
-          </button>
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-sm text-gray-500">
+            {{ places?.length ?? 0 }} lieu(x) configuré(s) ·
+            <Link :href="route('asset-places.index')" class="text-indigo-600 hover:underline">
+              Gérer les affectations →
+            </Link>
+          </p>
+        </div>
 
-          <div v-if="locations.length === 0" class="col-span-full text-center text-gray-400 py-12">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Link
+            v-for="place in places" :key="place.id"
+            :href="route('places.show', place.id)"
+            class="bg-white rounded-xl border shadow-sm p-5 text-left hover:shadow-md transition group flex items-center gap-4"
+            :style="{ borderLeftColor: place.color, borderLeftWidth: '4px' }">
+
+            <!-- Icône colorée -->
+            <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition"
+              :style="{ background: place.color + '22' }">
+              <MapPinIcon v-if="!place.is_storage" class="w-5 h-5" :style="{ color: place.color }" />
+              <BuildingStorefrontIcon v-else class="w-5 h-5" :style="{ color: place.color }" />
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <p class="font-semibold text-gray-900 group-hover:text-indigo-600 transition truncate">{{ place.name }}</p>
+                <span v-if="place.is_storage"
+                  class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">Stockage</span>
+              </div>
+              <p v-if="place.description" class="text-xs text-gray-400 mt-0.5 truncate">{{ place.description }}</p>
+              <p class="text-sm mt-0.5" :class="place.active_assignments_count > 0 ? 'text-indigo-600 font-medium' : 'text-gray-400'">
+                {{ place.active_assignments_count }}
+                équipement{{ place.active_assignments_count !== 1 ? 's' : '' }} assigné{{ place.active_assignments_count !== 1 ? 's' : '' }}
+              </p>
+            </div>
+
+            <span class="text-2xl font-bold text-gray-200 group-hover:text-indigo-200 transition shrink-0">
+              {{ place.active_assignments_count }}
+            </span>
+          </Link>
+
+          <div v-if="!places?.length" class="col-span-full text-center text-gray-400 py-12">
             <MapPinIcon class="w-12 h-12 mx-auto mb-2 opacity-30" />
-            <p>Aucun emplacement renseigné</p>
+            <p>Aucun lieu configuré</p>
+            <Link :href="route('asset-places.index')" class="mt-2 inline-block text-indigo-500 hover:underline text-sm">
+              Créer le premier lieu →
+            </Link>
           </div>
         </div>
       </div>
@@ -1102,16 +1529,18 @@ function executeBulkReserve() {
 
     <!-- ═══ Modal : modification en masse ═══ -->
     <div v-if="showBulkEditModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
-        <div class="flex items-center justify-between mb-2">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        <!-- En-tête fixe -->
+        <div class="flex items-center justify-between px-6 pt-6 pb-2 flex-shrink-0">
           <h3 class="font-bold text-lg">✏️ Modifier {{ selectedIds.length }} équipement(s)</h3>
           <button @click="showBulkEditModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
-        <p class="text-sm text-gray-500 mb-5">
+        <p class="text-sm text-gray-500 px-6 pb-4 flex-shrink-0">
           Cochez les champs à modifier. Les champs non cochés resteront <strong>inchangés</strong>.
         </p>
 
-        <div class="space-y-3">
+        <!-- Contenu défilable -->
+        <div class="space-y-3 overflow-y-auto px-6 flex-1 min-h-0 pb-2">
           <!-- Statut -->
           <div class="flex items-start gap-3 p-3 border rounded-lg transition"
                :class="bulkEditForm.updateStatus ? 'border-blue-300 bg-blue-50' : 'border-gray-200'">
@@ -1201,17 +1630,117 @@ function executeBulkReserve() {
               </select>
             </div>
           </div>
+
+          <!-- Fabricant -->
+          <div class="flex items-start gap-3 p-3 border rounded-lg transition"
+               :class="bulkEditForm.updateManufacturer ? 'border-blue-300 bg-blue-50' : 'border-gray-200'">
+            <input type="checkbox" v-model="bulkEditForm.updateManufacturer" id="bulk-manufacturer"
+                   class="mt-1 w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer flex-shrink-0" />
+            <div class="flex-1">
+              <label for="bulk-manufacturer" class="block text-sm font-medium text-gray-700 cursor-pointer mb-1">Fabricant</label>
+              <select v-model="bulkEditForm.manufacturer_id" :disabled="!bulkEditForm.updateManufacturer"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-40 disabled:bg-gray-50">
+                <option value="">— Aucun fabricant —</option>
+                <option v-for="m in manufacturers" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Lieu -->
+          <div class="flex items-start gap-3 p-3 border rounded-lg transition"
+               :class="bulkPlaceNeedsFormalAssign ? 'border-indigo-300 bg-indigo-50' : (bulkEditForm.updatePlace ? 'border-blue-300 bg-blue-50' : 'border-gray-200')">
+            <input type="checkbox" v-model="bulkEditForm.updatePlace" id="bulk-place"
+                   class="mt-1 w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer flex-shrink-0" />
+            <div class="flex-1">
+              <label for="bulk-place" class="block text-sm font-medium text-gray-700 cursor-pointer mb-1">
+                Lieu
+                <span v-if="bulkPlaceNeedsFormalAssign" class="ml-1.5 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-normal">
+                  Affectation formelle
+                </span>
+              </label>
+              <select v-model="bulkEditForm.place_id" :disabled="!bulkEditForm.updatePlace"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-40 disabled:bg-gray-50">
+                <option value="">— Retirer du lieu actuel —</option>
+                <option v-for="p in places" :key="p.id" :value="p.id">
+                  {{ p.is_storage ? '📦 ' : '📍 ' }}{{ p.name }}
+                </option>
+              </select>
+
+              <!-- Formulaire d'affectation formelle (lieu non-stockage sélectionné) -->
+              <Transition
+                enter-active-class="transition duration-150 ease-out"
+                enter-from-class="opacity-0 -translate-y-1"
+                enter-to-class="opacity-100 translate-y-0"
+                leave-active-class="transition duration-100 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0">
+                <div v-if="bulkPlaceNeedsFormalAssign" class="mt-3 space-y-3 border-t border-indigo-200 pt-3">
+                  <p class="text-xs text-indigo-700 flex items-center gap-1.5">
+                    <span>📍</span>
+                    Une <strong>affectation formelle</strong> sera créée pour chaque équipement sélectionné vers
+                    <strong>{{ bulkSelectedPlace?.name }}</strong>.
+                    Les équipements déjà affectés à un autre lieu seront ignorés.
+                  </p>
+
+                  <!-- Type : Temporaire / Permanent -->
+                  <div class="flex gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                      <input type="radio" :value="false" v-model="bulkEditForm.assignReturn"
+                             class="text-indigo-600" />
+                      <span class="font-medium text-gray-700">Permanent</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                      <input type="radio" :value="true" v-model="bulkEditForm.assignReturn"
+                             class="text-indigo-600" />
+                      <span class="font-medium text-gray-700">Temporaire</span>
+                    </label>
+                  </div>
+
+                  <!-- Date de retour (si temporaire) -->
+                  <Transition name="fade">
+                    <div v-if="bulkEditForm.assignReturn">
+                      <label class="block text-xs font-medium text-gray-600 mb-1">Date de retour prévue</label>
+                      <input v-model="bulkEditForm.return_expected_at" type="datetime-local"
+                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                  </Transition>
+
+                  <!-- Notes -->
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Notes (optionnel)</label>
+                    <input v-model="bulkEditForm.assignNotes" type="text"
+                           placeholder="Motif, contexte, responsable…"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                </div>
+              </Transition>
+
+              <p v-if="bulkEditForm.updatePlace && !bulkPlaceNeedsFormalAssign" class="text-xs text-gray-400 mt-1">
+                {{ bulkEditForm.place_id
+                  ? (bulkPlaceIsStorage ? '📦 Le lieu de stockage sera mis à jour (sans affectation formelle).' : '')
+                  : 'Le lieu de rangement sera retiré des équipements sélectionnés.' }}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div class="flex gap-3 mt-6">
+        <!-- Pied de page fixe -->
+        <div class="flex gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
           <button @click="showBulkEditModal = false"
             class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
             Annuler
           </button>
           <button @click="executeBulkUpdate"
-            :disabled="bulkProcessing || (!bulkEditForm.updateStatus && !bulkEditForm.updateCategory && !bulkEditForm.updateLocation && !bulkEditForm.updateReservable && !bulkEditForm.updateModel)"
-            class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-            {{ bulkProcessing ? 'Mise à jour…' : `✏️ Appliquer à ${selectedIds.length} équipement(s)` }}
+            :disabled="bulkProcessing || (!bulkEditForm.updateStatus && !bulkEditForm.updateCategory && !bulkEditForm.updateLocation && !bulkEditForm.updateReservable && !bulkEditForm.updateModel && !bulkEditForm.updateManufacturer && !bulkEditForm.updatePlace)"
+            :class="['flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition text-white',
+              bulkPlaceNeedsFormalAssign ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700']">
+            <template v-if="bulkProcessing">Traitement…</template>
+            <template v-else-if="bulkPlaceNeedsFormalAssign">
+              📍 Affecter {{ selectedIds.length }} équipement(s) à « {{ bulkSelectedPlace?.name }} »
+            </template>
+            <template v-else>
+              ✏️ Appliquer à {{ selectedIds.length }} équipement(s)
+            </template>
           </button>
         </div>
       </div>
@@ -1311,6 +1840,162 @@ function executeBulkReserve() {
       </div>
     </div>
 
+    <!-- ═══ Modal : étiquettes en masse ═══ -->
+    <div v-if="showBulkLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-bold text-lg">🏷 Étiquettes — {{ selectedIds.length }} équipement(s)</h3>
+          <button @click="showBulkLabelModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <p class="text-sm text-gray-500 mb-5">
+          Cochez les champs à modifier. Les champs non cochés resteront <strong>inchangés</strong>.
+        </p>
+
+        <div class="space-y-3">
+          <!-- Étiquette à créer -->
+          <div class="flex items-start gap-3 p-3 border rounded-lg transition"
+               :class="bulkLabelForm.updateLabelToCreate ? 'border-amber-300 bg-amber-50' : 'border-gray-200'">
+            <input type="checkbox" v-model="bulkLabelForm.updateLabelToCreate" id="bulk-label-create"
+                   class="mt-1 w-4 h-4 rounded text-amber-600 border-gray-300 focus:ring-amber-500 cursor-pointer flex-shrink-0" />
+            <div class="flex-1">
+              <label for="bulk-label-create" class="block text-sm font-medium text-gray-700 cursor-pointer mb-2">
+                ✏️ Étiquette à créer
+              </label>
+              <div class="flex gap-5">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" v-model="bulkLabelForm.label_to_create" :value="true"
+                         :disabled="!bulkLabelForm.updateLabelToCreate"
+                         class="text-amber-600 disabled:opacity-40" />
+                  <span class="text-sm text-amber-700 font-medium">Activer</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" v-model="bulkLabelForm.label_to_create" :value="false"
+                         :disabled="!bulkLabelForm.updateLabelToCreate"
+                         class="text-amber-600 disabled:opacity-40" />
+                  <span class="text-sm text-gray-600 font-medium">Désactiver</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Étiquette à coller -->
+          <div class="flex items-start gap-3 p-3 border rounded-lg transition"
+               :class="bulkLabelForm.updateLabelToApply ? 'border-blue-300 bg-blue-50' : 'border-gray-200'">
+            <input type="checkbox" v-model="bulkLabelForm.updateLabelToApply" id="bulk-label-apply"
+                   class="mt-1 w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer flex-shrink-0" />
+            <div class="flex-1">
+              <label for="bulk-label-apply" class="block text-sm font-medium text-gray-700 cursor-pointer mb-2">
+                📌 Étiquette à coller
+              </label>
+              <div class="flex gap-5">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" v-model="bulkLabelForm.label_to_apply" :value="true"
+                         :disabled="!bulkLabelForm.updateLabelToApply"
+                         class="text-blue-600 disabled:opacity-40" />
+                  <span class="text-sm text-blue-700 font-medium">Activer</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" v-model="bulkLabelForm.label_to_apply" :value="false"
+                         :disabled="!bulkLabelForm.updateLabelToApply"
+                         class="text-blue-600 disabled:opacity-40" />
+                  <span class="text-sm text-gray-600 font-medium">Désactiver</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-3 mt-6">
+          <button @click="showBulkLabelModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+            Annuler
+          </button>
+          <button @click="executeBulkLabel"
+            :disabled="bulkLabelProcessing || (!bulkLabelForm.updateLabelToCreate && !bulkLabelForm.updateLabelToApply)"
+            class="flex-1 bg-amber-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50">
+            {{ bulkLabelProcessing ? 'Mise à jour…' : `🏷 Appliquer à ${selectedIds.length} équipement(s)` }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Panneau configuration des colonnes (admin) ═══ -->
+    <Transition
+      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0 translate-x-full"
+      enter-to-class="opacity-100 translate-x-0"
+      leave-active-class="transition duration-150 ease-in"
+      leave-from-class="opacity-100 translate-x-0"
+      leave-to-class="opacity-0 translate-x-full">
+      <div v-if="showColPanel" class="fixed inset-0 z-50 flex justify-end" @click.self="showColPanel = false">
+        <div class="w-80 bg-white h-full shadow-2xl border-l border-gray-200 flex flex-col">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
+            <div>
+              <h3 class="font-bold text-gray-900 text-sm">Colonnes du tableau</h3>
+              <p class="text-xs text-gray-400 mt-0.5">Glisser pour réordonner · cliquer pour afficher/masquer</p>
+            </div>
+            <button @click="showColPanel = false" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-200 transition">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+
+          <!-- Colonnes list -->
+          <div class="flex-1 overflow-y-auto py-2">
+            <div v-for="col in columnsConfig" :key="col.key"
+                 draggable="true"
+                 @dragstart="onColDragStart($event, col.key)"
+                 @dragenter="onColDragEnter(col.key)"
+                 @dragover="onColDragOver"
+                 @drop="onColDrop(col.key)"
+                 @dragend="onColDragEnd"
+                 class="flex items-center gap-3 px-4 py-2.5 cursor-grab active:cursor-grabbing transition select-none"
+                 :class="[
+                   colDragTarget === col.key && colDragKey !== col.key ? 'bg-blue-50 border-t-2 border-blue-400' : 'hover:bg-gray-50',
+                   colDragKey === col.key ? 'opacity-40' : '',
+                 ]">
+              <!-- Drag handle -->
+              <Bars3Icon class="w-4 h-4 text-gray-300 flex-shrink-0" />
+              <!-- Toggle visibility -->
+              <button @click="toggleCol(col.key)"
+                      class="flex-1 flex items-center gap-2 text-left"
+                      :class="col.visible ? 'text-gray-800' : 'text-gray-400'">
+                <span class="text-sm font-medium">{{ colLabel(col.key) }}</span>
+              </button>
+              <button @click="toggleCol(col.key)"
+                      :title="col.visible ? 'Masquer' : 'Afficher'"
+                      class="flex-shrink-0 p-1 rounded transition"
+                      :class="col.visible ? 'text-blue-500 hover:text-blue-700 hover:bg-blue-50' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'">
+                <EyeIcon v-if="col.visible" class="w-4 h-4" />
+                <EyeSlashIcon v-else class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="px-5 py-4 border-t bg-gray-50 space-y-2">
+            <div class="flex items-center justify-between text-xs text-gray-500">
+              <span>{{ visibleAdminCols.length }} / {{ columnsConfig.length }} colonnes visibles</span>
+            </div>
+            <div class="flex gap-2">
+              <button @click="columnsConfig.forEach(c => c.visible = true)"
+                      class="flex-1 text-xs border border-gray-300 py-1.5 rounded-lg hover:bg-gray-100 transition">
+                Tout afficher
+              </button>
+              <button @click="resetCols"
+                      class="flex-1 text-xs border border-gray-300 py-1.5 rounded-lg hover:bg-gray-100 transition">
+                Réinitialiser
+              </button>
+            </div>
+            <button @click="showColPanel = false"
+                    class="w-full bg-blue-600 text-white text-sm py-2 rounded-lg hover:bg-blue-700 transition font-medium">
+              Appliquer
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ═══ Modal édition catégorie (admin) ═══ -->
     <div v-if="showCatEditModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showCatEditModal = false">
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -1379,6 +2064,146 @@ function executeBulkReserve() {
           <button @click="submitCatEdit" :disabled="catEditForm.processing || !catEditForm.name.trim()"
             class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {{ catEditForm.processing ? 'Sauvegarde…' : 'Enregistrer' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal création catégorie (admin) ═══ -->
+    <div v-if="showCatCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showCatCreateModal = false">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg">Nouvelle catégorie</h3>
+          <button @click="showCatCreateModal = false" class="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0"
+                   :style="catCreatePreview ? '' : (catCreateForm.color ? `background-color: ${catCreateForm.color}22` : '')">
+                <img v-if="catCreatePreview" :src="catCreatePreview" class="w-full h-full object-cover rounded-lg" alt="Aperçu" />
+                <PhotoIcon v-else class="w-7 h-7 text-gray-300" />
+              </div>
+              <label class="cursor-pointer text-sm text-blue-600 hover:underline">
+                Choisir une image
+                <input type="file" accept="image/*" class="hidden" @change="onCatCreateImage" />
+              </label>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nom <span class="text-red-500">*</span></label>
+            <input v-model="catCreateForm.name" type="text" placeholder="Audio, Vidéo, Réseau…"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p v-if="catCreateForm.errors.name" class="text-red-500 text-xs mt-1">{{ catCreateForm.errors.name }}</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea v-model="catCreateForm.description" rows="2"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Couleur</label>
+            <div class="flex items-center gap-3">
+              <input v-model="catCreateForm.color" type="color"
+                class="w-10 h-10 rounded-lg border border-gray-300 cursor-pointer p-1" />
+              <span class="text-sm text-gray-500">{{ catCreateForm.color }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button @click="showCatCreateModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
+          <button @click="submitCatCreate" :disabled="catCreateForm.processing || !catCreateForm.name.trim()"
+            class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {{ catCreateForm.processing ? 'Création…' : 'Créer' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal suppression catégorie (admin) ═══ -->
+    <div v-if="showCatDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showCatDeleteModal = false">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+            <TrashIcon class="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 class="font-bold text-gray-900">Supprimer « {{ catDeleteTarget?.name }} » ?</h3>
+            <p class="text-sm text-gray-500 mt-0.5">Cette action est irréversible.</p>
+          </div>
+        </div>
+
+        <!-- Cas : catégorie avec des équipements liés -->
+        <div v-if="catDeleteTarget?.assets_count > 0" class="space-y-3 mb-4">
+          <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <span class="font-semibold">{{ catDeleteTarget.assets_count }} équipement(s)</span>
+            sont actuellement liés à cette catégorie.
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Réassigner vers une autre catégorie</label>
+            <select v-model="catDeleteReassign"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="">— Laisser sans catégorie —</option>
+              <option v-for="c in categories.filter(c => c.id !== catDeleteTarget?.id)" :key="c.id" :value="c.id">
+                {{ c.name }} ({{ c.assets_count }} équip.)
+              </option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">
+              {{ catDeleteReassign
+                ? `Les équipements seront déplacés vers « ${categories.find(c => c.id == catDeleteReassign)?.name} ».`
+                : 'Les équipements perdront leur catégorie (champ vide).' }}
+            </p>
+          </div>
+        </div>
+        <div v-else class="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-4 text-sm text-gray-600">
+          Aucun équipement n'est associé à cette catégorie.
+        </div>
+
+        <div class="flex gap-3">
+          <button @click="showCatDeleteModal = false"
+            class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">Annuler</button>
+          <button @click="submitCatDelete" :disabled="catDeleteForm.processing"
+            class="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+            {{ catDeleteForm.processing ? 'Suppression…' : 'Supprimer' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Alerte : équipement sorti ═══ -->
+    <div v-if="checkedOutAlert" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+            <span class="text-xl">⚠️</span>
+          </div>
+          <div>
+            <h3 class="font-bold text-gray-900 text-base">Équipement actuellement sorti</h3>
+            <p class="text-sm text-gray-500 mt-0.5">{{ checkedOutAlert.name }}</p>
+          </div>
+        </div>
+
+        <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-5 text-sm text-orange-800 space-y-1">
+          <p>Cet équipement est <strong>actuellement sorti</strong> et n'est pas disponible immédiatement.</p>
+          <p v-if="checkedOutAlert.expected_return_at" class="mt-2">
+            📅 Retour prévu le <strong>{{ checkedOutAlert.expected_return_at }}</strong>
+          </p>
+          <p v-else class="mt-2 text-orange-600 italic">Aucune date de retour prévue renseignée.</p>
+          <p class="mt-2 text-xs text-orange-600">Vous pouvez quand même l'ajouter au panier et choisir des dates de réservation postérieures à sa disponibilité.</p>
+        </div>
+
+        <div class="flex gap-3">
+          <button @click="checkedOutAlert = null"
+                  class="flex-1 border border-gray-300 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+            Annuler
+          </button>
+          <button @click="confirmAddCheckedOut"
+                  class="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-medium transition">
+            Ajouter quand même
           </button>
         </div>
       </div>
