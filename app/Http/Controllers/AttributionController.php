@@ -372,12 +372,17 @@ class AttributionController extends Controller
 
         $q = trim($request->input('q', ''));
 
-        $kits = Kit::with(['assets' => fn($q) => $q->select('assets.id', 'name', 'asset_tag', 'status')])
+        $query = Kit::with(['assets' => fn($q) => $q->select('assets.id', 'name', 'asset_tag', 'status')])
             ->where('is_reservable', true)
             ->when($q, fn($query) => $query->where('name', 'like', "%{$q}%"))
-            ->orderBy('name')
-            ->limit(10)
-            ->get()
+            ->orderBy('name');
+
+        // Si recherche textuelle, limiter à 10 résultats; sinon retourner tous les kits réservables
+        if ($q) {
+            $query->limit(10);
+        }
+
+        $kits = $query->get()
             ->map(fn($kit) => [
                 'id'     => $kit->id,
                 'name'   => $kit->name,

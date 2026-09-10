@@ -29,6 +29,8 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\TodoController;
 use App\Http\Controllers\PlaceController;
 use App\Http\Controllers\AssetPlaceController;
+use App\Http\Controllers\PreparationController;
+use App\Http\Controllers\AssetReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -89,9 +91,15 @@ Route::middleware('auth')->group(function () {
         Route::patch('/assets/{asset}/toggle-label-create', [AssetController::class, 'toggleLabelCreate'])->name('assets.toggle-label-create');
         Route::patch('/assets/{asset}/toggle-label-apply', [AssetController::class, 'toggleLabelApply'])->name('assets.toggle-label-apply');
         Route::patch('/assets/{asset}/return-check-note', [AssetController::class, 'updateReturnCheckNote'])->name('assets.return-check-note');
+        Route::patch('/assets/{asset}/condition-note', [AssetController::class, 'updateConditionNote'])->name('assets.condition-note');
         Route::post('/assets/{asset}/duplicate', [AssetController::class, 'duplicate'])->name('assets.duplicate');
         Route::post('/assets/{asset}/link-accessory', [AssetController::class, 'linkAccessory'])->name('assets.link-accessory');
         Route::delete('/assets/{asset}/unlink-accessory', [AssetController::class, 'unlinkAccessory'])->name('assets.unlink-accessory');
+        // Composants d'un équipement
+        Route::post('/assets/{asset}/components', [AssetController::class, 'storeComponent'])->name('assets.components.store');
+        Route::patch('/assets/{asset}/components/{component}', [AssetController::class, 'updateComponent'])->name('assets.components.update');
+        Route::delete('/assets/{asset}/components/{component}', [AssetController::class, 'destroyComponent'])->name('assets.components.destroy');
+        Route::patch('/assets/{asset}/components/{component}/condition', [AssetController::class, 'updateComponentCondition'])->name('assets.components.condition');
         // Fiche publique : description + champs personnalisés
         Route::patch('/assets/{asset}/public-info', [AssetController::class, 'updatePublicInfo'])->name('assets.update-public-info');
         // Fichiers attachés (images / PDFs)
@@ -125,6 +133,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/kits/{kit}', [KitController::class, 'update'])->name('kits.update');
         Route::post('/kits/{kit}', [KitController::class, 'update']); // Method spoofing pour upload image
         Route::delete('/kits/{kit}', [KitController::class, 'destroy'])->name('kits.destroy');
+        Route::patch('/kits/{kit}/condition-note', [KitController::class, 'updateConditionNote'])->name('kits.condition-note');
         Route::post('/kits/{kit}/missing-items/{missingItem}/regularize', [KitController::class, 'regularize'])->name('kits.regularize');
     });
 
@@ -154,6 +163,9 @@ Route::middleware('auth')->group(function () {
     // Espace superviseur — accessible aux superviseurs (professeurs, superviseurs de groupes, admins)
     Route::get('/supervisor/group', [SupervisorController::class, 'group'])->name('supervisor.group');
 
+    // Asset Reports - Signalements d'équipements
+    Route::post('/reservations/{reservation}/asset-reports', [AssetReportController::class, 'store'])->name('reservations.report');
+
     Route::middleware('role:admin')->group(function () {
         Route::delete('/reservations/{reservation}', [ReservationController::class, 'destroy'])->name('reservations.destroy');
         Route::post('/reservations/{reservation}/approve', [ReservationController::class, 'approve'])->name('reservations.approve');
@@ -166,6 +178,27 @@ Route::middleware('auth')->group(function () {
         // Fiche de sortie imprimable
         Route::get('/reservations/{reservation}/print', [ReservationController::class, 'printView'])->name('reservations.print');
         // Ajouter / retirer un equipement d'une reservation
+
+        // Asset Reports - Actions admin
+        Route::get('/asset-reports', [AssetReportController::class, 'index'])->name('asset-reports.index');
+        Route::post('/asset-reports/{report}/validate', [AssetReportController::class, 'validate'])->name('asset-reports.validate');
+        Route::patch('/asset-reports/{report}', [AssetReportController::class, 'update'])->name('asset-reports.update');
+        Route::delete('/asset-reports/{report}', [AssetReportController::class, 'destroy'])->name('asset-reports.destroy');
+    });
+
+    // ─── Préparations (admin only) ───────────────────────────────────────
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/preparations', [PreparationController::class, 'index'])->name('preparations.index');
+        Route::post('/preparations', [PreparationController::class, 'store'])->name('preparations.store');
+        Route::post('/preparations/validate-tag', [PreparationController::class, 'validateTag'])->name('preparations.validate-tag');
+        Route::post('/preparations/search-kits', [PreparationController::class, 'searchKits'])->name('preparations.search-kits');
+        Route::post('/preparations/{preparation}/add-asset', [PreparationController::class, 'addAsset'])->name('preparations.add-asset');
+        Route::post('/preparations/{preparation}/add-kit', [PreparationController::class, 'addKit'])->name('preparations.add-kit');
+        Route::delete('/preparations/{preparation}/assets/{asset}', [PreparationController::class, 'removeAsset'])->name('preparations.remove-asset');
+        Route::post('/preparations/{preparation}/validate-checkout', [PreparationController::class, 'validateCheckout'])->name('preparations.validate-checkout');
+        Route::post('/preparations/{preparation}/cancel', [PreparationController::class, 'cancel'])->name('preparations.cancel');
+        Route::post('/preparations/{preparation}/send-notification', [PreparationController::class, 'sendNotification'])->name('preparations.send-notification');
+        Route::post('/preparations/{preparation}/scan-asset', [PreparationController::class, 'scanReservationAsset'])->name('preparations.scan-asset');
     });
 
     // Calendar API
@@ -404,6 +437,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/inventory/reports/{report}/export',          [\App\Http\Controllers\InventoryController::class, 'exportReport'])->name('inventory.reports.export');
         Route::patch('/inventory/reports/{report}',               [\App\Http\Controllers\InventoryController::class, 'updateReport'])->name('inventory.reports.update');
         Route::patch('/inventory/reports/{report}/archive',       [\App\Http\Controllers\InventoryController::class, 'archiveReport'])->name('inventory.reports.archive');
+        Route::post('/inventory/reports/{report}/cancel',         [\App\Http\Controllers\InventoryController::class, 'cancelReport'])->name('inventory.reports.cancel');
         Route::delete('/inventory/reports/{report}',              [\App\Http\Controllers\InventoryController::class, 'destroyReport'])->name('inventory.reports.destroy');
     });
 
@@ -437,6 +471,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/attribution/add-to-reservation', [App\Http\Controllers\AttributionController::class, 'addExtraAsset'])->name('attribution.add-to-reservation');
         Route::post('/attribution/free-checkout', [App\Http\Controllers\AttributionController::class, 'freeCheckout'])->name('attribution.free-checkout');
         Route::post('/attribution/validate-tag', [App\Http\Controllers\AttributionController::class, 'validateTag'])->name('attribution.validate-tag');
+        Route::get('/attribution/search-kits', [App\Http\Controllers\AttributionController::class, 'searchKits'])->name('attribution.search-kits');
         Route::post('/attribution/free-checkout-bulk', [App\Http\Controllers\AttributionController::class, 'freeBulkCheckout'])->name('attribution.free-checkout-bulk');
 
         // Returns / Overdue
@@ -472,14 +507,15 @@ Route::middleware('auth')->group(function () {
 
     // ─── Lieux (Places) ──────────────────────────────────────────────────
     Route::middleware('role:admin')->group(function () {
+        // Page principale de gestion des lieux
         Route::get('/places', [PlaceController::class, 'index'])->name('places.index');
-        // Routes statiques AVANT {place} pour éviter les conflits
+        // Routes API pour CRUD des lieux
         Route::post('/places', [PlaceController::class, 'store'])->name('places.store');
         Route::get('/places/{place}', [PlaceController::class, 'show'])->name('places.show');
         Route::patch('/places/{place}', [PlaceController::class, 'update'])->name('places.update');
         Route::delete('/places/{place}', [PlaceController::class, 'destroy'])->name('places.destroy');
 
-        // Affectation d'équipements par lieu — routes statiques AVANT {assignment}
+        // Affectation d'équipements par lieu (sous-page de Places) — routes statiques AVANT {assignment}
         Route::get('/asset-places', [AssetPlaceController::class, 'index'])->name('asset-places.index');
         Route::post('/asset-places/validate-tag', [AssetPlaceController::class, 'validateTag'])->name('asset-places.validate-tag');
         Route::post('/asset-places/bulk-store', [AssetPlaceController::class, 'bulkStore'])->name('asset-places.bulk-store');

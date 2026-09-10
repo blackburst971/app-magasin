@@ -46,4 +46,10 @@ class EquipmentModel extends Model
     {
         $this->assets()->update(['image' => $this->image]);
     }
+
+    // Propagate description to all linked assets
+    public function propagateDescriptionToAssets(): void
+    {
+        $this->assets()->update(['public_description' => $this->description]);
+    }
 }

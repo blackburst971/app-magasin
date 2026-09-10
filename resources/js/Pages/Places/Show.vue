@@ -54,7 +54,7 @@ const overdueCount = computed(() => props.activeAssignments.filter(a => a.is_ove
 
         <!-- Actions -->
         <div class="flex items-center gap-2 flex-wrap">
-          <Link :href="route('assets.index', { tab: 'locations' })"
+          <Link :href="route('places.index')"
             class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
             ← Tous les lieux
           </Link>

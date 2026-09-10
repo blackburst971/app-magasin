@@ -1,6 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import axios from 'axios'
 import { useSound } from '@/composables/useSound'
 import { CheckCircleIcon, ClockIcon, QrCodeIcon, UserIcon, CalendarIcon, ListBulletIcon, BoltIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
@@ -115,42 +115,44 @@ const freeParticipantIds   = ref([])         // IDs des participants supplément
 const freeParticipantSearch = ref('')
 
 // ── Recherche de kits (mode libre) ──────────────────────────────────────────
-const freeKitSearch        = ref('')
-const freeKitResults       = ref([])   // [{ id, name, status, assets[] }]
-const freeKitSearching     = ref(false)
-let freeKitSearchTimer     = null
+const allAvailableKits     = ref([])   // [{ id, name, status, assets[] }]
+const freeKitLoading       = ref(false)
+const freeSelectedKitId    = ref('')
 
-async function searchKits(q) {
-  freeKitSearching.value = true
+// Charger tous les kits réservables au montage
+async function loadAllKits() {
+  freeKitLoading.value = true
   try {
-    const { data } = await axios.get(route('attribution.search-kits'), { params: { q } })
-    freeKitResults.value = data.kits.filter(k => !freePendingKits.value.some(pk => pk.id === k.id))
+    const { data } = await axios.get(route('attribution.search-kits'), { params: { q: '' } })
+    allAvailableKits.value = data.kits
   } catch {
-    freeKitResults.value = []
+    allAvailableKits.value = []
   } finally {
-    freeKitSearching.value = false
+    freeKitLoading.value = false
   }
 }
 
-function onKitSearchInput() {
-  clearTimeout(freeKitSearchTimer)
-  if (!freeKitSearch.value.trim()) {
-    freeKitResults.value = []
-    return
-  }
-  freeKitSearchTimer = setTimeout(() => searchKits(freeKitSearch.value.trim()), 250)
-}
+// Kits disponibles = tous les kits moins ceux déjà sélectionnés
+const availableKitsForSelect = computed(() =>
+  allAvailableKits.value.filter(k => !freePendingKits.value.some(pk => pk.id === k.id))
+)
 
-function addKit(kit) {
-  if (freePendingKits.value.some(k => k.id === kit.id)) return
+function addSelectedKit() {
+  if (!freeSelectedKitId.value) return
+  const kit = allAvailableKits.value.find(k => k.id === Number(freeSelectedKitId.value))
+  if (!kit || freePendingKits.value.some(k => k.id === kit.id)) return
   freePendingKits.value.push(kit)
-  freeKitSearch.value = ''
-  freeKitResults.value = []
+  freeSelectedKitId.value = ''
 }
 
 function removeKit(kitId) {
   freePendingKits.value = freePendingKits.value.filter(k => k.id !== kitId)
 }
+
+// Charger les kits au montage du composant
+onMounted(() => {
+  loadAllKits()
+})
 
 const freeTotalItems = computed(() =>
   freePendingAssets.value.length + freePendingKits.value.length
@@ -848,43 +850,29 @@ function formatSelectedDate(dateStr) {
             </div>
           </div>
 
-          <!-- Zone de recherche de kits -->
+          <!-- Zone de sélection de kits -->
           <div class="border border-orange-200 rounded-xl p-3 bg-white">
             <p class="text-xs font-semibold text-gray-700 mb-2">📦 Ajouter un kit</p>
-            <div class="relative">
-              <input
-                v-model="freeKitSearch"
-                @input="onKitSearchInput"
-                type="text"
-                placeholder="Rechercher un kit par nom…"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
-              />
-              <span v-if="freeKitSearching" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">…</span>
-              <!-- Dropdown résultats -->
-              <div v-if="freeKitResults.length"
-                   class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                <button v-for="kit in freeKitResults" :key="kit.id"
-                  @click="addKit(kit)"
-                  class="w-full text-left px-4 py-3 hover:bg-orange-50 border-b last:border-0 transition">
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <span class="font-medium text-gray-900 text-sm">{{ kit.name }}</span>
-                      <span class="ml-2 text-xs px-1.5 py-0.5 rounded-full font-medium"
-                        :class="kit.status === 'available' ? 'bg-green-100 text-green-700' :
-                                kit.status === 'partial'    ? 'bg-yellow-100 text-yellow-700' :
-                                                              'bg-red-100 text-red-700'">
-                        {{ kit.status === 'available' ? 'Complet' : kit.status === 'partial' ? 'Incomplet' : 'Indisponible' }}
-                      </span>
-                    </div>
-                    <span class="text-xs text-gray-400">{{ kit.assets.length }} équip.</span>
-                  </div>
-                  <div v-if="kit.assets.length" class="mt-1 text-xs text-gray-400 truncate">
-                    {{ kit.assets.map(a => a.asset_tag).join(', ') }}
-                  </div>
-                </button>
-              </div>
-              <p v-else-if="freeKitSearch.trim() && !freeKitSearching && !freeKitResults.length"
-                 class="mt-1 text-xs text-gray-400">Aucun kit réservable trouvé</p>
+            <div class="flex gap-2">
+              <select
+                v-model="freeSelectedKitId"
+                :disabled="freeKitLoading"
+                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white disabled:opacity-60"
+              >
+                <option value="">{{ freeKitLoading ? 'Chargement...' : 'Sélectionner un kit...' }}</option>
+                <option v-for="kit in availableKitsForSelect" :key="kit.id" :value="kit.id">
+                  {{ kit.name }} —
+                  {{ kit.status === 'available' ? '✓ Complet' : kit.status === 'partial' ? '⚠ Incomplet' : '✗ Indisponible' }}
+                  ({{ kit.assets.length }} équip.)
+                </option>
+              </select>
+              <button
+                @click="addSelectedKit"
+                :disabled="!freeSelectedKitId || freeKitLoading"
+                class="flex items-center gap-1.5 px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition disabled:opacity-50 font-medium flex-shrink-0"
+              >
+                + Ajouter
+              </button>
             </div>
 
             <!-- Kits sélectionnés -->

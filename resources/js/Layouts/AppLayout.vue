@@ -21,6 +21,7 @@ import {
   CheckCircleIcon,
   ShoppingBagIcon,
   QueueListIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -71,6 +72,10 @@ async function toggleNotifDropdown() {
   showNotifDropdown.value = !showNotifDropdown.value
   if (showNotifDropdown.value) {
     await loadNotifications()
+    // Marquer automatiquement toutes les notifications comme lues dès l'ouverture
+    if (localUnreadCount.value > 0) {
+      await markAllRead()
+    }
   }
 }
 
@@ -142,7 +147,7 @@ const navItems = computed(() => {
   if (isAdmin.value) {
     items.push(
       { name: 'Catégories', href: route('assets.index', { tab: 'categories' }), icon: TagIcon,    current: onA && tab === 'categories', sub: true },
-      { name: 'Lieux',      href: route('assets.index', { tab: 'locations' }),  icon: MapPinIcon, current: onA && tab === 'locations',  sub: true },
+      // Sous-page "Lieux" retirée pour éviter confusion avec la page "Affectation lieux"
     )
   }
 
@@ -179,8 +184,10 @@ const navItems = computed(() => {
       { name: 'Réservations', href: route('reservations.index'), icon: CalendarDaysIcon,        current: route().current('reservations.*') },
       { name: 'Événements',   href: route('events.index'),       icon: SparklesIcon,             current: route().current('events.*') },
       { name: 'Attribution',       href: route('attribution.index'),   icon: ArrowLeftOnRectangleIcon, current: route().current('attribution.*') },
-      { name: 'Affectation lieux', href: route('asset-places.index'), icon: MapPinIcon,               current: route().current('asset-places.*') },
+      { name: 'Préparations',      href: route('preparations.index'),  icon: ClipboardDocumentCheckIcon, current: route().current('preparations.*') },
+      { name: 'Lieux',             href: route('places.index'),        icon: MapPinIcon,               current: route().current('places.*') || route().current('asset-places.*') },
       { name: 'Retours',           href: route('returns.index'),      icon: ArrowUturnLeftIcon,       current: route().current('returns.*') },
+      { name: 'Signalements',      href: route('asset-reports.index'), icon: ExclamationTriangleIcon,  current: route().current('asset-reports.*') },
       { name: 'Scanner',      href: route('scanner.index'),      icon: QrCodeIcon,               current: route().current('scanner.*') },
     )
     // ── Inventaire ────────────────────────────────────────────
@@ -190,7 +197,7 @@ const navItems = computed(() => {
       { name: 'Étiquettes',   href: route('assets.labels'),           icon: QueueListIcon,           current: route().current('assets.labels') },
       { name: 'Consommables', href: route('consommables.index'),      icon: InboxStackIcon,         current: route().current('consommables.*') },
       { name: 'Modèles',      href: route('models.index'),            icon: CubeTransparentIcon,    current: route().current('models.*') },
-      { name: 'Lieux',        href: route('places.index'),            icon: MapPinIcon,              current: route().current('places.*') },
+      // "Lieux" supprimé - la gestion des lieux est maintenant dans l'onglet de la page "Lieux" (asset-places)
       { name: 'Maintenance',   href: route('maintenance.index'),       icon: WrenchScrewdriverIcon,  current: route().current('maintenance.*') },
       { name: 'Decheterie',   href: route('recycling.index'),         icon: ArchiveBoxXMarkIcon,    current: route().current('recycling.*') },
       { name: 'Sauvegardes',  href: route('backups.index'),           icon: ShieldCheckIcon,         current: route().current('backups.*') },
@@ -269,7 +276,8 @@ async function pollUnread() {
 
 onMounted(() => {
   document.addEventListener('click', handleOutsideClick)
-  pollTimer = setInterval(pollUnread, 15000)
+  // Polling toutes les 5 secondes pour une meilleure réactivité des rappels To-Do
+  pollTimer = setInterval(pollUnread, 5000)
 })
 onUnmounted(() => {
   document.removeEventListener('click', handleOutsideClick)

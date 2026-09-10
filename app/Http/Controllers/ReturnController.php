@@ -110,9 +110,21 @@ class ReturnController extends Controller
         // Liste des utilisateurs pour le sélecteur "retourné par"
         $users = User::orderBy('name')->get(['id', 'name', 'email']);
 
+        // Lieux de stockage pour le retour d'équipements affectés
+        $storagePlaces = \App\Models\Place::where('is_storage', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'color'])
+            ->map(fn($p) => [
+                'id'    => $p->id,
+                'name'  => $p->name,
+                'color' => $p->color ?? '#6B7280',
+            ]);
+
         // Équipements affectés à un lieu et non encore retournés
+        // Exclure les affectations permanentes (sans date de retour prévue)
         $placeAssignments = \App\Models\AssetPlaceAssignment::with(['asset', 'place'])
             ->whereNull('returned_at')
+            ->whereNotNull('return_expected_at')  // Uniquement affectations temporaires
             ->orderBy('place_id')
             ->orderBy('assigned_at')
             ->get()
@@ -143,6 +155,7 @@ class ReturnController extends Controller
             'kitsAwaitingRegularization' => $kitsAwaitingRegularization,
             'users'                      => $users,
             'placeAssignments'           => $placeAssignments,
+            'storagePlaces'              => $storagePlaces,
         ]);
     }
 
@@ -161,6 +174,7 @@ class ReturnController extends Controller
             'returned_by_user_id' => 'nullable|exists:users,id',
             'scratch_lost'        => 'nullable|boolean',
             'belge_lost'          => 'nullable|boolean',
+            'storage_place_id'    => 'nullable|exists:places,id',
         ]);
 
         // Priorité au champ condition (4 états) ; fallback sur good_condition (boolean)
@@ -207,23 +221,55 @@ class ReturnController extends Controller
                 ->first();
 
             if ($placeAssignment) {
+                $storagePlaceId = $request->input('storage_place_id');
+
+                // Si aucun lieu de stockage n'est fourni, afficher le modal SANS marquer le retour
+                if (!$storagePlaceId) {
+                    return response()->json([
+                        'success'              => true,
+                        'needs_storage_place'  => true,
+                        'asset'                => [
+                            'id'        => $asset->id,
+                            'name'      => $asset->name,
+                            'asset_tag' => $asset->asset_tag,
+                        ],
+                        'from_place'           => [
+                            'name'  => $placeAssignment->place->name,
+                            'color' => $placeAssignment->place->color,
+                        ],
+                    ]);
+                }
+
+                // Maintenant on a le lieu de stockage, on peut marquer le retour
                 $placeAssignment->update(['returned_at' => now()]);
-                \App\Models\AssetMovement::create([
-                    'asset_id' => $asset->id,
-                    'user_id'  => Auth::id(),
-                    'action'   => 'place_returned',
-                    'notes'    => "Retour (scan retours) depuis « {$placeAssignment->place->name} »",
-                ]);
+
+                // Mettre à jour le lieu de stockage de l'asset
+                $storagePlace = \App\Models\Place::find($storagePlaceId);
+                if ($storagePlace) {
+                    $asset->update([
+                        'place_id' => $storagePlaceId,
+                        'location' => $storagePlace->name,  // Mettre à jour aussi le champ texte "location"
+                    ]);
+                    \App\Models\AssetMovement::create([
+                        'asset_id' => $asset->id,
+                        'user_id'  => Auth::id(),
+                        'action'   => 'place_returned',
+                        'notes'    => "Retour depuis « {$placeAssignment->place->name} » → stocké au « {$storagePlace->name} »",
+                    ]);
+                }
+
                 // Mise à jour automatique du statut : Sorti → Disponible
                 if ($asset->status === 'checked_out') {
                     $asset->update(['status' => 'available']);
                 }
+
                 return response()->json([
                     'success'        => true,
                     'place_return'   => true,
                     'asset'          => ['name' => $asset->name, 'asset_tag' => $asset->asset_tag],
-                    'place'          => ['name' => $placeAssignment->place->name, 'color' => $placeAssignment->place->color],
-                    'message'        => "✓ {$asset->name} retourné depuis « {$placeAssignment->place->name} »",
+                    'from_place'     => ['name' => $placeAssignment->place->name, 'color' => $placeAssignment->place->color],
+                    'storage_place'  => ['name' => $storagePlace->name, 'color' => $storagePlace->color],
+                    'message'        => "✓ {$asset->name} retourné depuis « {$placeAssignment->place->name} » → stocké au « {$storagePlace->name} »",
                 ]);
             }
 

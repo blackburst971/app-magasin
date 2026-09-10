@@ -47,31 +47,52 @@ class InventoryController extends Controller
 
         $modelIds = $request->models;
 
-        $assets = Asset::whereIn('equipment_model_id', $modelIds)
+        // Récupérer tous les équipements (disponibles et non-disponibles)
+        $allAssets = Asset::whereIn('equipment_model_id', $modelIds)
             ->with('equipmentModel')
             ->orderBy('name')
-            ->get()
-            ->map(fn($a) => [
-                'id'         => $a->id,
-                'name'       => $a->name,
-                'asset_tag'  => $a->asset_tag,
-                'serial'     => $a->serial,
-                'status'     => $a->status,
-                'location'   => $a->location,
-                'model_name' => $a->equipmentModel?->name,
-                'image'      => $a->image
-                    ? Storage::disk('public')->url($a->image)
-                    : ($a->equipmentModel?->image
-                        ? Storage::disk('public')->url($a->equipmentModel->image)
-                        : null),
-            ]);
+            ->get();
+
+        // Séparer les équipements disponibles (scannables) des autres (informatifs)
+        $availableAssets = $allAssets->where('status', 'available')->values()->map(fn($a) => [
+            'id'         => $a->id,
+            'name'       => $a->name,
+            'asset_tag'  => $a->asset_tag,
+            'serial'     => $a->serial,
+            'status'     => $a->status,
+            'location'   => $a->location,
+            'model_name' => $a->equipmentModel?->name,
+            'is_scannable' => true,
+            'image'      => $a->image
+                ? Storage::disk('public')->url($a->image)
+                : ($a->equipmentModel?->image
+                    ? Storage::disk('public')->url($a->equipmentModel->image)
+                    : null),
+        ]);
+
+        $unavailableAssets = $allAssets->where('status', '!=', 'available')->values()->map(fn($a) => [
+            'id'         => $a->id,
+            'name'       => $a->name,
+            'asset_tag'  => $a->asset_tag,
+            'serial'     => $a->serial,
+            'status'     => $a->status,
+            'location'   => $a->location,
+            'model_name' => $a->equipmentModel?->name,
+            'is_scannable' => false,
+            'image'      => $a->image
+                ? Storage::disk('public')->url($a->image)
+                : ($a->equipmentModel?->image
+                    ? Storage::disk('public')->url($a->equipmentModel->image)
+                    : null),
+        ]);
 
         $models = EquipmentModel::whereIn('id', $modelIds)->get(['id', 'name']);
 
         return Inertia::render('Inventory/Session', [
-            'assets'     => $assets,
-            'modelNames' => $models->pluck('name')->toArray(),
-            'modelIds'   => $modelIds,
+            'assets'              => $availableAssets,
+            'unavailableAssets'   => $unavailableAssets,
+            'modelNames'          => $models->pluck('name')->toArray(),
+            'modelIds'            => $modelIds,
         ]);
     }
 
@@ -99,19 +120,41 @@ class InventoryController extends Controller
         $missingCount = collect($data['items'])->where('scan_status', 'missing')->count();
         $pendingCount = collect($data['items'])->where('scan_status', 'pending')->count();
 
+        // Sauvegarder les statuts précédents des équipements pour permettre l'annulation
+        $previousStatuses = [];
+        foreach ($data['items'] as $item) {
+            if ($item['asset_id']) {
+                $asset = Asset::find($item['asset_id']);
+                if ($asset) {
+                    $previousStatuses[$item['asset_id']] = $asset->status;
+                }
+            }
+        }
+
         $report = InventoryReport::create([
-            'session_date'  => now()->toDateString(),
-            'label'         => $data['label'] ?? null,
-            'model_names'   => $data['model_names'],
-            'total_count'   => count($data['items']),
-            'present_count' => $presentCount,
-            'missing_count' => $missingCount,
-            'pending_count' => $pendingCount,
-            'notes'         => $data['notes'] ?? null,
-            'created_by'    => Auth::id(),
+            'session_date'       => now()->toDateString(),
+            'label'              => $data['label'] ?? null,
+            'model_names'        => $data['model_names'],
+            'total_count'        => count($data['items']),
+            'present_count'      => $presentCount,
+            'missing_count'      => $missingCount,
+            'pending_count'      => $pendingCount,
+            'notes'              => $data['notes'] ?? null,
+            'created_by'         => Auth::id(),
+            'previous_statuses'  => $previousStatuses,
+            'is_draft'           => false, // Rapport finalisé
         ]);
 
+        // Changer le statut des équipements absents en "en_attente"
         foreach ($data['items'] as $item) {
+            if ($item['asset_id'] && $item['scan_status'] === 'missing') {
+                $asset = Asset::find($item['asset_id']);
+                if ($asset && $asset->status === 'available') {
+                    $asset->update(['status' => 'en_attente']);
+                }
+            }
+
+            // Créer l'item du rapport
             InventoryReportItem::create([
                 'inventory_report_id' => $report->id,
                 'asset_id'   => $item['asset_id'] ?? null,
@@ -125,7 +168,7 @@ class InventoryController extends Controller
         }
 
         return redirect()->route('inventory.history')
-            ->with('success', 'Rapport d\'inventaire sauvegardé.');
+            ->with('success', 'Rapport d\'inventaire sauvegardé. ' . $missingCount . ' équipement(s) absent(s) passé(s) en attente.');
     }
 
     /**
@@ -242,6 +285,32 @@ class InventoryController extends Controller
     {
         $report->delete();
         return redirect()->route('inventory.history')->with('success', 'Rapport supprimé.');
+    }
+
+    /**
+     * Annuler un inventaire et restaurer les statuts précédents.
+     * L'inventaire ne doit pas figurer dans l'historique après annulation.
+     */
+    public function cancelReport(InventoryReport $report)
+    {
+        // Restaurer les statuts précédents des équipements
+        if ($report->previous_statuses) {
+            foreach ($report->previous_statuses as $assetId => $previousStatus) {
+                $asset = Asset::find($assetId);
+                if ($asset) {
+                    // Restaurer uniquement si le statut actuel est "en_attente" (pour éviter de modifier un statut qui a changé entre temps)
+                    if ($asset->status === 'en_attente') {
+                        $asset->update(['status' => $previousStatus]);
+                    }
+                }
+            }
+        }
+
+        // Supprimer le rapport et ses items (ne pas l'archiver, le supprimer définitivement)
+        $report->delete();
+
+        return redirect()->route('inventory.history')
+            ->with('success', 'Inventaire annulé. Les statuts des équipements ont été restaurés.');
     }
 
     /**

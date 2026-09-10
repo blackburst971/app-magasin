@@ -18,7 +18,20 @@ class AssetPlaceController extends Controller
 
     public function index()
     {
-        $places = Place::orderBy('is_storage', 'desc')->orderBy('name')->get(['id', 'name', 'color', 'description', 'is_storage']);
+        // Récupérer les lieux avec leurs compteurs d'équipements
+        $places = Place::withCount(['activeAssignments'])
+            ->orderBy('is_storage', 'desc')
+            ->orderBy('name')
+            ->get(['id', 'name', 'color', 'description', 'is_storage'])
+            ->map(fn($p) => [
+                'id'                       => $p->id,
+                'name'                     => $p->name,
+                'description'              => $p->description,
+                'color'                    => $p->color,
+                'is_storage'               => $p->is_storage,
+                'active_assignments_count' => $p->active_assignments_count,
+                'assets_count'             => \App\Models\Asset::where('place_id', $p->id)->count(),
+            ]);
 
         $assignments = AssetPlaceAssignment::with(['asset' => fn($q) => $q->with(['category:id,name']), 'place', 'assignedBy:id,name'])
             ->whereNull('returned_at')
@@ -103,10 +116,15 @@ class AssetPlaceController extends Controller
             'notes'    => "Affecté à « {$place->name} »" . ($data['return_expected_at'] ? ' jusqu\'au ' . \Carbon\Carbon::parse($data['return_expected_at'])->format('d/m/Y H:i') : ' (permanent)'),
         ]);
 
-        // Mise à jour automatique du statut : Disponible → Sorti
+        // Mise à jour automatique du statut, de l'emplacement et du lieu
+        $updateData = [];
         if ($asset->status === 'available') {
-            $asset->update(['status' => 'checked_out']);
+            $updateData['status'] = 'checked_out';
         }
+        $updateData['location'] = $place->name;
+        $updateData['place_id'] = $place->id;
+
+        $asset->update($updateData);
 
         $assignment->load(['asset.category', 'place', 'assignedBy']);
 
@@ -172,11 +190,17 @@ class AssetPlaceController extends Controller
             'notes'    => "Retour depuis « {$assignment->place->name} »",
         ]);
 
-        // Mise à jour automatique du statut : Sorti → Disponible
+        // Mise à jour automatique du statut, emplacement et lieu : Retour au stockage
         $assignment->asset->refresh();
+        $updateData = [];
         if ($assignment->asset->status === 'checked_out') {
-            $assignment->asset->update(['status' => 'available']);
+            $updateData['status'] = 'available';
         }
+        // Vider l'emplacement et le lieu au retour
+        $updateData['location'] = null;
+        $updateData['place_id'] = null;
+
+        $assignment->asset->update($updateData);
 
         return response()->json(['ok' => true, 'assignment' => $this->formatAssignment($assignment->fresh(['asset', 'place', 'assignedBy']))]);
     }
@@ -247,10 +271,15 @@ class AssetPlaceController extends Controller
                 'notes'    => "Affecté à « {$place->name} »" . ($data['return_expected_at'] ? ' jusqu\'au ' . \Carbon\Carbon::parse($data['return_expected_at'])->format('d/m/Y H:i') : ' (permanent)'),
             ]);
 
-            // Mise à jour automatique du statut : Disponible → Sorti
+            // Mise à jour automatique du statut, de l'emplacement et du lieu
+            $updateData = [];
             if ($asset->status === 'available') {
-                $asset->update(['status' => 'checked_out']);
+                $updateData['status'] = 'checked_out';
             }
+            $updateData['location'] = $place->name;
+            $updateData['place_id'] = $place->id;
+
+            $asset->update($updateData);
 
             $assignment->load(['asset.category', 'place', 'assignedBy']);
             $created[] = $this->formatAssignment($assignment);
@@ -296,15 +325,24 @@ class AssetPlaceController extends Controller
             'notes'    => "Retour (scan) depuis « {$assignment->place->name} »",
         ]);
 
-        // Mise à jour automatique du statut : Sorti → Disponible
+        // Mise à jour automatique du statut, emplacement et lieu : Retour au stockage
+        $updateData = [];
         if ($asset->status === 'checked_out') {
-            $asset->update(['status' => 'available']);
+            $updateData['status'] = 'available';
         }
+        // Vider l'emplacement et le lieu au retour
+        $updateData['location'] = null;
+        $updateData['place_id'] = null;
+
+        $asset->update($updateData);
 
         return response()->json([
-            'ok'         => true,
-            'asset_name' => $asset->name,
-            'place_name' => $assignment->place->name,
+            'ok'                => true,
+            'asset_name'        => $asset->name,
+            'place_name'        => $assignment->place->name,
+            'has_scratch'       => (bool) $asset->has_scratch,
+            'has_belge'         => (bool) $asset->has_belge,
+            'return_check_note' => $asset->return_check_note,
         ]);
     }
 

@@ -19,7 +19,7 @@ const props = defineProps({
 })
 
 // ── État ──────────────────────────────────────────────────────────────────────
-const tab              = ref('active')   // 'active' | 'history' | 'places'
+const tab              = ref('active')   // 'active' | 'history'
 const places           = ref([...props.places])
 const assignments      = ref([...props.assignments])
 const history          = ref([...props.history])
@@ -54,15 +54,6 @@ const batchForm    = ref({ place_id: null, return_expected_at: '', notes: '', is
 const batchLoading = ref(false)
 const batchError   = ref('')
 
-// ── Modal gestion des lieux ───────────────────────────────────────────────────
-const showPlaceModal   = ref(false)
-const editingPlace     = ref(null)
-const placeForm        = ref({ name: '', description: '', color: '#6366f1', is_storage: false })
-const placeLoading     = ref(false)
-const placeError       = ref('')
-
-// ── Constantes ─────────────────────────────────────────────────────────────────
-const PALETTE = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#64748b','#94a3b8','#f59e0b']
 
 // ── Computed ───────────────────────────────────────────────────────────────────
 const nonStoragePlaces = computed(() => places.value.filter(p => !p.is_storage))
@@ -97,6 +88,19 @@ async function handleScan() {
     if (scanMode.value === 'return') {
       // Retour par scan
       const { data } = await axios.post(route('asset-places.scan-return'), { asset_tag: tag })
+
+      // Vérifier si l'équipement a des accessoires (velcro/belge)
+      if (data.has_scratch || data.has_belge) {
+        const accessories = []
+        if (data.has_scratch) accessories.push('🟡 Scratch / Velcro')
+        if (data.has_belge) accessories.push('🟣 Belge / Housse')
+
+        const accessoriesText = accessories.join(' + ')
+        const confirmMsg = `✓ ${data.asset_name} retourné depuis « ${data.place_name} »\n\n⚠️ RAPPEL ACCESSOIRES :\n${accessoriesText}\n\nVérifiez que les accessoires sont bien présents !`
+
+        alert(confirmMsg)
+      }
+
       // Retirer l'affectation de la liste active
       assignments.value = assignments.value.filter(a => a.asset?.asset_tag !== tag)
       scanResult.value = { type: 'success', message: data.message ?? `✓ ${data.asset_name} retourné depuis « ${data.place_name} »` }
@@ -213,55 +217,6 @@ async function submitReturn() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GESTION DES LIEUX
-// ─────────────────────────────────────────────────────────────────────────────
-
-function openCreatePlace() {
-  editingPlace.value = null
-  placeForm.value = { name: '', description: '', color: '#6366f1', is_storage: false }
-  placeError.value = ''
-  showPlaceModal.value = true
-}
-
-function openEditPlace(place) {
-  editingPlace.value = place
-  placeForm.value = { name: place.name, description: place.description ?? '', color: place.color, is_storage: place.is_storage }
-  placeError.value = ''
-  showPlaceModal.value = true
-}
-
-async function savePlace() {
-  placeLoading.value = true
-  placeError.value = ''
-  try {
-    if (editingPlace.value) {
-      const { data } = await axios.patch(route('places.update', editingPlace.value.id), placeForm.value)
-      const idx = places.value.findIndex(p => p.id === editingPlace.value.id)
-      if (idx !== -1) places.value[idx] = data
-    } else {
-      const { data } = await axios.post(route('places.store'), placeForm.value)
-      places.value.push(data)
-      places.value.sort((a, b) => (b.is_storage ? 1 : 0) - (a.is_storage ? 1 : 0) || a.name.localeCompare(b.name))
-    }
-    showPlaceModal.value = false
-  } catch (e) {
-    placeError.value = e.response?.data?.error ?? e.response?.data?.message ?? 'Erreur.'
-  } finally {
-    placeLoading.value = false
-  }
-}
-
-async function deletePlace(place) {
-  if (!confirm(`Supprimer le lieu « ${place.name} » ?`)) return
-  try {
-    await axios.delete(route('places.destroy', place.id))
-    places.value = places.value.filter(p => p.id !== place.id)
-  } catch (e) {
-    alert(e.response?.data?.error ?? 'Erreur.')
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // LOT D'AFFECTATION
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -315,17 +270,17 @@ function isOverdue(a) { return a.is_overdue }
 </script>
 
 <template>
-  <AppLayout title="Affectation aux lieux">
+  <AppLayout title="Lieux">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
       <!-- ══ EN-TÊTE ════════════════════════════════════════════════════════ -->
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <MapPinIcon class="h-6 w-6 text-indigo-600" /> Affectation aux lieux
+            <MapPinIcon class="h-6 w-6 text-indigo-600" /> Affectations Lieux
           </h1>
           <p class="text-sm text-gray-500 mt-0.5">
-            Affectez des équipements à des emplacements de manière temporaire ou permanente.
+            Affectez des équipements à des lieux de manière temporaire ou permanente.
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -438,7 +393,7 @@ function isOverdue(a) { return a.is_overdue }
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1.5">Lieu d'affectation *</label>
               <div v-if="!nonStoragePlaces.length" class="text-xs text-gray-400 italic">
-                Aucun lieu configuré — <button type="button" @click="tab = 'places'" class="text-indigo-500 underline">en créer un</button>
+                Aucun lieu configuré — <Link :href="route('places.index')" class="text-indigo-500 underline">en créer un</Link>
               </div>
               <div v-else class="flex flex-wrap gap-2">
                 <button v-for="p in nonStoragePlaces" :key="p.id" type="button"
@@ -521,11 +476,6 @@ function isOverdue(a) { return a.is_overdue }
           :class="tab === 'history' ? 'border-b-2 border-indigo-600 text-indigo-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
           class="pb-3 text-sm transition">
           🕓 Historique
-        </button>
-        <button @click="tab = 'places'"
-          :class="tab === 'places' ? 'border-b-2 border-indigo-600 text-indigo-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
-          class="pb-3 text-sm transition">
-          🗂️ Gérer les lieux
         </button>
       </div>
 
@@ -650,62 +600,6 @@ function isOverdue(a) { return a.is_overdue }
         </div>
       </div>
 
-      <!-- ══ GESTION DES LIEUX ═══════════════════════════════════════════════ -->
-      <div v-if="tab === 'places'">
-        <div class="flex items-center justify-between mb-4">
-          <p class="text-sm text-gray-600">
-            Les lieux de stockage (magasin, magasin général…) sont des lieux de référence. Les autres lieux sont des emplacements d'affectation.
-          </p>
-          <button @click="openCreatePlace()"
-            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition">
-            <PlusIcon class="h-4 w-4" /> Nouveau lieu
-          </button>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div v-for="place in places" :key="place.id"
-            class="bg-white rounded-xl border shadow-sm p-4 flex items-start justify-between group"
-            :style="{ borderLeftColor: place.color, borderLeftWidth: '3px' }">
-            <div class="flex items-start gap-3 min-w-0">
-              <span class="w-4 h-4 rounded-full mt-0.5 shrink-0" :style="{ background: place.color }" />
-              <div class="min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <p class="font-semibold text-gray-800 text-sm">{{ place.name }}</p>
-                  <span v-if="place.is_storage"
-                    class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                    <BuildingStorefrontIcon class="h-3 w-3" /> Stockage
-                  </span>
-                </div>
-                <p v-if="place.description" class="text-xs text-gray-500 mt-0.5 truncate">{{ place.description }}</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-1 shrink-0 ml-2">
-              <!-- Lien vers la page dédiée -->
-              <Link :href="route('places.show', place.id)"
-                class="p-1.5 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 text-gray-400 transition"
-                title="Voir les équipements">
-                <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
-              </Link>
-              <button @click="openEditPlace(place)"
-                class="p-1.5 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 text-gray-400 transition"
-                title="Modifier">
-                <PencilIcon class="h-3.5 w-3.5" />
-              </button>
-              <button v-if="!place.is_storage" @click="deletePlace(place)"
-                class="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-gray-400 transition"
-                title="Supprimer">
-                <TrashIcon class="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <button @click="openCreatePlace()"
-            class="border-2 border-dashed border-gray-200 rounded-xl p-4 text-xs text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition text-center">
-            + Nouveau lieu d'affectation
-          </button>
-        </div>
-      </div>
-
     </div>
 
     <!-- ════ MODAL ASSIGNATION ════════════════════════════════════════════════ -->
@@ -744,8 +638,7 @@ function isOverdue(a) { return a.is_overdue }
               <label class="block text-sm font-medium text-gray-700 mb-1">Lieu d'affectation *</label>
               <div v-if="!nonStoragePlaces.length" class="text-xs text-gray-400 italic">
                 Aucun lieu d'affectation configuré —
-                <button type="button" @click="showAssignModal = false; tab = 'places'"
-                  class="text-indigo-500 hover:underline">en créer un</button>
+                <Link :href="route('places.index')" class="text-indigo-500 hover:underline">en créer un</Link>
               </div>
               <div v-else class="grid grid-cols-2 gap-2">
                 <button v-for="p in nonStoragePlaces" :key="p.id" type="button"
@@ -852,60 +745,6 @@ function isOverdue(a) { return a.is_overdue }
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- ════ MODAL LIEU ════════════════════════════════════════════════════════ -->
-    <Teleport to="body">
-      <div v-if="showPlaceModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        @click.self="showPlaceModal = false">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md">
-          <div class="flex items-center justify-between px-6 py-4 border-b">
-            <h3 class="font-semibold text-gray-900">{{ editingPlace ? 'Modifier le lieu' : 'Nouveau lieu' }}</h3>
-            <button @click="showPlaceModal = false"><XMarkIcon class="h-5 w-5 text-gray-400 hover:text-gray-600" /></button>
-          </div>
-
-          <form @submit.prevent="savePlace" class="p-6 space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
-              <input v-model="placeForm.name" required autofocus
-                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input v-model="placeForm.description"
-                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                placeholder="Description optionnelle…" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Couleur</label>
-              <div class="flex flex-wrap gap-2">
-                <button v-for="c in PALETTE" :key="c" type="button" @click="placeForm.color = c"
-                  class="w-7 h-7 rounded-full transition ring-offset-2"
-                  :style="{ background: c }"
-                  :class="placeForm.color === c ? 'ring-2 ring-gray-700' : 'hover:scale-110'" />
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <input type="checkbox" id="is_storage" v-model="placeForm.is_storage" class="rounded border-gray-300" />
-              <label for="is_storage" class="text-sm text-gray-700">
-                Lieu de stockage (magasin, réserve…) — non utilisable pour les affectations
-              </label>
-            </div>
-
-            <p v-if="placeError" class="text-sm text-red-600">{{ placeError }}</p>
-
-            <div class="flex gap-3 pt-1">
-              <button type="button" @click="showPlaceModal = false"
-                class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50 transition">Annuler</button>
-              <button type="submit" :disabled="placeLoading"
-                class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50">
-                {{ placeLoading ? '…' : editingPlace ? 'Modifier' : 'Créer le lieu' }}
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     </Teleport>

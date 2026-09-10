@@ -476,14 +476,25 @@ class ReservationController extends Controller
             return $data;
         })->toArray();
 
-        $activeForm = CheckoutForm::where('is_active', true)->with('fields')->first();
-        // Vérifier si le formulaire actif a une réponse pour cette réservation
-        if ($activeForm) {
-            $hasResponse = \App\Models\CheckoutFormResponse::where('form_id', $activeForm->id)
-                ->where('reservation_id', $reservation->id)
-                ->exists();
-            $activeForm = array_merge($activeForm->toArray(), ['has_response' => $hasResponse]);
-        }
+        // Récupérer tous les formulaires non-inactifs
+        $checkoutForms = CheckoutForm::where('status', '!=', 'inactive')
+            ->orderBy('name')
+            ->get()
+            ->map(function ($form) use ($reservation) {
+                // Vérifier si le formulaire a une réponse pour cette réservation
+                $response = \App\Models\CheckoutFormResponse::where('checkout_form_id', $form->id)
+                    ->where('reservation_id', $reservation->id)
+                    ->first();
+
+                return [
+                    'id'            => $form->id,
+                    'name'          => $form->name,
+                    'description'   => $form->description,
+                    'status'        => $form->status,
+                    'has_response'  => (bool) $response,
+                    'submitted_at'  => $response ? $response->created_at->format('d/m/Y H:i') : null,
+                ];
+            });
 
         return Inertia::render('Reservations/Show', [
             'reservation' => array_merge($reservation->toArray(), [
@@ -501,7 +512,7 @@ class ReservationController extends Controller
             ]),
             'isAdmin'      => $isAdmin,
             'isSupervisor' => $isSupervisor,
-            'checkoutForms' => $activeForm ? [$activeForm] : [],
+            'checkoutForms' => $checkoutForms,
             'allUsers'      => $isAdmin
                 ? \App\Models\User::orderBy('name')->get(['id', 'name', 'email'])->toArray()
                 : [],
@@ -948,11 +959,33 @@ class ReservationController extends Controller
             'assets.category',
             'approvedBy',
             'supervisorApprovedBy',
-            'formResponse.form.fields',
         ]);
 
-        $checkoutForms  = CheckoutForm::orderBy('name')->get(['id', 'name', 'is_active']);
+        // Récupérer tous les formulaires non-inactifs avec leur statut
+        $checkoutForms = CheckoutForm::where('status', '!=', 'inactive')
+            ->orderBy('name')
+            ->get(['id', 'name', 'description', 'status']);
+
         $selectedFormId = $request->query('form_id');
+
+        // Charger toutes les réponses de formulaires pour cette réservation
+        $formResponses = \App\Models\CheckoutFormResponse::where('reservation_id', $reservation->id)
+            ->with('form.fields')
+            ->get()
+            ->keyBy('checkout_form_id')
+            ->map(function ($response) {
+                return [
+                    'id'              => $response->id,
+                    'form'            => $response->form ? [
+                        'id'     => $response->form->id,
+                        'name'   => $response->form->name,
+                        'fields' => $response->form->fields,
+                    ] : null,
+                    'responses'       => $response->responses,
+                    'fields_snapshot' => $response->fields_snapshot,
+                    'submitted_at'    => $response->submitted_at?->format('d/m/Y H:i'),
+                ];
+            });
 
         // Ajouter les URLs d'images aux équipements
         $assetsWithImage = $reservation->assets->map(function ($asset) {
@@ -976,6 +1009,7 @@ class ReservationController extends Controller
                 'approved_at_formatted'            => $reservation->approved_at?->format('d/m/Y H:i'),
                 'supervisor_approved_at_formatted' => $reservation->supervisor_approved_at?->format('d/m/Y H:i'),
                 'assets'                           => $assetsWithImage,
+                'form_responses'                   => $formResponses,
             ]),
             'checkoutForms'  => $checkoutForms,
             'selectedFormId' => $selectedFormId ? (int) $selectedFormId : null,
@@ -1085,11 +1119,21 @@ class ReservationController extends Controller
         // Route already protected by role:admin middleware
         $id = $reservation->id;
 
-        // Si la réservation est active, libérer les équipements non encore retournés
-        if ($reservation->status === 'active') {
+        // Libérer tous les équipements de la réservation (sauf ceux déjà retournés si la réservation était active)
+        if (in_array($reservation->status, ['approved', 'active', 'en_preparation', 'pending', 'supervisor_approved'])) {
             foreach ($reservation->assets as $asset) {
-                if (!$asset->pivot->returned_at) {
-                    $asset->update(['status' => 'available']);
+                // Si la réservation était active, vérifier si l'équipement a été retourné
+                if ($reservation->status === 'active' && $asset->pivot->returned_at) {
+                    continue; // Ne pas toucher aux équipements déjà retournés
+                }
+
+                // Libérer l'équipement s'il est dans un statut lié à cette réservation
+                if (in_array($asset->status, ['reserved', 'checked_out', 'en_preparation'])) {
+                    $asset->update([
+                        'status'                 => 'available',
+                        'checked_out_to_user_id' => null,
+                        'expected_return_at'     => null,
+                    ]);
                 }
             }
         }

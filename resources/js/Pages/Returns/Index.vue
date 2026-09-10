@@ -22,6 +22,7 @@ const props = defineProps({
   kitsAwaitingRegularization: Array,
   users:                      Array,
   placeAssignments:           { type: Array, default: () => [] },
+  storagePlaces:              { type: Array, default: () => [] },
 })
 
 // ─── Retour manuel avec modal état ────────────────────────────────────────────
@@ -212,6 +213,79 @@ function cancelAccessoriesCheck() {
   }
   playSound('scan_error')
   setTimeout(() => { scanResult.value = null; focusPreferred() }, 7000)
+}
+
+// ─── Modal sélection lieu de stockage ─────────────────────────────────────────
+const storagePlaceModal = ref({
+  open:       false,
+  asset:      null,
+  fromPlace:  null,
+  assetTag:   '',
+  selectedId: null,
+})
+
+function openStoragePlaceModal(asset, fromPlace, assetTag) {
+  // Trouver le lieu "magasin 211" par défaut
+  const defaultPlace = props.storagePlaces.find(p => p.name.toLowerCase().includes('magasin 211'))
+  storagePlaceModal.value = {
+    open:       true,
+    asset,
+    fromPlace,
+    assetTag,
+    selectedId: defaultPlace?.id || (props.storagePlaces[0]?.id ?? null),
+  }
+}
+
+async function confirmStoragePlace() {
+  if (!storagePlaceModal.value.selectedId) return
+
+  const tag = storagePlaceModal.value.assetTag
+  const placeId = storagePlaceModal.value.selectedId
+
+  storagePlaceModal.value.open = false
+  scanning.value = true
+
+  try {
+    const { data } = await axios.post(route('returns.scan'), {
+      asset_tag:         tag,
+      storage_place_id:  placeId,
+      condition:         'good',
+    })
+
+    playSound('scan_success')
+
+    const storagePlace = props.storagePlaces.find(p => p.id === placeId)
+    scanResult.value = {
+      type:    'success',
+      message: `✅ ${data.asset.name} retourné depuis « ${data.from_place.name} » → stocké au « ${storagePlace?.name || data.storage_place?.name || 'lieu de stockage'} »`,
+    }
+
+    router.reload({
+      only:      ['overdueReservations', 'activeReservations', 'kitsAwaitingRegularization', 'placeAssignments'],
+      onSuccess: () => { focusPreferred() },
+    })
+
+    setTimeout(() => { scanResult.value = null }, 8000)
+  } catch (err) {
+    playSound('scan_error')
+    scanResult.value = {
+      type:    'error',
+      message: err.response?.data?.error ?? 'Erreur lors de la sélection du lieu',
+    }
+  } finally {
+    scanning.value = false
+    setTimeout(() => { focusPreferred() }, 100)
+  }
+}
+
+function cancelStoragePlace() {
+  storagePlaceModal.value.open = false
+  scanResult.value = {
+    type:    'warning',
+    message: `⚠️ Retour annulé — veuillez choisir un lieu de stockage`,
+  }
+  playSound('scan_error')
+  setTimeout(() => { scanResult.value = null; focusPreferred() }, 5000)
 }
 
 function proceedWithAccessories() {
@@ -473,6 +547,14 @@ async function doScanReturn(tag, opts = {}) {
     if (belgeLost)   payload.belge_lost   = true
 
     const { data } = await axios.post(route('returns.scan'), payload)
+
+    // Si retour d'affectation de lieu → demander le lieu de stockage
+    if (data.needs_storage_place) {
+      playSound('scan_success')
+      openStoragePlaceModal(data.asset, data.from_place, tag)
+      scanning.value = false
+      return
+    }
 
     const isComplete    = data.reservation?.all_returned === true
     const hasComponents = data.components && data.components.length > 0
@@ -754,6 +836,7 @@ const resScanNotes      = ref({})   // { resId: string }
 const resScanReturnedBy = ref({})   // { resId: userId }
 const resScanResults    = ref({})   // { resId: { type, message } | null }
 const lockedResId       = ref(null) // Réservation dont le scan a le focus verrouillé
+const lockedMainScan    = ref(false) // Verrouillage du scan USB principal
 const resScanInputRefs  = {}        // DOM refs non-réactifs, keyed by resId
 let   lastRescanId      = null      // Pour mirrorer scanResult vers la bonne carte
 
@@ -766,8 +849,10 @@ function focusResInput(resId) {
 function focusPreferred() {
   if (lockedResId.value) {
     focusResInput(lockedResId.value)
+  } else if (lockedMainScan.value) {
+    scanInputEl.value?.focus()
   } else {
-    focusPreferred()
+    scanInputEl.value?.focus()
   }
 }
 
@@ -775,6 +860,13 @@ function toggleLock(resId) {
   lockedResId.value = lockedResId.value === resId ? null : resId
   if (lockedResId.value === resId) {
     nextTick(() => focusResInput(resId))
+  }
+}
+
+function toggleMainScanLock() {
+  lockedMainScan.value = !lockedMainScan.value
+  if (lockedMainScan.value) {
+    nextTick(() => scanInputEl.value?.focus())
   }
 }
 
@@ -908,10 +1000,19 @@ function scanFromReservation(res) {
       <!-- ══════════════════════════════════════════
            Panneau de scan (scanner USB ou clavier)
       ══════════════════════════════════════════ -->
-      <div class="bg-white rounded-xl shadow-sm border-2 border-blue-300 p-5">
+      <div class="bg-white rounded-xl shadow-sm border-2 border-blue-300 p-5"
+           :class="lockedMainScan ? 'outline outline-2 outline-red-400 outline-offset-2 bg-red-50/10' : ''">
         <h2 class="text-sm font-semibold text-blue-800 mb-3 flex items-center gap-2">
           <QrCodeIcon class="w-4 h-4" />
           Scanner un retour
+          <button
+            @click="toggleMainScanLock"
+            :title="lockedMainScan ? 'Déverrouiller le focus (le curseur pourra aller ailleurs)' : 'Verrouiller le focus ici (le curseur reviendra automatiquement après chaque scan)'"
+            :class="['ml-2 p-1 rounded transition hover:bg-blue-100',
+              lockedMainScan ? 'text-red-600' : 'text-gray-400 hover:text-blue-600']">
+            <LockClosedIcon v-if="lockedMainScan" class="w-4 h-4" />
+            <LockOpenIcon v-else class="w-4 h-4" />
+          </button>
           <span class="ml-auto text-xs font-normal text-gray-400">
             🔌 Scanner USB → pointe ici → lit le code → Entrée automatique
           </span>
@@ -2426,6 +2527,73 @@ function scanFromReservation(res) {
       </Transition>
     </Teleport>
 
+    <!-- ═══ Pop-up : sélection du lieu de stockage ═══ -->
+    <Teleport to="body">
+      <Transition name="storage-place-fade">
+        <div v-if="storagePlaceModal.open"
+             class="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+
+            <!-- En-tête -->
+            <div class="bg-blue-600 px-6 py-5 text-white">
+              <div class="flex items-center gap-3 mb-1">
+                <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 text-2xl">
+                  📍
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-blue-100 uppercase tracking-widest">Lieu de stockage</p>
+                  <p class="text-base font-bold leading-tight">{{ storagePlaceModal.asset?.name }}</p>
+                </div>
+              </div>
+              <p class="text-sm text-blue-100 mt-2">
+                Retourné depuis « <span class="font-semibold">{{ storagePlaceModal.fromPlace?.name }}</span> »
+              </p>
+            </div>
+
+            <!-- Corps -->
+            <div class="px-6 py-6">
+              <p class="text-sm text-gray-600 mb-4">
+                Choisissez le lieu de stockage où l'équipement sera rangé :
+              </p>
+
+              <div class="space-y-2">
+                <label v-for="place in storagePlaces" :key="place.id"
+                  class="flex items-center gap-3 p-3 rounded-lg border-2 transition cursor-pointer hover:bg-gray-50"
+                  :class="storagePlaceModal.selectedId === place.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200'">
+                  <input type="radio"
+                    :value="place.id"
+                    v-model="storagePlaceModal.selectedId"
+                    class="w-5 h-5 text-blue-600 border-gray-300 focus:ring-blue-500">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <div class="w-3 h-3 rounded-full"
+                        :style="{ backgroundColor: place.color }"></div>
+                      <span class="font-medium text-gray-900">{{ place.name }}</span>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-3 px-6 pb-6">
+              <button @click="cancelStoragePlace"
+                class="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-600 font-bold text-sm hover:bg-gray-50 transition">
+                Annuler
+              </button>
+              <button @click="confirmStoragePlace"
+                :disabled="!storagePlaceModal.selectedId"
+                class="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                ✅ Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
   </AppLayout>
 </template>
 
@@ -2453,6 +2621,12 @@ function scanFromReservation(res) {
 .check-note-fade-leave-active { transition: all 0.2s ease-in; }
 .check-note-fade-enter-from   { opacity: 0; transform: scale(0.92); }
 .check-note-fade-leave-to     { opacity: 0; transform: scale(0.96); }
+
+/* Pop-up sélection lieu de stockage */
+.storage-place-fade-enter-active { transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.storage-place-fade-leave-active { transition: all 0.2s ease-in; }
+.storage-place-fade-enter-from   { opacity: 0; transform: scale(0.92); }
+.storage-place-fade-leave-to     { opacity: 0; transform: scale(0.96); }
 
 /* Countdown slide transition */
 .slide-down-enter-active { transition: all 0.3s ease; }

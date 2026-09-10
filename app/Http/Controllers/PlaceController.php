@@ -108,7 +108,7 @@ class PlaceController extends Controller
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string|max:500',
             'color'       => 'required|string|max:7',
-            'is_storage'  => 'boolean',
+            'is_storage'  => 'nullable|boolean',
         ]);
 
         $place = Place::create($data);
@@ -122,7 +122,7 @@ class PlaceController extends Controller
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string|max:500',
             'color'       => 'required|string|max:7',
-            'is_storage'  => 'boolean',
+            'is_storage'  => 'nullable|boolean',
         ]);
 
         $oldName = $place->name;

@@ -144,6 +144,14 @@ class RecyclingController extends Controller
             'created_by_user_id' => Auth::id(),
         ]);
 
+        // Si un équipement est lié, le passer automatiquement en statut "retiré"
+        if (!empty($data['asset_id'])) {
+            $asset = Asset::find($data['asset_id']);
+            if ($asset) {
+                $asset->update(['status' => 'retired']);
+            }
+        }
+
         return back()->with('success', 'Équipement ajouté à la liste déchèterie.');
     }
 

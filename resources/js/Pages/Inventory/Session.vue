@@ -9,9 +9,10 @@ import { useSound } from '@/composables/useSound'
 const { playSound } = useSound()
 
 const props = defineProps({
-  assets:     Array,
-  modelNames: Array,
-  modelIds:   Array,
+  assets:             Array,  // Équipements disponibles (scannables)
+  unavailableAssets:  Array,  // Équipements non-disponibles (info uniquement)
+  modelNames:         Array,
+  modelIds:           Array,
 })
 
 // Map assetId → scanned (true/false)
@@ -124,6 +125,21 @@ function saveReport() {
 }
 
 // ─── Impression PDF inventaire ────────────────────────────────────────────────
+// Formater le statut pour l'affichage
+function formatStatus(status) {
+  const labels = {
+    'available':             'Disponible',
+    'checked_out':           'Sorti',
+    'retired':               'Retiré',
+    'maintenance':           'Maintenance',
+    'present_dans_un_kit':   'Dans un kit',
+    'a_verifier':            'À vérifier',
+    'en_attente':            'En attente',
+    'vole':                  'Volé'
+  }
+  return labels[status] || status
+}
+
 function printInventory(mode = 'missing') {
   const now    = new Date().toLocaleString('fr-FR')
   const models = props.modelNames.join(', ')
@@ -384,6 +400,34 @@ function printInventory(mode = 'missing') {
               <p class="text-xs text-gray-400 font-mono">{{ asset.asset_tag }}</p>
             </div>
             <button @click="unmark(asset.id)" class="text-xs text-gray-300 hover:text-blue-400 transition px-2">↩</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Équipements NON-DISPONIBLES (visibilité uniquement, non scannables) -->
+      <div v-if="unavailableAssets && unavailableAssets.length > 0" class="bg-white rounded-xl border border-amber-200 shadow-sm mb-4">
+        <div class="px-4 py-3 border-b border-amber-200 bg-amber-50 rounded-t-xl">
+          <h3 class="font-medium text-amber-800 text-sm flex items-center gap-2">
+            <span>ℹ️</span>
+            <span>Équipements non-disponibles ({{ unavailableAssets.length }})</span>
+          </h3>
+          <p class="text-xs text-amber-600 mt-1">Ces équipements ne sont pas à inventorier (statut différent de "disponible")</p>
+        </div>
+        <div class="divide-y max-h-64 overflow-y-auto">
+          <div v-for="asset in unavailableAssets" :key="'unavail-' + asset.id"
+            class="flex items-center gap-3 px-4 py-2.5 bg-amber-50/20 opacity-60">
+            <div class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <img v-if="asset.image" :src="asset.image" class="w-full h-full object-cover" />
+              <span v-else class="text-sm">📦</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-gray-700 truncate">{{ asset.name }}</p>
+              <p class="text-xs text-gray-400 font-mono">{{ asset.asset_tag }}</p>
+            </div>
+            <div class="text-right">
+              <p class="text-xs font-medium text-amber-700">{{ formatStatus(asset.status) }}</p>
+              <p v-if="asset.location" class="text-xs text-gray-400">{{ asset.location }}</p>
+            </div>
           </div>
         </div>
       </div>

@@ -1529,7 +1529,7 @@ async function submitComponent() {
     try {
         if (editingComponent.value) {
             // Mise à jour uniquement sur cet équipement
-            const { data } = await axios.put(
+            const { data } = await axios.patch(
                 route('assets.components.update', [props.asset.id, editingComponent.value.id]),
                 componentForm.value
             )
@@ -1551,14 +1551,7 @@ async function submitComponent() {
                 sort_order:  data.sort_order ?? 0,
                 condition:   data.condition ?? null,
             })
-            if (data.propagated_to > 0) {
-                setComponentFeedback(
-                    `✓ « ${data.base_name} » ajouté et propagé automatiquement à ${data.propagated_to} autre${data.propagated_to > 1 ? 's' : ''} équipement${data.propagated_to > 1 ? 's' : ''} du même modèle.`,
-                    'propagated'
-                )
-            } else {
-                setComponentFeedback(`✓ Composant « ${data.name} » ajouté.`)
-            }
+            setComponentFeedback(`✓ Composant « ${data.name} » ajouté.`)
         }
         showComponentForm.value = false
         editingComponent.value  = null

@@ -119,8 +119,11 @@ class KitController extends Controller
 
         $kit->assets()->sync($data['asset_ids']);
 
-        // Les équipements ajoutés à un kit ne sont plus réservables individuellement
-        Asset::whereIn('id', $data['asset_ids'])->update(['is_reservable' => false]);
+        // Les équipements ajoutés à un kit ne sont plus réservables individuellement et passent au statut "in_kit"
+        Asset::whereIn('id', $data['asset_ids'])->update([
+            'is_reservable' => false,
+            'status'        => 'in_kit',
+        ]);
 
         return back()->with('success', "Kit « {$kit->name} » créé.");
     }
@@ -171,17 +174,23 @@ class KitController extends Controller
 
             $kit->assets()->sync($newAssetIds);
 
-            // Restaurer is_reservable pour les équipements retirés du kit (si pas dans un autre kit)
+            // Restaurer is_reservable et status pour les équipements retirés du kit (si pas dans un autre kit)
             foreach ($removedIds as $id) {
                 $asset = Asset::find($id);
                 if ($asset && !$asset->kits()->exists()) {
-                    $asset->update(['is_reservable' => true]);
+                    $asset->update([
+                        'is_reservable' => true,
+                        'status'        => 'available',
+                    ]);
                 }
             }
 
-            // Masquer de la réservation les équipements ajoutés au kit
+            // Masquer de la réservation les équipements ajoutés au kit et mettre à jour leur statut
             if ($addedIds) {
-                Asset::whereIn('id', $addedIds)->update(['is_reservable' => false]);
+                Asset::whereIn('id', $addedIds)->update([
+                    'is_reservable' => false,
+                    'status'        => 'in_kit',
+                ]);
             }
         }
 
@@ -195,11 +204,14 @@ class KitController extends Controller
         $kit->assets()->detach();
         $kit->delete();
 
-        // Restaurer is_reservable pour les équipements qui ne sont plus dans aucun kit
+        // Restaurer is_reservable et status pour les équipements qui ne sont plus dans aucun kit
         foreach ($assetIds as $id) {
             $asset = Asset::find($id);
             if ($asset && !$asset->kits()->exists()) {
-                $asset->update(['is_reservable' => true]);
+                $asset->update([
+                    'is_reservable' => true,
+                    'status'        => 'available',
+                ]);
             }
         }
 

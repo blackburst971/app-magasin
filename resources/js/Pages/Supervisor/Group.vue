@@ -455,12 +455,12 @@ onUnmounted(() => {
       </section>
 
       <!-- ═══════════════════════════════════════════
-           RESPONSABLES DIRECTS (supervisor_id)
+           UTILISATEURS SOUS MA SUPERVISION (supervisor_id)
       ═══════════════════════════════════════════ -->
       <section v-if="directSubordinates.length > 0">
         <div class="flex items-center gap-2 mb-4">
           <UserIcon class="w-5 h-5 text-indigo-600" />
-          <h2 class="text-lg font-semibold text-gray-900">Mes responsables directs</h2>
+          <h2 class="text-lg font-semibold text-gray-900">Les utilisateurs sous ma supervision</h2>
           <span class="ml-1 bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
             {{ directSubordinates.length }}
           </span>

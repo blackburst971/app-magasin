@@ -40,6 +40,7 @@ const search           = ref(props.filters?.search       ?? '')
 const selectedCategory = ref(props.filters?.category     ?? '')
 const selectedStatus   = ref(props.filters?.status       ?? '')
 const selectedLocation = ref(props.filters?.location     ?? '')
+const selectedPlace    = ref(props.filters?.place        ?? '')
 const selectedMfr      = ref(props.filters?.manufacturer ?? '')
 const selectedModel    = ref(props.filters?.model        ?? '')
 
@@ -51,19 +52,20 @@ onMounted(() => {
   const hasServerFilters =
     props.filters?.search || props.filters?.category ||
     props.filters?.status || props.filters?.location ||
-    props.filters?.manufacturer || props.filters?.model
+    props.filters?.place || props.filters?.manufacturer || props.filters?.model
 
   if (!hasServerFilters) {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY)
       if (saved) {
         const f = JSON.parse(saved)
-        const hasData = f.search || f.category || f.status || f.location || f.manufacturer
+        const hasData = f.search || f.category || f.status || f.location || f.place || f.manufacturer
         if (hasData) {
           search.value           = f.search       || ''
           selectedCategory.value = f.category     || ''
           selectedStatus.value   = f.status       || ''
           selectedLocation.value = f.location     || ''
+          selectedPlace.value    = f.place        || ''
           selectedMfr.value      = f.manufacturer || ''
           nextTick(() => applyFilters())
         }
@@ -73,7 +75,7 @@ onMounted(() => {
 })
 
 // Sauvegarder les filtres à chaque changement + vider la sélection
-watch([search, selectedCategory, selectedStatus, selectedLocation, selectedMfr], () => {
+watch([search, selectedCategory, selectedStatus, selectedLocation, selectedPlace, selectedMfr], () => {
   selectedIds.value = []
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -81,6 +83,7 @@ watch([search, selectedCategory, selectedStatus, selectedLocation, selectedMfr],
       category:     selectedCategory.value,
       status:       selectedStatus.value,
       location:     selectedLocation.value,
+      place:        selectedPlace.value,
       manufacturer: selectedMfr.value,
     }))
   } catch (_) {}
@@ -111,6 +114,7 @@ function routeParams(extra = {}) {
     category:     selectedCategory.value || undefined,
     status:       selectedStatus.value   || undefined,
     location:     selectedLocation.value || undefined,
+    place:        selectedPlace.value    || undefined,
     manufacturer: selectedMfr.value      || undefined,
     model:        selectedModel.value    || undefined,
     per_page:     currentPerPage.value,
@@ -190,7 +194,7 @@ function filterByCategory(catId) {
 
 function clearFilters() {
   search.value = ''; selectedCategory.value = ''; selectedStatus.value = ''
-  selectedLocation.value = ''; selectedMfr.value = ''; selectedModel.value = ''
+  selectedLocation.value = ''; selectedPlace.value = ''; selectedMfr.value = ''; selectedModel.value = ''
   resetAndFilter()
 }
 
@@ -331,6 +335,7 @@ const ALL_ADMIN_COLUMNS = [
   { key: 'location',       label: 'Emplacement'  },
   { key: 'manufacturer',   label: 'Fabricant'    },
   { key: 'status',         label: 'Statut'       },
+  { key: 'condition',      label: 'État'         },
   { key: 'checked_out_to', label: 'Affecté à'    },
   { key: 'return_date',    label: 'Retour prévu' },
   { key: 'accessories',    label: 'Accessoires'  },
@@ -388,7 +393,7 @@ function resetCols() { columnsConfig.value = getDefaultCols() }
 // ─────────────────────────────────────────────────────────────────────────────
 
 const activeFiltersCount = computed(() =>
-  [selectedCategory.value, selectedStatus.value, selectedLocation.value, selectedMfr.value, search.value, selectedModel.value]
+  [selectedCategory.value, selectedStatus.value, selectedLocation.value, selectedPlace.value, selectedMfr.value, search.value, selectedModel.value]
     .filter(Boolean).length
 )
 
@@ -760,8 +765,12 @@ function executeBulkReserve() {
         <!-- Filtres actifs badges -->
         <div v-if="activeFiltersCount > 0" class="mb-3 flex flex-wrap items-center gap-2 text-sm">
           <span class="text-gray-500 text-xs">Filtres actifs :</span>
+          <span v-if="selectedPlace" class="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full text-xs">
+            <MapPinIcon class="w-3 h-3" /> {{ places.find(p => String(p.id) === String(selectedPlace))?.name ?? selectedPlace }}
+            <button @click="selectedPlace=''; applyFilters()" class="ml-1 hover:text-indigo-900 font-bold">×</button>
+          </span>
           <span v-if="selectedLocation" class="flex items-center gap-1 bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-xs">
-            <MapPinIcon class="w-3 h-3" /> {{ selectedLocation }}
+            📍 {{ selectedLocation }}
             <button @click="selectedLocation=''; applyFilters()" class="ml-1 hover:text-blue-900 font-bold">×</button>
           </span>
           <span v-if="selectedMfr" class="flex items-center gap-1 bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-xs">
@@ -804,6 +813,18 @@ function executeBulkReserve() {
                   class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-36">
             <option value="">Tous statuts</option>
             <option v-for="s in assetStatuses" :key="s.key" :value="s.key">{{ s.label }}</option>
+          </select>
+          <!-- Filtre par lieu formel (place_id) -->
+          <select v-if="isAdmin" v-model="selectedPlace" @change="applyFilters"
+                  class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-36">
+            <option value="">Tous les lieux</option>
+            <option v-for="p in places" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <!-- Filtre par emplacement legacy (location texte) -->
+          <select v-if="isAdmin && locations?.length > 0" v-model="selectedLocation" @change="applyFilters"
+                  class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-36">
+            <option value="">Tous emplacements</option>
+            <option v-for="loc in locations" :key="loc.location" :value="loc.location">{{ loc.location }} ({{ loc.asset_count }})</option>
           </select>
         </div>
 
@@ -1018,6 +1039,7 @@ function executeBulkReserve() {
                       <th v-else-if="col.key==='location'"  class="px-4 py-3 text-left whitespace-nowrap">Emplacement</th>
                       <th v-else-if="col.key==='manufacturer'" class="px-4 py-3 text-left whitespace-nowrap">Fabricant</th>
                       <th v-else-if="col.key==='status'"    class="px-4 py-3 text-left whitespace-nowrap">Statut</th>
+                      <th v-else-if="col.key==='condition'"  class="px-4 py-3 text-left whitespace-nowrap">État</th>
                       <th v-else-if="col.key==='checked_out_to'" class="px-4 py-3 text-left whitespace-nowrap">Affecté à</th>
                       <th v-else-if="col.key==='return_date'"    class="px-4 py-3 text-left whitespace-nowrap">Retour prévu</th>
                       <th v-else-if="col.key==='accessories'"    class="px-4 py-3 text-left whitespace-nowrap">Accessoires</th>
@@ -1102,6 +1124,20 @@ function executeBulkReserve() {
                             🏷️
                           </span>
                         </div>
+                      </td>
+                      <!-- État (condition_note) -->
+                      <td v-else-if="col.key==='condition'" class="px-4 py-3">
+                        <div v-if="asset.condition_note"
+                             class="group relative max-w-xs">
+                          <div class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 truncate">
+                            📋 {{ asset.condition_note }}
+                          </div>
+                          <!-- Tooltip au survol -->
+                          <div class="invisible group-hover:visible absolute z-10 left-0 top-full mt-1 w-64 px-3 py-2 bg-amber-900 text-white text-xs rounded-lg shadow-lg">
+                            {{ asset.condition_note }}
+                          </div>
+                        </div>
+                        <span v-else class="text-gray-300 text-xs">—</span>
                       </td>
                       <!-- Affecté à -->
                       <td v-else-if="col.key==='checked_out_to'" class="px-4 py-3">
@@ -1202,7 +1238,9 @@ function executeBulkReserve() {
                   <th class="px-4 py-3 text-left hidden md:table-cell">Tag</th>
                   <th class="px-4 py-3 text-left hidden lg:table-cell">Catégorie</th>
                   <th class="px-4 py-3 text-left hidden lg:table-cell">Emplacement</th>
+                  <th class="px-4 py-3 text-left hidden xl:table-cell">Accessoires</th>
                   <th class="px-4 py-3 text-left">Statut</th>
+                  <th class="px-4 py-3 text-left hidden xl:table-cell">État</th>
                   <th class="px-4 py-3 text-left">Actions</th>
                 </tr>
               </thead>
@@ -1231,7 +1269,32 @@ function executeBulkReserve() {
                     </span>
                     <span v-else class="text-gray-400">—</span>
                   </td>
+                  <td class="px-4 py-3 hidden xl:table-cell">
+                    <template v-if="asset.accessories?.length">
+                      <div class="flex flex-col gap-1">
+                        <Link v-for="acc in asset.accessories" :key="acc.id"
+                              :href="route('assets.show', acc.id)"
+                              class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline whitespace-nowrap">
+                          🔗 {{ acc.name }}
+                        </Link>
+                      </div>
+                    </template>
+                    <span v-else class="text-gray-300 text-xs">—</span>
+                  </td>
                   <td class="px-4 py-3"><StatusBadge :status="asset.status" type="asset" /></td>
+                  <td class="px-4 py-3 hidden xl:table-cell">
+                    <div v-if="asset.condition_note"
+                         class="group relative max-w-xs">
+                      <div class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 truncate">
+                        📋 {{ asset.condition_note }}
+                      </div>
+                      <!-- Tooltip au survol -->
+                      <div class="invisible group-hover:visible absolute z-10 left-0 top-full mt-1 w-64 px-3 py-2 bg-amber-900 text-white text-xs rounded-lg shadow-lg whitespace-pre-wrap">
+                        {{ asset.condition_note }}
+                      </div>
+                    </div>
+                    <span v-else class="text-gray-300 text-xs">—</span>
+                  </td>
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
                       <Link :href="route('assets.show', asset.id)"
@@ -1251,7 +1314,7 @@ function executeBulkReserve() {
                   </td>
                 </tr>
                 <tr v-if="assets.data.length === 0">
-                  <td colspan="6" class="px-4 py-12 text-center text-gray-400">
+                  <td colspan="8" class="px-4 py-12 text-center text-gray-400">
                     <p class="text-4xl mb-2">📦</p>
                     <p class="font-medium">Aucun équipement disponible à l'emprunt.</p>
                   </td>

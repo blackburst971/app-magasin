@@ -45,20 +45,65 @@ export const useCartStore = defineStore('cart', () => {
 
   function addItem(asset) {
     if (!items.value.find(i => i.id === asset.id)) {
+      // Collecter les IDs des accessoires qui seront ajoutés automatiquement
+      const accessoryIds = []
+      if (asset.accessories && Array.isArray(asset.accessories) && asset.accessories.length > 0) {
+        asset.accessories.forEach(accessory => {
+          // Ne pas inclure les parents (avec préfixe ↑)
+          if (!accessory.name || !accessory.name.startsWith('↑')) {
+            accessoryIds.push(accessory.id)
+          }
+        })
+      }
+
       items.value.push({
-        id:        asset.id,
-        name:      asset.name,
-        asset_tag: asset.asset_tag,
-        category:  asset.category ?? null,
-        status:    asset.status,
-        image:     asset.image ?? null,
+        id:           asset.id,
+        name:         asset.name,
+        asset_tag:    asset.asset_tag,
+        category:     asset.category ?? null,
+        status:       asset.status,
+        image:        asset.image ?? null,
+        accessoryIds: accessoryIds, // Stocker les IDs des accessoires pour pouvoir les retirer plus tard
       })
+
+      // Ajouter automatiquement les accessoires liés (s'il y en a)
+      if (asset.accessories && Array.isArray(asset.accessories) && asset.accessories.length > 0) {
+        asset.accessories.forEach(accessory => {
+          // Ne pas ajouter si c'est un parent (avec préfixe ↑)
+          if (accessory.name && accessory.name.startsWith('↑')) {
+            return
+          }
+          // Ajouter l'accessoire s'il n'est pas déjà dans le panier
+          if (!items.value.find(i => i.id === accessory.id)) {
+            items.value.push({
+              id:        accessory.id,
+              name:      accessory.name,
+              asset_tag: accessory.asset_tag,
+              category:  accessory.category ?? null,
+              status:    accessory.status,
+              image:     accessory.image ?? null,
+              accessoryIds: [], // Les accessoires n'ont pas eux-mêmes d'accessoires
+            })
+          }
+        })
+      }
+
       save()
     }
   }
 
   function removeItem(assetId) {
+    // Trouver l'équipement à supprimer pour récupérer ses accessoires
+    const itemToRemove = items.value.find(i => i.id === assetId)
+
+    // Supprimer l'équipement principal
     items.value = items.value.filter(i => i.id !== assetId)
+
+    // Si l'équipement avait des accessoires, les supprimer aussi
+    if (itemToRemove && itemToRemove.accessoryIds && itemToRemove.accessoryIds.length > 0) {
+      items.value = items.value.filter(i => !itemToRemove.accessoryIds.includes(i.id))
+    }
+
     save()
   }
 

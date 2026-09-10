@@ -911,14 +911,15 @@ async function submitReport() {
             </div>
           </div>
 
-          <!-- ══ Rapports utilisateurs (retours) ══ -->
-          <div v-if="reservation.status === 'returned' || (isAdmin && reservation.assets?.length > 0)"
+          <!-- ══ Rapports utilisateurs (signalements) ══ -->
+          <!-- Visible pour : propriétaire pendant réservation active/returned, admin toujours -->
+          <div v-if="(isOwner && ['active', 'returned'].includes(reservation.status)) || (isAdmin && reservation.assets?.length > 0)"
                class="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div class="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
               <h2 class="font-semibold text-gray-900 flex items-center gap-2">
-                📋 Rapports d'état
+                📋 Signaler un problème
               </h2>
-              <span class="text-xs text-gray-400">Signalez un problème constaté à l'utilisation</span>
+              <span class="text-xs text-gray-400">Signalez un dysfonctionnement constaté à l'utilisation</span>
             </div>
             <div class="divide-y divide-gray-100">
               <div v-for="asset in reservation.assets" :key="'rpt-'+asset.id"

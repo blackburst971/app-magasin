@@ -9,9 +9,43 @@ use App\Models\User;
 use App\Notifications\AssetReportNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class AssetReportController extends Controller
 {
+    /**
+     * Liste admin de tous les signalements.
+     */
+    public function index(Request $request): Response
+    {
+        $query = AssetReport::with(['asset', 'user', 'reservation', 'validatedBy'])
+            ->orderByDesc('created_at');
+
+        // Filtres
+        if ($request->filled('status')) {
+            if ($request->status === 'pending') {
+                $query->where('is_validated', false);
+            } elseif ($request->status === 'validated') {
+                $query->where('is_validated', true);
+            }
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->filled('asset_id')) {
+            $query->where('asset_id', $request->asset_id);
+        }
+
+        $reports = $query->paginate(20)->through(fn($r) => $this->formatReport($r));
+
+        return Inertia::render('AssetReports/Index', [
+            'reports' => $reports,
+            'filters' => $request->only(['status', 'type', 'asset_id']),
+        ]);
+    }
     /**
      * Utilisateur soumet un rapport après retour d'une réservation.
      */
@@ -74,7 +108,7 @@ class AssetReportController extends Controller
             'admin_notes'  => $data['admin_notes'] ?? $report->admin_notes,
         ]);
 
-        return response()->json(['ok' => true, 'report' => $this->formatReport($report->fresh(['user', 'validatedBy', 'reservation']))]);
+        return redirect()->back()->with('success', 'Signalement validé avec succès.');
     }
 
     /**
@@ -92,7 +126,7 @@ class AssetReportController extends Controller
 
         $report->update(array_filter($data, fn($v) => $v !== null));
 
-        return response()->json(['ok' => true, 'report' => $this->formatReport($report->fresh(['user', 'validatedBy', 'reservation']))]);
+        return redirect()->back()->with('success', 'Signalement mis à jour avec succès.');
     }
 
     /**
@@ -101,7 +135,7 @@ class AssetReportController extends Controller
     public function destroy(AssetReport $report)
     {
         $report->delete();
-        return response()->json(['ok' => true]);
+        return redirect()->back()->with('success', 'Signalement supprimé avec succès.');
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────────
@@ -120,6 +154,8 @@ class AssetReportController extends Controller
             'validated_by' => $r->validatedBy ? ['name' => $r->validatedBy->name] : null,
             'created_at'   => $r->created_at->format('d/m/Y H:i'),
             'user'         => $r->user ? ['id' => $r->user->id, 'name' => $r->user->name] : null,
+            'asset'        => $r->asset ? ['id' => $r->asset->id, 'name' => $r->asset->name, 'asset_tag' => $r->asset->asset_tag] : null,
+            'reservation'  => $r->reservation ? ['id' => $r->reservation->id, 'title' => $r->reservation->title] : null,
             'reservation_id' => $r->reservation_id,
         ];
     }

@@ -89,6 +89,10 @@ class EquipmentModelController extends Controller
             $model->propagateImageToAssets();
         }
 
+        if ($model->description) {
+            $model->propagateDescriptionToAssets();
+        }
+
         // Auto-create assets if quantity > 0
         if ($quantity > 0) {
             $this->createAssetsForModel($model, $quantity, $purchaseCost, $purchaseDate);
@@ -133,6 +137,7 @@ class EquipmentModelController extends Controller
                 'status'             => 'available',
                 'is_reservable'      => true,
                 'image'              => $model->image,
+                'public_description' => $model->description,
                 'purchase_cost'      => $purchaseCost,
                 'purchase_date'      => $purchaseDate,
             ]);
@@ -192,6 +197,7 @@ class EquipmentModelController extends Controller
 
         $oldManufacturerId = $model->manufacturer_id;
         $oldCategoryId     = $model->category_id;
+        $oldDescription    = $model->description;
         $model->update($data);
 
         // Propager les champs hérités aux assets liés
@@ -204,6 +210,10 @@ class EquipmentModelController extends Controller
 
         if (($data['category_id'] ?? null) !== $oldCategoryId) {
             $assetUpdate['category_id'] = $model->category_id;
+        }
+
+        if (isset($data['description']) && $data['description'] !== $oldDescription) {
+            $assetUpdate['public_description'] = $model->description;
         }
 
         if ($hasPurchaseData) {

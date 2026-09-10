@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Asset;
+use App\Models\AssetComponent;
 use App\Models\AssetPlaceAssignment;
 use App\Models\Category;
 use App\Models\AssetMovement;
@@ -66,6 +67,7 @@ class AssetController extends Controller
             ->when($request->category,     fn($q) => $q->where('category_id', $request->category))
             ->when($request->status,       fn($q) => $q->where('status', $request->status))
             ->when($request->location,     fn($q) => $q->where('location', $request->location))
+            ->when($request->place,        fn($q) => $q->where('place_id', $request->place))
             // Filtrer par manufacturer_id (entité) OU par chaîne legacy (rétrocompatibilité)
             ->when($request->manufacturer, fn($q) => $q->where(function($q2) use ($request) {
                 $q2->where('manufacturer_id', $request->manufacturer)
@@ -76,9 +78,28 @@ class AssetController extends Controller
         // Nombre d'éléments par page — min:12, max:500
         $perPage = max(12, min(500, (int) ($request->per_page ?? 24)));
 
-        $assets = $query->orderBy('name')->paginate($perPage, ['*'], 'page', (int)($request->page ?? 1))->withQueryString()
+        $assets = $query->with(['accessories.category', 'parentAsset'])->orderBy('name')->paginate($perPage, ['*'], 'page', (int)($request->page ?? 1))->withQueryString()
             ->through(function ($a) use ($isAdmin) {
                 $statusObj = \App\Models\AssetStatus::allCached()->firstWhere('key', $a->status);
+
+                // Préparer les accessoires : si l'équipement a des accessoires (enfants), les afficher
+                // Sinon, si c'est un accessoire lui-même (a un parent), afficher le parent
+                $accessoriesData = [];
+                if ($a->accessories->isNotEmpty()) {
+                    // Cet équipement a des accessoires rattachés - inclure toutes les données pour le panier
+                    $accessoriesData = $a->accessories->map(fn($acc) => [
+                        'id'        => $acc->id,
+                        'name'      => $acc->name,
+                        'asset_tag' => $acc->asset_tag,
+                        'category'  => $acc->category?->name,
+                        'status'    => $acc->status,
+                        'image'     => $this->getImageUrl($acc->image),
+                    ])->values()->toArray();
+                } elseif ($a->parentAsset) {
+                    // Cet équipement est un accessoire d'un autre
+                    $accessoriesData = [['id' => $a->parentAsset->id, 'name' => '↑ ' . $a->parentAsset->name]];
+                }
+
                 return [
                     'id'                    => $a->id,
                     'name'                  => $a->name,
@@ -98,9 +119,8 @@ class AssetController extends Controller
                     'expected_return_at'    => $a->expected_return_at?->format('d/m/Y'),
                     'equipment_model_id'    => $a->equipment_model_id,
                     'model_name'            => $a->equipmentModel?->name,
-                    'accessories'           => $isAdmin
-                        ? $a->accessories->map(fn($acc) => ['id' => $acc->id, 'name' => $acc->name])->values()
-                        : [],
+                    'accessories'           => $accessoriesData,
+                    'condition_note'        => $a->condition_note,
                     'label_to_create'       => $isAdmin ? (bool) $a->label_to_create : null,
                     'label_to_apply'        => $isAdmin ? (bool) $a->label_to_apply  : null,
                 ];
@@ -157,7 +177,7 @@ class AssetController extends Controller
             'places'                 => $places,
             'manufacturers'          => $manufacturers,
             'models'                 => $models,
-            'filters'                => $request->only(['search', 'category', 'status', 'location', 'manufacturer', 'tab', 'model']),
+            'filters'                => $request->only(['search', 'category', 'status', 'location', 'place', 'manufacturer', 'tab', 'model']),
             'reservableFilterActive' => $reservableOn,
         ]);
     }
@@ -666,15 +686,17 @@ class AssetController extends Controller
             $updates['label_flagged_at'] = null;
         }
 
-        // Auto-statut en_attente
+        // Auto-statut en_attente / disponible
         $hadAny  = $asset->label_to_create || $asset->label_to_apply;
         $willHave = $newValue || (bool) $asset->label_to_apply;
         if (!$hadAny && $willHave) {
+            // Cocher une case étiquette : passage en "en_attente"
             $updates['label_previous_status'] = $asset->status;
             $updates['status'] = 'en_attente';
         } elseif ($hadAny && !$willHave) {
-            if ($asset->status === 'en_attente' && $asset->label_previous_status) {
-                $updates['status'] = $asset->label_previous_status;
+            // Décocher la dernière case étiquette : passage automatique en "disponible"
+            if ($asset->status === 'en_attente') {
+                $updates['status'] = 'available';
             }
             $updates['label_previous_status'] = null;
         }
@@ -705,15 +727,17 @@ class AssetController extends Controller
             $updates['label_flagged_at'] = null;
         }
 
-        // Auto-statut en_attente
+        // Auto-statut en_attente / disponible
         $hadAny  = $asset->label_to_create || $asset->label_to_apply;
         $willHave = (bool) $asset->label_to_create || $newValue;
         if (!$hadAny && $willHave) {
+            // Cocher une case étiquette : passage en "en_attente"
             $updates['label_previous_status'] = $asset->status;
             $updates['status'] = 'en_attente';
         } elseif ($hadAny && !$willHave) {
-            if ($asset->status === 'en_attente' && $asset->label_previous_status) {
-                $updates['status'] = $asset->label_previous_status;
+            // Décocher la dernière case étiquette : passage automatique en "disponible"
+            if ($asset->status === 'en_attente') {
+                $updates['status'] = 'available';
             }
             $updates['label_previous_status'] = null;
         }
@@ -869,8 +893,18 @@ class AssetController extends Controller
             $updates['status'] = $request->status;
         if ($request->has('category_id'))
             $updates['category_id'] = $request->category_id ?: null;
-        if ($request->has('location'))
-            $updates['location'] = $request->location ?: null;
+        if ($request->has('location')) {
+            $locationText = $request->location ?: null;
+            $updates['location'] = $locationText;
+
+            // Synchroniser place_id si un lieu correspond au nom
+            if ($locationText) {
+                $place = \App\Models\Place::where('name', $locationText)->first();
+                $updates['place_id'] = $place?->id;
+            } else {
+                $updates['place_id'] = null;
+            }
+        }
         if ($request->has('is_reservable') && $request->is_reservable !== '')
             $updates['is_reservable'] = (bool) $request->is_reservable;
         if ($request->has('equipment_model_id'))
@@ -1169,5 +1203,184 @@ class AssetController extends Controller
              ->update(['parent_asset_id' => null]);
 
         return back()->with('success', 'Accessoire détaché.');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // COMPOSANTS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ajouter un composant à un équipement.
+     */
+    public function storeComponent(Request $request, Asset $asset)
+    {
+        $data = $request->validate([
+            'name'        => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+            'quantity'    => 'required|integer|min:1|max:999',
+        ]);
+
+        // Si l'asset a un modèle, propager le composant à tous les équipements du même modèle
+        if ($asset->equipment_model_id) {
+            $assetsOfSameModel = Asset::where('equipment_model_id', $asset->equipment_model_id)
+                ->orderBy('name')
+                ->get();
+
+            foreach ($assetsOfSameModel as $assetItem) {
+                $maxSort = $assetItem->components()->max('sort_order') ?? 0;
+
+                // Extraire le numéro de l'équipement (ex: "Trépied #1" -> "1")
+                $assetNumber = null;
+                if (preg_match('/#(\d+)/', $assetItem->name, $matches)) {
+                    $assetNumber = $matches[1];
+                }
+
+                // Ajouter le numéro au nom du composant
+                $componentName = $assetNumber ? $data['name'] . ' #' . $assetNumber : $data['name'];
+
+                $assetItem->components()->create([
+                    'name'        => $componentName,
+                    'description' => $data['description'] ?? null,
+                    'quantity'    => $data['quantity'],
+                    'sort_order'  => $maxSort + 1,
+                ]);
+            }
+
+            // Retourner le composant créé pour l'asset courant
+            $component = $asset->components()->latest()->first();
+        } else {
+            // Pas de modèle : créer uniquement pour cet asset
+            $maxSort = $asset->components()->max('sort_order') ?? 0;
+
+            $component = $asset->components()->create([
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? null,
+                'quantity'    => $data['quantity'],
+                'sort_order'  => $maxSort + 1,
+            ]);
+        }
+
+        return response()->json([
+            'id'          => $component->id,
+            'name'        => $component->name,
+            'description' => $component->description,
+            'quantity'    => $component->quantity,
+            'condition'   => $component->condition,
+            'sort_order'  => $component->sort_order,
+        ]);
+    }
+
+    /**
+     * Modifier un composant.
+     */
+    public function updateComponent(Request $request, Asset $asset, AssetComponent $component)
+    {
+        if ($component->asset_id !== $asset->id) {
+            abort(403, 'Ce composant n\'appartient pas à cet équipement.');
+        }
+
+        $data = $request->validate([
+            'name'        => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+            'quantity'    => 'required|integer|min:1|max:999',
+        ]);
+
+        $sortOrder = $component->sort_order;
+
+        // Si l'asset a un modèle, propager la modification à tous les équipements du même modèle
+        if ($asset->equipment_model_id) {
+            $assetsOfSameModel = Asset::where('equipment_model_id', $asset->equipment_model_id)
+                ->orderBy('name')
+                ->get();
+
+            foreach ($assetsOfSameModel as $assetItem) {
+                // Trouver le composant correspondant (même sort_order)
+                $comp = $assetItem->components()
+                    ->where('sort_order', $sortOrder)
+                    ->first();
+
+                if ($comp) {
+                    // Extraire le numéro de l'équipement
+                    $assetNumber = null;
+                    if (preg_match('/#(\d+)/', $assetItem->name, $matches)) {
+                        $assetNumber = $matches[1];
+                    }
+
+                    // Mettre à jour avec le nouveau nom incrémenté
+                    $componentName = $assetNumber ? $data['name'] . ' #' . $assetNumber : $data['name'];
+
+                    $comp->update([
+                        'name'        => $componentName,
+                        'description' => $data['description'] ?? null,
+                        'quantity'    => $data['quantity'],
+                    ]);
+                }
+            }
+
+            $component->refresh();
+        } else {
+            // Pas de modèle : modifier uniquement ce composant
+            $component->update($data);
+        }
+
+        return response()->json([
+            'id'          => $component->id,
+            'name'        => $component->name,
+            'description' => $component->description,
+            'quantity'    => $component->quantity,
+            'condition'   => $component->condition,
+            'sort_order'  => $component->sort_order,
+        ]);
+    }
+
+    /**
+     * Supprimer un composant.
+     */
+    public function destroyComponent(Asset $asset, AssetComponent $component)
+    {
+        if ($component->asset_id !== $asset->id) {
+            abort(403, 'Ce composant n\'appartient pas à cet équipement.');
+        }
+
+        $sortOrder = $component->sort_order;
+
+        // Si l'asset a un modèle, propager la suppression à tous les équipements du même modèle
+        if ($asset->equipment_model_id) {
+            $assetsOfSameModel = Asset::where('equipment_model_id', $asset->equipment_model_id)->get();
+
+            foreach ($assetsOfSameModel as $assetItem) {
+                // Trouver et supprimer le composant correspondant (même sort_order)
+                $comp = $assetItem->components()
+                    ->where('sort_order', $sortOrder)
+                    ->first();
+
+                if ($comp) {
+                    $comp->delete();
+                }
+            }
+        } else {
+            // Pas de modèle : supprimer uniquement ce composant
+            $component->delete();
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Mettre à jour l'état d'un composant.
+     */
+    public function updateComponentCondition(Request $request, Asset $asset, AssetComponent $component)
+    {
+        if ($component->asset_id !== $asset->id) {
+            abort(403, 'Ce composant n\'appartient pas à cet équipement.');
+        }
+
+        $data = $request->validate([
+            'condition' => 'nullable|in:good,damaged,defective,missing',
+        ]);
+
+        $component->update(['condition' => $data['condition']]);
+
+        return response()->json(['success' => true]);
     }
 }

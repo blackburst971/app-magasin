@@ -143,15 +143,25 @@ const storagePlaces = computed(() => placesList.value.filter(p =>  p.is_storage)
                   </Link>
                 </div>
                 <p v-if="place.description" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ place.description }}</p>
-                <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                  <span class="flex items-center gap-1">
+                <div class="flex items-center gap-3 mt-2 text-xs">
+                  <!-- Lien vers tous les équipements de ce lieu -->
+                  <Link v-if="place.assets_count > 0"
+                        :href="route('assets.index', { place: place.id })"
+                        class="flex items-center gap-1 text-gray-600 hover:text-indigo-600 transition font-medium">
                     <CubeIcon class="h-3.5 w-3.5" />
                     {{ place.assets_count }} équipement{{ place.assets_count !== 1 ? 's' : '' }}
+                  </Link>
+                  <span v-else class="flex items-center gap-1 text-gray-400">
+                    <CubeIcon class="h-3.5 w-3.5" />
+                    0 équipement
                   </span>
-                  <span v-if="place.active_assignments_count" class="flex items-center gap-1 text-indigo-600 font-medium">
+                  <!-- Lien vers les affectations formelles -->
+                  <Link v-if="place.active_assignments_count > 0"
+                        :href="route('places.show', place.id)"
+                        class="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 transition font-medium">
                     <MapPinIcon class="h-3.5 w-3.5" />
-                    {{ place.active_assignments_count }} affectation{{ place.active_assignments_count !== 1 ? 's' : '' }} active{{ place.active_assignments_count !== 1 ? 's' : '' }}
-                  </span>
+                    {{ place.active_assignments_count }} affectation{{ place.active_assignments_count !== 1 ? 's' : '' }}
+                  </Link>
                 </div>
                 <p v-if="deleteError[place.id]" class="mt-1 text-xs text-red-600 flex items-center gap-1">
                   <ExclamationTriangleIcon class="h-3.5 w-3.5 flex-shrink-0" /> {{ deleteError[place.id] }}
@@ -200,10 +210,17 @@ const storagePlaces = computed(() => placesList.value.filter(p =>  p.is_storage)
                   </span>
                 </div>
                 <p v-if="place.description" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ place.description }}</p>
-                <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                  <span class="flex items-center gap-1">
+                <div class="flex items-center gap-3 mt-2 text-xs">
+                  <!-- Lien vers tous les équipements de ce lieu -->
+                  <Link v-if="place.assets_count > 0"
+                        :href="route('assets.index', { place: place.id })"
+                        class="flex items-center gap-1 text-gray-600 hover:text-indigo-600 transition font-medium">
                     <CubeIcon class="h-3.5 w-3.5" />
                     {{ place.assets_count }} équipement{{ place.assets_count !== 1 ? 's' : '' }}
+                  </Link>
+                  <span v-else class="flex items-center gap-1 text-gray-400">
+                    <CubeIcon class="h-3.5 w-3.5" />
+                    0 équipement
                   </span>
                 </div>
                 <p v-if="deleteError[place.id]" class="mt-1 text-xs text-red-600 flex items-center gap-1">
@@ -282,12 +299,15 @@ const storagePlaces = computed(() => placesList.value.filter(p =>  p.is_storage)
                         :style="{ backgroundColor: c }"
                         :class="placeForm.color === c ? 'ring-2 ring-offset-2 ring-gray-700 scale-110' : 'hover:scale-110'" />
                 <!-- Couleur personnalisée -->
-                <label class="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 overflow-hidden"
-                       title="Couleur personnalisée"
-                       :style="!PALETTE.includes(placeForm.color) ? { backgroundColor: placeForm.color } : {}">
-                  <input type="color" v-model="placeForm.color" class="opacity-0 w-full h-full absolute cursor-pointer" />
-                  <span v-if="PALETTE.includes(placeForm.color)" class="text-gray-400 text-xs">+</span>
-                </label>
+                <div class="relative">
+                  <button type="button" @click="$refs.colorPicker.click()"
+                          class="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center hover:border-gray-400 transition"
+                          title="Couleur personnalisée"
+                          :style="!PALETTE.includes(placeForm.color) ? { backgroundColor: placeForm.color } : {}">
+                    <span v-if="PALETTE.includes(placeForm.color)" class="text-gray-400 text-xs">+</span>
+                  </button>
+                  <input ref="colorPicker" type="color" v-model="placeForm.color" class="sr-only" />
+                </div>
               </div>
             </div>
 

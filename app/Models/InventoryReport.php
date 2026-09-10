@@ -19,12 +19,16 @@ class InventoryReport extends Model
         'notes',
         'created_by',
         'is_archived',
+        'previous_statuses',
+        'is_draft',
     ];
 
     protected $casts = [
-        'session_date' => 'date',
-        'model_names'  => 'array',
-        'is_archived'  => 'boolean',
+        'session_date'       => 'date',
+        'model_names'        => 'array',
+        'is_archived'        => 'boolean',
+        'previous_statuses'  => 'array',
+        'is_draft'           => 'boolean',
     ];
 
     public function creator(): BelongsTo
