@@ -2,6 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import StatusBadge from '@/Components/StatusBadge.vue'
 import { useCartStore } from '@/stores/cart'
+import { useSelectionStore } from '@/stores/selection'
 import { Link, router, usePage, useForm } from '@inertiajs/vue3'
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import axios from 'axios'
@@ -11,11 +12,13 @@ import {
   MapPinIcon, TagIcon, BuildingStorefrontIcon,
   ListBulletIcon, Squares2X2Icon, PhotoIcon, XMarkIcon,
   Cog6ToothIcon, EyeSlashIcon, Bars3Icon, WrenchScrewdriverIcon,
+  DocumentArrowDownIcon, TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 
-const page    = usePage()
-const cart    = useCartStore()
-const isAdmin = computed(() => page.props.auth.user?.is_admin)
+const page      = usePage()
+const cart      = useCartStore()
+const selection = useSelectionStore()
+const isAdmin   = computed(() => page.props.auth.user?.is_admin)
 
 // Statuts dynamiques triés par sort_order
 // Les admins voient tous les statuts, les utilisateurs seulement ceux marqués user_visible
@@ -74,9 +77,8 @@ onMounted(() => {
   }
 })
 
-// Sauvegarder les filtres à chaque changement + vider la sélection
+// Sauvegarder les filtres à chaque changement (ne PAS vider la sélection)
 watch([search, selectedCategory, selectedStatus, selectedLocation, selectedPlace, selectedMfr], () => {
-  selectedIds.value = []
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       search:       search.value,
@@ -170,10 +172,9 @@ const visiblePages = computed(() => {
   return [...pages].sort((a, b) => a - b)
 })
 
-// Réinitialiser le per_page quand les filtres changent + vider la sélection
+// Réinitialiser le per_page quand les filtres changent (ne PAS vider la sélection)
 function resetAndFilter(extra = {}) {
   currentPerPage.value = 24
-  selectedIds.value = []
   applyFilters({ per_page: 24, ...extra })
 }
 
@@ -443,12 +444,13 @@ function statusColor(status) {
 }
 
 // ═══════════════════════════════════════
-// Sélection multiple (admin)
+// Sélection multiple (tous utilisateurs)
 // ═══════════════════════════════════════
-const selectedIds         = ref([])
 const showBulkDeleteModal = ref(false)
 const showBulkEditModal   = ref(false)
 const bulkProcessing      = ref(false)
+const exportingPdf        = ref(false)
+const exportingExcel      = ref(false)
 
 const bulkEditForm = ref({
   updateStatus:       false, status:             '',
@@ -477,25 +479,21 @@ const bulkPlaceNeedsFormalAssign = computed(() =>
 )
 
 const allOnPageSelected = computed(() => {
+  if (!props.assets?.data) return false
   const pageIds = props.assets.data.map(a => a.id)
-  return pageIds.length > 0 && pageIds.every(id => selectedIds.value.includes(id))
+  return pageIds.length > 0 && pageIds.every(id => selection.isSelected(id))
 })
 
 function toggleSelectAll() {
-  const pageIds = props.assets.data.map(a => a.id)
   if (allOnPageSelected.value) {
-    selectedIds.value = selectedIds.value.filter(id => !pageIds.includes(id))
+    selection.deselectAll(props.assets.data)
   } else {
-    selectedIds.value = [...new Set([...selectedIds.value, ...pageIds])]
+    selection.selectAll(props.assets.data)
   }
 }
 
-function toggleSelect(id) {
-  if (selectedIds.value.includes(id)) {
-    selectedIds.value = selectedIds.value.filter(i => i !== id)
-  } else {
-    selectedIds.value = [...selectedIds.value, id]
-  }
+function toggleSelect(asset) {
+  selection.toggleAsset(asset)
 }
 
 function openBulkEdit() {
@@ -515,8 +513,8 @@ function openBulkEdit() {
 
 function executeBulkDelete() {
   bulkProcessing.value = true
-  router.post(route('assets.bulk-delete'), { ids: [...selectedIds.value] }, {
-    onSuccess: () => { showBulkDeleteModal.value = false; selectedIds.value = [] },
+  router.post(route('assets.bulk-delete'), { ids: [...selection.selectedIds] }, {
+    onSuccess: () => { showBulkDeleteModal.value = false; selection.clearSelection() },
     onFinish:  () => { bulkProcessing.value = false },
   })
 }
@@ -532,7 +530,7 @@ function executeBulkUpdate() {
 
     const doAssign = () => {
       const payload = {
-        ids:      [...selectedIds.value],
+        ids:      [...selection.selectedIds],
         place_id: bulkEditForm.value.place_id,
         notes:    bulkEditForm.value.assignNotes || null,
         return_expected_at: bulkEditForm.value.assignReturn
@@ -540,13 +538,13 @@ function executeBulkUpdate() {
           : null,
       }
       router.post(route('assets.bulk-assign-place'), payload, {
-        onSuccess: () => { showBulkEditModal.value = false; selectedIds.value = [] },
+        onSuccess: () => { showBulkEditModal.value = false; selection.clearSelection() },
         onFinish:  () => { bulkProcessing.value = false },
       })
     }
 
     if (hasOtherUpdates) {
-      const otherPayload = { ids: [...selectedIds.value] }
+      const otherPayload = { ids: [...selection.selectedIds] }
       if (bulkEditForm.value.updateStatus)       otherPayload.status             = bulkEditForm.value.status
       if (bulkEditForm.value.updateCategory)     otherPayload.category_id        = bulkEditForm.value.category_id || null
       if (bulkEditForm.value.updateLocation)     otherPayload.location           = bulkEditForm.value.location
@@ -567,7 +565,7 @@ function executeBulkUpdate() {
   }
 
   // ── Cas standard ─────────────────────────────────────────────────────────
-  const payload = { ids: [...selectedIds.value] }
+  const payload = { ids: [...selection.selectedIds] }
   if (bulkEditForm.value.updateStatus)       payload.status             = bulkEditForm.value.status
   if (bulkEditForm.value.updateCategory)     payload.category_id        = bulkEditForm.value.category_id || null
   if (bulkEditForm.value.updateLocation)     payload.location           = bulkEditForm.value.location
@@ -579,7 +577,7 @@ function executeBulkUpdate() {
   }
   bulkProcessing.value = true
   router.post(route('assets.bulk-update'), payload, {
-    onSuccess: () => { showBulkEditModal.value = false; selectedIds.value = [] },
+    onSuccess: () => { showBulkEditModal.value = false; selection.clearSelection() },
     onFinish:  () => { bulkProcessing.value = false },
   })
 }
@@ -606,12 +604,12 @@ function openBulkLabel() {
 }
 
 function executeBulkLabel() {
-  const payload = { ids: [...selectedIds.value] }
+  const payload = { ids: [...selection.selectedIds] }
   if (bulkLabelForm.value.updateLabelToCreate) payload.label_to_create = bulkLabelForm.value.label_to_create
   if (bulkLabelForm.value.updateLabelToApply)  payload.label_to_apply  = bulkLabelForm.value.label_to_apply
   bulkLabelProcessing.value = true
   router.post(route('assets.bulk-label'), payload, {
-    onSuccess: () => { showBulkLabelModal.value = false; selectedIds.value = [] },
+    onSuccess: () => { showBulkLabelModal.value = false; selection.clearSelection() },
     onFinish:  () => { bulkLabelProcessing.value = false },
   })
 }
@@ -633,12 +631,194 @@ function executeBulkReserve() {
   bulkReserveErrors.value = {}
   router.post(route('reservations.store'), {
     ...bulkReserveForm.value,
-    asset_ids: [...selectedIds.value],
+    asset_ids: [...selection.selectedIds],
   }, {
-    onSuccess: () => { showBulkReserveModal.value = false; selectedIds.value = [] },
+    onSuccess: () => { showBulkReserveModal.value = false; selection.clearSelection() },
     onError:   (errors) => { bulkReserveErrors.value = errors },
     onFinish:  () => { bulkReserveProcessing.value = false },
   })
+}
+
+// ─── Export de la sélection ──────────────────────────────────────────────────
+const showExportModal = ref(false)
+const exportFormat = ref('pdf')
+const exportGroupByModel = ref(false)
+const exportTitle = ref('Liste des Équipements')
+
+// Colonnes disponibles selon le rôle
+const availableExportColumns = computed(() => {
+  if (isAdmin.value) {
+    return [
+      { key: 'name', label: 'Nom' },
+      { key: 'asset_tag', label: 'Tag' },
+      { key: 'serial', label: 'N° Série' },
+      { key: 'category', label: 'Catégorie' },
+      { key: 'model', label: 'Modèle' },
+      { key: 'manufacturer', label: 'Fabricant' },
+      { key: 'location', label: 'Emplacement' },
+      { key: 'status', label: 'Statut' },
+      { key: 'checked_out_to', label: 'Affecté à' },
+    ]
+  } else {
+    // Non-admin : colonnes fixes (pas de sélection)
+    return [
+      { key: 'name', label: 'Nom' },
+      { key: 'category', label: 'Catégorie' },
+      { key: 'model', label: 'Modèle' },
+      { key: 'manufacturer', label: 'Fabricant' },
+    ]
+  }
+})
+
+const exportColumns = computed(() => {
+  // Pour les non-admin, toutes les colonnes disponibles sont sélectionnées (pas de choix)
+  if (!isAdmin.value) {
+    return availableExportColumns.value.map(col => col.key)
+  }
+  // Pour les admin, colonnes configurables
+  return []
+})
+
+// Colonnes sélectionnées pour admin (checkboxes)
+const exportColumnsAdmin = ref({
+  name: true,
+  asset_tag: true,
+  serial: true,
+  category: true,
+  model: true,
+  manufacturer: true,
+  location: true,
+  status: true,
+  checked_out_to: false,
+})
+
+function openExportModal(format) {
+  if (selection.isEmpty) {
+    alert('Veuillez sélectionner au moins un équipement')
+    return
+  }
+  exportFormat.value = format
+  showExportModal.value = true
+}
+
+function executeExport() {
+  const ids = [...selection.selectedIds]
+
+  // Colonnes sélectionnées selon le rôle
+  const selectedColumns = isAdmin.value
+    ? Object.keys(exportColumnsAdmin.value).filter(key => exportColumnsAdmin.value[key])
+    : exportColumns.value
+
+  if (exportFormat.value === 'pdf') {
+    // Rafraîchir le token CSRF avant l'export (évite l'erreur 419)
+    axios.get('/csrf-token').then(response => {
+      // Export PDF via POST (avec option de regroupement)
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = route('assets.export-pdf')
+      form.target = '_blank'
+
+      // CSRF Token (rafraîchi)
+      const csrfInput = document.createElement('input')
+      csrfInput.type = 'hidden'
+      csrfInput.name = '_token'
+      csrfInput.value = response.data.token
+      form.appendChild(csrfInput)
+
+    // IDs
+    ids.forEach(id => {
+      const input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = 'ids[]'
+      input.value = id
+      form.appendChild(input)
+    })
+
+    // Columns
+    selectedColumns.forEach(col => {
+      const input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = 'columns[]'
+      input.value = col
+      form.appendChild(input)
+    })
+
+    // Title
+    if (exportTitle.value && exportTitle.value.trim()) {
+      const titleInput = document.createElement('input')
+      titleInput.type = 'hidden'
+      titleInput.name = 'title'
+      titleInput.value = exportTitle.value.trim()
+      form.appendChild(titleInput)
+    }
+
+    // Group by model option
+    if (exportGroupByModel.value) {
+      const groupInput = document.createElement('input')
+      groupInput.type = 'hidden'
+      groupInput.name = 'groupByModel'
+      groupInput.value = '1'
+      form.appendChild(groupInput)
+    }
+
+      document.body.appendChild(form)
+      form.submit()
+      document.body.removeChild(form)
+
+      showExportModal.value = false
+    }).catch(error => {
+      console.error('Erreur lors du rafraîchissement du token CSRF:', error)
+      alert('Erreur lors de l\'export. Veuillez réessayer.')
+    })
+  } else {
+    // Export CSV/Excel via GET (ancien système)
+    const url = route('assets.export-selection', {
+      format: exportFormat.value,
+      ids: ids.join(','),
+      columns: selectedColumns.join(',')
+    })
+    window.open(url, '_blank')
+    showExportModal.value = false
+  }
+}
+
+// ─── Mise à jour rapide inline (admin only) ──────────────────────────────────
+function quickUpdateField(assetId, field, value) {
+  axios.patch(route('assets.quick-update', assetId), { field, value })
+    .then(response => {
+      // Mettre à jour l'asset dans la liste
+      const asset = props.assets.data.find(a => a.id === assetId)
+      if (asset && response.data.asset) {
+        Object.assign(asset, response.data.asset)
+      }
+    })
+    .catch(error => {
+      console.error('Erreur lors de la mise à jour:', error)
+      alert(error.response?.data?.error || 'Erreur lors de la mise à jour')
+    })
+}
+
+// Palette de couleurs pour les statuts (assurer que Tailwind ne les purge pas)
+const statusColorMap = {
+  green:  { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-300'  },
+  blue:   { bg: 'bg-blue-100',   text: 'text-blue-800',   border: 'border-blue-300'   },
+  purple: { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300' },
+  yellow: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+  orange: { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
+  red:    { bg: 'bg-red-100',    text: 'text-red-800',    border: 'border-red-300'    },
+  gray:   { bg: 'bg-gray-100',   text: 'text-gray-800',   border: 'border-gray-300'   },
+  indigo: { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
+  pink:   { bg: 'bg-pink-100',   text: 'text-pink-800',   border: 'border-pink-300'   },
+  teal:   { bg: 'bg-teal-100',   text: 'text-teal-800',   border: 'border-teal-300'   },
+}
+
+// Obtenir les classes de couleur pour un statut
+function getStatusClasses(statusKey) {
+  const assetStatus = Object.values(page.props.assetStatuses || {}).find(s => s.key === statusKey)
+  if (!assetStatus) return 'bg-gray-100 text-gray-800 border-gray-300'
+
+  const colors = statusColorMap[assetStatus.color] || statusColorMap.gray
+  return `${colors.bg} ${colors.text} ${colors.border}`
 }
 
 </script>
@@ -720,7 +900,7 @@ function executeBulkReserve() {
         </span>
       </div>
 
-      <!-- ═══ Barre d'actions groupées (admin, sélection active) ═══ -->
+      <!-- ═══ Barre d'actions groupées (tous utilisateurs, sélection active) ═══ -->
       <Transition
         enter-active-class="transition duration-200 ease-out"
         enter-from-class="opacity-0 -translate-y-2"
@@ -728,33 +908,50 @@ function executeBulkReserve() {
         leave-active-class="transition duration-150 ease-in"
         leave-from-class="opacity-100 translate-y-0"
         leave-to-class="opacity-0 -translate-y-2">
-        <div v-if="isAdmin && selectedIds.length > 0"
+        <div v-if="selection.count > 0"
              class="mb-4 flex items-center gap-3 bg-blue-600 text-white rounded-xl px-5 py-3 shadow-lg">
           <div class="flex items-center gap-2">
-            <span class="font-bold text-lg">{{ selectedIds.length }}</span>
+            <span class="font-bold text-lg">{{ selection.count }}</span>
             <span class="text-blue-200 text-sm">équipement(s) sélectionné(s)</span>
           </div>
-          <button @click="selectedIds = []"
+          <button @click="selection.clearSelection()"
                   class="text-blue-300 hover:text-white text-xs underline ml-1">
             Tout désélectionner
           </button>
           <div class="ml-auto flex gap-2">
-            <button @click="openBulkReserve"
-                    class="flex items-center gap-1.5 bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 transition">
-              📅 Réserver ({{ selectedIds.length }})
+            <!-- Export PDF (tous) -->
+            <button @click="openExportModal('pdf')"
+                    :disabled="exportingPdf"
+                    class="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50">
+              <DocumentArrowDownIcon class="w-4 h-4" />
+              {{ exportingPdf ? 'Export...' : 'PDF' }}
             </button>
-            <button @click="openBulkLabel"
-                    class="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 transition">
-              🏷 Étiquettes
+            <!-- Export Excel (tous) -->
+            <button @click="openExportModal('excel')"
+                    :disabled="exportingExcel"
+                    class="flex items-center gap-1.5 bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 transition disabled:opacity-50">
+              <TableCellsIcon class="w-4 h-4" />
+              {{ exportingExcel ? 'Export...' : 'Excel' }}
             </button>
-            <button @click="openBulkEdit"
-                    class="flex items-center gap-1.5 bg-white text-blue-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition">
-              ✏️ Modifier ({{ selectedIds.length }})
-            </button>
-            <button @click="showBulkDeleteModal = true"
-                    class="flex items-center gap-1.5 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition">
-              🗑 Supprimer ({{ selectedIds.length }})
-            </button>
+            <!-- Actions admin uniquement -->
+            <template v-if="isAdmin">
+              <button @click="openBulkReserve"
+                      class="flex items-center gap-1.5 bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-600 transition">
+                📅 Réserver
+              </button>
+              <button @click="openBulkLabel"
+                      class="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 transition">
+                🏷 Étiquettes
+              </button>
+              <button @click="openBulkEdit"
+                      class="flex items-center gap-1.5 bg-white text-blue-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition">
+                ✏️ Modifier
+              </button>
+              <button @click="showBulkDeleteModal = true"
+                      class="flex items-center gap-1.5 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition">
+                🗑 Supprimer
+              </button>
+            </template>
           </div>
         </div>
       </Transition>
@@ -834,7 +1031,7 @@ function executeBulkReserve() {
                class="bg-white rounded-xl border shadow-sm overflow-hidden hover:shadow-md transition group"
                :class="[
                  { 'opacity-60': isAdmin && !isReservable(asset) },
-                 isAdmin && selectedIds.includes(asset.id) ? 'border-blue-400 ring-2 ring-blue-200' : '',
+                 selection.isSelected(asset.id) ? 'border-blue-400 ring-2 ring-blue-200' : '',
                ]">
 
             <!-- Image -->
@@ -843,14 +1040,14 @@ function executeBulkReserve() {
               <div v-else class="w-full h-full flex items-center justify-center">
                 <span class="text-5xl opacity-40">📦</span>
               </div>
-              <!-- Checkbox admin (top-left) -->
-              <div v-if="isAdmin" class="absolute top-2 left-2 z-10">
-                <input type="checkbox" :checked="selectedIds.includes(asset.id)"
-                       @change="toggleSelect(asset.id)"
+              <!-- Checkbox pour tous (top-left) -->
+              <div class="absolute top-2 left-2 z-10">
+                <input type="checkbox" :checked="selection.isSelected(asset.id)"
+                       @change="toggleSelect(asset)"
                        class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shadow bg-white/90" />
               </div>
               <!-- Status badge overlay -->
-              <div :class="['absolute top-2', isAdmin ? 'left-9' : 'left-2']">
+              <div class="absolute top-2 left-9">
                 <span :class="['text-xs font-semibold px-2 py-1 rounded-full', statusColor(asset.status)]">
                   {{ statusLabel(asset.status) }}
                 </span>
@@ -951,12 +1148,12 @@ function executeBulkReserve() {
                       class="border-b hover:bg-gray-50 transition"
                       :class="[
                         { 'opacity-60': isAdmin && !isReservable(asset) },
-                        selectedIds.includes(asset.id) ? 'bg-blue-50' : '',
+                        selection.isSelected(asset.id) ? 'bg-blue-50' : '',
                       ]">
                     <!-- Checkbox sélection -->
                     <td class="px-3 py-3 w-10 text-center">
-                      <input type="checkbox" :checked="selectedIds.includes(asset.id)"
-                             @change="toggleSelect(asset.id)"
+                      <input type="checkbox" :checked="selection.isSelected(asset.id)"
+                             @change="toggleSelect(asset)"
                              class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
                     </td>
                     <td class="px-4 py-3">
@@ -1055,14 +1252,14 @@ function executeBulkReserve() {
                       class="border-b hover:bg-gray-50 transition"
                       :class="[
                         { 'opacity-60': !isReservable(asset) },
-                        selectedIds.includes(asset.id) ? 'bg-blue-50 hover:bg-blue-100' : '',
+                        selection.isSelected(asset.id) ? 'bg-blue-50 hover:bg-blue-100' : '',
                       ]">
 
                     <!-- Checkbox fixe gauche -->
                     <td class="sticky left-0 z-10 px-3 py-3 w-10 text-center border-r border-gray-200"
-                        :class="selectedIds.includes(asset.id) ? 'bg-blue-50' : 'bg-white'">
-                      <input type="checkbox" :checked="selectedIds.includes(asset.id)"
-                             @change="toggleSelect(asset.id)"
+                        :class="selection.isSelected(asset.id) ? 'bg-blue-50' : 'bg-white'">
+                      <input type="checkbox" :checked="selection.isSelected(asset.id)"
+                             @change="toggleSelect(asset)"
                              class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
                     </td>
 
@@ -1087,7 +1284,16 @@ function executeBulkReserve() {
                       </td>
                       <!-- Catégorie -->
                       <td v-else-if="col.key==='category'" class="px-4 py-3">
-                        <button v-if="asset.category" @click="filterByCategory(asset.category_id)"
+                        <select v-if="isAdmin"
+                                :value="asset.category_id || ''"
+                                @change="quickUpdateField(asset.id, 'category_id', $event.target.value || null)"
+                                class="text-sm border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer">
+                          <option value="">— Aucune —</option>
+                          <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                            {{ cat.name }}
+                          </option>
+                        </select>
+                        <button v-else-if="asset.category" @click="filterByCategory(asset.category_id)"
                                 class="text-gray-600 hover:text-blue-600 hover:underline text-left text-sm whitespace-nowrap">
                           {{ asset.category }}
                         </button>
@@ -1104,20 +1310,49 @@ function executeBulkReserve() {
                       </td>
                       <!-- Emplacement -->
                       <td v-else-if="col.key==='location'" class="px-4 py-3">
-                        <button v-if="asset.location" @click="filterByLocation(asset.location)"
+                        <select v-if="isAdmin"
+                                :value="asset.location || ''"
+                                @change="quickUpdateField(asset.id, 'location', $event.target.value || null)"
+                                class="text-sm border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer">
+                          <option value="">— Aucun —</option>
+                          <option v-for="loc in locations" :key="loc" :value="loc">
+                            {{ loc }}
+                          </option>
+                        </select>
+                        <button v-else-if="asset.location" @click="filterByLocation(asset.location)"
                                 class="text-gray-600 hover:text-blue-600 hover:underline text-sm flex items-center gap-1 whitespace-nowrap">
                           <MapPinIcon class="w-3 h-3 text-gray-400" /> {{ asset.location }}
                         </button>
                         <span v-else class="text-gray-300 text-xs">—</span>
                       </td>
                       <!-- Fabricant -->
-                      <td v-else-if="col.key==='manufacturer'" class="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                        {{ asset.manufacturer || '—' }}
+                      <td v-else-if="col.key==='manufacturer'" class="px-4 py-3">
+                        <select v-if="isAdmin"
+                                :value="asset.manufacturer_id || ''"
+                                @change="quickUpdateField(asset.id, 'manufacturer_id', $event.target.value || null)"
+                                class="text-sm border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer">
+                          <option value="">— Aucun —</option>
+                          <option v-for="mfr in manufacturers" :key="mfr.id" :value="mfr.id">
+                            {{ mfr.name }}
+                          </option>
+                        </select>
+                        <span v-else class="text-sm text-gray-600 whitespace-nowrap">
+                          {{ asset.manufacturer || '—' }}
+                        </span>
                       </td>
                       <!-- Statut -->
                       <td v-else-if="col.key==='status'" class="px-4 py-3">
                         <div class="flex items-center gap-1.5">
-                          <StatusBadge :status="asset.status" type="asset" />
+                          <select v-if="isAdmin"
+                                  :value="asset.status"
+                                  @change="quickUpdateField(asset.id, 'status', $event.target.value)"
+                                  :class="['text-xs font-semibold border-2 rounded-full px-3 py-1 pr-8 cursor-pointer focus:ring-2 focus:ring-blue-500 appearance-none transition-colors', getStatusClasses(asset.status)]"
+                                  style="background-position: right 0.5rem center; background-size: 1.25em 1.25em; background-repeat: no-repeat; background-image: url(&quot;data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23374151' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e&quot;);">
+                            <option v-for="status in assetStatuses" :key="status.key" :value="status.key">
+                              {{ status.label }}
+                            </option>
+                          </select>
+                          <StatusBadge v-else :status="asset.status" type="asset" />
                           <span v-if="asset.label_to_create || asset.label_to_apply"
                                 class="text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 whitespace-nowrap"
                                 :title="asset.label_to_create && asset.label_to_apply ? 'Étiquette à créer et à coller' : asset.label_to_create ? 'Étiquette à créer' : 'Étiquette à coller'">
@@ -1202,7 +1437,7 @@ function executeBulkReserve() {
 
                     <!-- Actions fixes droite -->
                     <td class="sticky right-0 z-10 px-4 py-3 border-l border-gray-200"
-                        :class="selectedIds.includes(asset.id) ? 'bg-blue-50' : 'bg-white'">
+                        :class="selection.isSelected(asset.id) ? 'bg-blue-50' : 'bg-white'">
                       <div class="flex gap-2 flex-nowrap whitespace-nowrap">
                         <Link :href="route('assets.show', asset.id)"
                               class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
@@ -1234,6 +1469,10 @@ function executeBulkReserve() {
             <table v-else class="w-full text-sm">
               <thead>
                 <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+                  <th class="px-3 py-3 w-10 text-center">
+                    <input type="checkbox" :checked="allOnPageSelected" @change="toggleSelectAll"
+                           class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                  </th>
                   <th class="px-4 py-3 text-left">Équipement</th>
                   <th class="px-4 py-3 text-left hidden md:table-cell">Tag</th>
                   <th class="px-4 py-3 text-left hidden lg:table-cell">Catégorie</th>
@@ -1245,7 +1484,14 @@ function executeBulkReserve() {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="asset in assets.data" :key="asset.id" class="border-b hover:bg-gray-50 transition">
+                <tr v-for="asset in assets.data" :key="asset.id"
+                    class="border-b hover:bg-gray-50 transition"
+                    :class="selection.isSelected(asset.id) ? 'bg-blue-50 hover:bg-blue-100' : ''">
+                  <td class="px-3 py-3 w-10 text-center">
+                    <input type="checkbox" :checked="selection.isSelected(asset.id)"
+                           @change="toggleSelect(asset)"
+                           class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                  </td>
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-3">
                       <div class="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
@@ -1572,7 +1818,7 @@ function executeBulkReserve() {
     <!-- ═══ Modal : suppression en masse ═══ -->
     <div v-if="showBulkDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-        <h3 class="font-bold text-lg mb-2">🗑 Supprimer {{ selectedIds.length }} équipement(s)</h3>
+        <h3 class="font-bold text-lg mb-2">🗑 Supprimer {{ selection.count }} équipement(s)</h3>
         <div class="mb-5 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
           ⚠️ Cette action est <strong>irréversible</strong>. Les équipements sélectionnés seront
           définitivement supprimés de l'inventaire.
@@ -1584,7 +1830,7 @@ function executeBulkReserve() {
           </button>
           <button @click="executeBulkDelete" :disabled="bulkProcessing"
             class="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-            {{ bulkProcessing ? 'Suppression…' : `🗑 Supprimer ${selectedIds.length} équipement(s)` }}
+            {{ bulkProcessing ? 'Suppression…' : `🗑 Supprimer ${selection.count} équipement(s)` }}
           </button>
         </div>
       </div>
@@ -1595,7 +1841,7 @@ function executeBulkReserve() {
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
         <!-- En-tête fixe -->
         <div class="flex items-center justify-between px-6 pt-6 pb-2 flex-shrink-0">
-          <h3 class="font-bold text-lg">✏️ Modifier {{ selectedIds.length }} équipement(s)</h3>
+          <h3 class="font-bold text-lg">✏️ Modifier {{ selection.count }} équipement(s)</h3>
           <button @click="showBulkEditModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <p class="text-sm text-gray-500 px-6 pb-4 flex-shrink-0">
@@ -1799,10 +2045,10 @@ function executeBulkReserve() {
               bulkPlaceNeedsFormalAssign ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700']">
             <template v-if="bulkProcessing">Traitement…</template>
             <template v-else-if="bulkPlaceNeedsFormalAssign">
-              📍 Affecter {{ selectedIds.length }} équipement(s) à « {{ bulkSelectedPlace?.name }} »
+              📍 Affecter {{ selection.count }} équipement(s) à « {{ bulkSelectedPlace?.name }} »
             </template>
             <template v-else>
-              ✏️ Appliquer à {{ selectedIds.length }} équipement(s)
+              ✏️ Appliquer à {{ selection.count }} équipement(s)
             </template>
           </button>
         </div>
@@ -1820,17 +2066,17 @@ function executeBulkReserve() {
         <!-- Équipements sélectionnés -->
         <div class="mb-4 bg-blue-50 border border-blue-100 rounded-lg p-3">
           <p class="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">
-            {{ selectedIds.length }} équipement(s) inclus dans la réservation
+            {{ selection.count }} équipement(s) inclus dans la réservation
           </p>
           <ul class="space-y-1 max-h-32 overflow-y-auto">
-            <li v-for="asset in assets.data.filter(a => selectedIds.includes(a.id))" :key="asset.id"
+            <li v-for="asset in assets.data.filter(a => selection.isSelected(a.id))" :key="asset.id"
                 class="flex items-center gap-2 text-xs text-gray-700">
               <span class="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
               <span class="font-mono text-gray-400">[{{ asset.asset_tag }}]</span>
               {{ asset.name }}
             </li>
           </ul>
-          <p v-if="selectedIds.length > assets.data.filter(a => selectedIds.includes(a.id)).length"
+          <p v-if="selection.count > assets.data.filter(a => selection.isSelected(a.id)).length"
              class="text-xs text-orange-600 mt-1">
             ⚠️ Certains équipements sélectionnés ne sont pas visibles sur cette page.
           </p>
@@ -1897,7 +2143,7 @@ function executeBulkReserve() {
           <button @click="executeBulkReserve"
                   :disabled="bulkReserveProcessing || !bulkReserveForm.title || !bulkReserveForm.start_date || !bulkReserveForm.end_date"
                   class="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-            {{ bulkReserveProcessing ? 'Création en cours…' : `📅 Créer la réservation (${selectedIds.length})` }}
+            {{ bulkReserveProcessing ? 'Création en cours…' : `📅 Créer la réservation (${selection.count})` }}
           </button>
         </div>
       </div>
@@ -1907,7 +2153,7 @@ function executeBulkReserve() {
     <div v-if="showBulkLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="font-bold text-lg">🏷 Étiquettes — {{ selectedIds.length }} équipement(s)</h3>
+          <h3 class="font-bold text-lg">🏷 Étiquettes — {{ selection.count }} équipement(s)</h3>
           <button @click="showBulkLabelModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <p class="text-sm text-gray-500 mb-5">
@@ -1976,7 +2222,7 @@ function executeBulkReserve() {
           <button @click="executeBulkLabel"
             :disabled="bulkLabelProcessing || (!bulkLabelForm.updateLabelToCreate && !bulkLabelForm.updateLabelToApply)"
             class="flex-1 bg-amber-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50">
-            {{ bulkLabelProcessing ? 'Mise à jour…' : `🏷 Appliquer à ${selectedIds.length} équipement(s)` }}
+            {{ bulkLabelProcessing ? 'Mise à jour…' : `🏷 Appliquer à ${selection.count} équipement(s)` }}
           </button>
         </div>
       </div>
@@ -2267,6 +2513,87 @@ function executeBulkReserve() {
           <button @click="confirmAddCheckedOut"
                   class="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-medium transition">
             Ajouter quand même
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Modal : Configuration de l'export ═══ -->
+    <div v-if="showExportModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg">{{ exportFormat === 'pdf' ? '📄' : '📊' }} Configuration de l'export</h3>
+          <button @click="showExportModal = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+
+        <p class="text-sm text-gray-500 mb-4">
+          {{ selection.count }} équipement(s) sélectionné(s)
+        </p>
+
+        <!-- Titre personnalisé -->
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Titre du document</label>
+          <input type="text" v-model="exportTitle"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                 placeholder="Ex: Liste des Équipements Multimédia" />
+        </div>
+
+        <!-- Colonnes (admin uniquement) -->
+        <div v-if="isAdmin" class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Colonnes à inclure</label>
+          <div class="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
+            <label v-for="col in availableExportColumns" :key="col.key"
+                   class="flex items-center gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer transition">
+              <input type="checkbox" v-model="exportColumnsAdmin[col.key]"
+                     class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+              <span class="text-sm text-gray-700">{{ col.label }}</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Colonnes fixes pour non-admin -->
+        <div v-else class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Colonnes incluses</label>
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <p class="text-xs text-gray-600 mb-2">Colonnes fixes pour cet export :</p>
+            <div class="flex flex-wrap gap-2">
+              <span v-for="col in availableExportColumns" :key="col.key"
+                    class="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                {{ col.label }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Option de regroupement par modèle (PDF uniquement) -->
+        <div v-if="exportFormat === 'pdf'" class="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" v-model="exportGroupByModel"
+                   class="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+            <div>
+              <span class="text-sm font-semibold text-blue-900">Grouper par modèle</span>
+              <p class="text-xs text-blue-700 mt-1">
+                Les équipements du même modèle seront regroupés avec leur quantité.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div class="flex gap-3">
+          <button @click="showExportModal = false"
+                  class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+            Annuler
+          </button>
+          <button @click="executeExport"
+                  :disabled="isAdmin && Object.values(exportColumnsAdmin).filter(v => v).length === 0"
+                  class="flex-1 py-2 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
+                  :class="exportFormat === 'pdf' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'">
+            <template v-if="exportFormat === 'pdf'">
+              📄 Exporter en PDF
+            </template>
+            <template v-else>
+              📊 Exporter en Excel
+            </template>
           </button>
         </div>
       </div>

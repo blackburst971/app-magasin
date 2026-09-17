@@ -107,6 +107,12 @@ class Asset extends Model
         return $this->hasOne(Computer::class);
     }
 
+    /** Périphérique IP lié à cet équipement */
+    public function ipDevice()
+    {
+        return $this->hasOne(IpDevice::class);
+    }
+
     /** Composants de cet équipement (câbles, accessoires, notices…) */
     public function components()
     {

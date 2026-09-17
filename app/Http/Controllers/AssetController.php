@@ -20,6 +20,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class AssetController extends Controller
 {
@@ -144,7 +145,10 @@ class AssetController extends Controller
             ->groupBy('location')
             ->selectRaw('location, count(*) as asset_count')
             ->orderBy('location')
-            ->get();
+            ->get()
+            ->pluck('location')
+            ->values()
+            ->toArray();
 
         // Lieux formels (places) pour le tab Lieux — source unique partagée avec Attribution
         $places = \App\Models\Place::withCount('activeAssignments')
@@ -541,6 +545,81 @@ class AssetController extends Controller
         }
 
         return redirect()->route('assets.show', $asset)->with('success', 'Équipement mis à jour.');
+    }
+
+    /**
+     * Mise à jour rapide d'un champ depuis la liste (admin only).
+     * Permet de modifier status, category_id, place_id, manufacturer_id, equipment_model_id
+     */
+    public function quickUpdate(Request $request, Asset $asset)
+    {
+        $data = $request->validate([
+            'field'    => 'required|in:status,category_id,location,manufacturer_id,equipment_model_id',
+            'value'    => 'nullable|string|max:255',
+        ]);
+
+        $field = $data['field'];
+        $value = $data['value'];
+
+        // Validation spécifique par champ
+        if ($field === 'status') {
+            $validStatuses = \App\Models\AssetStatus::allCached()->pluck('key')->toArray();
+            if (!in_array($value, $validStatuses)) {
+                return response()->json(['error' => 'Statut invalide'], 422);
+            }
+
+            // Enregistrer le mouvement de changement de statut
+            $oldStatus = $asset->status;
+            $asset->update(['status' => $value]);
+
+            AssetMovement::create([
+                'asset_id' => $asset->id,
+                'user_id'  => $request->user()->id,
+                'action'   => 'status_change',
+                'notes'    => "Statut changé de {$oldStatus} à {$value} (mise à jour rapide)",
+            ]);
+        } elseif ($field === 'category_id') {
+            if ($value && !Category::find($value)) {
+                return response()->json(['error' => 'Catégorie invalide'], 422);
+            }
+            $asset->update(['category_id' => $value ?: null]);
+        } elseif ($field === 'location') {
+            // Mise à jour directe du champ location (texte libre)
+            $asset->update(['location' => $value ?: null]);
+        } elseif ($field === 'manufacturer_id') {
+            if ($value && !Manufacturer::find($value)) {
+                return response()->json(['error' => 'Fabricant invalide'], 422);
+            }
+            $manufacturer = $value ? Manufacturer::find($value) : null;
+            $asset->update([
+                'manufacturer_id' => $value ?: null,
+                'manufacturer'    => $manufacturer?->name,
+            ]);
+        } elseif ($field === 'equipment_model_id') {
+            if ($value && !EquipmentModel::find($value)) {
+                return response()->json(['error' => 'Modèle invalide'], 422);
+            }
+            $asset->update(['equipment_model_id' => $value ?: null]);
+        }
+
+        $asset->refresh();
+
+        // Retourner les données mises à jour
+        return response()->json([
+            'success' => true,
+            'asset'   => [
+                'id'                 => $asset->id,
+                'status'             => $asset->status,
+                'status_label'       => $asset->status_label,
+                'category_id'        => $asset->category_id,
+                'category_name'      => $asset->category?->name,
+                'location'           => $asset->location,
+                'manufacturer_id'    => $asset->manufacturer_id,
+                'manufacturer_name'  => $asset->manufacturerModel?->name ?? $asset->manufacturer,
+                'equipment_model_id' => $asset->equipment_model_id,
+                'model_name'         => $asset->equipmentModel?->name,
+            ],
+        ]);
     }
 
     /** Toggle rapide is_reservable — appel PATCH via axios (admin only) */
@@ -1382,5 +1461,272 @@ class AssetController extends Controller
         $component->update(['condition' => $data['condition']]);
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Exporter une sélection d'équipements en PDF ou Excel (CSV).
+     * Accessible à tous les utilisateurs authentifiés.
+     */
+    public function exportSelection(Request $request)
+    {
+        $request->validate([
+            'format'  => 'required|in:pdf,excel',
+            'ids'     => 'required|string',
+            'columns' => 'nullable|string',
+        ]);
+
+        $ids = array_filter(explode(',', $request->ids));
+        if (empty($ids)) {
+            abort(400, 'Aucun équipement sélectionné');
+        }
+
+        $isAdmin = $request->user()->hasRole('admin');
+
+        // Définir les colonnes disponibles
+        $availableColumns = ['name', 'asset_tag', 'serial', 'category', 'model', 'manufacturer', 'location', 'status', 'checked_out_to'];
+
+        // Parser et valider les colonnes demandées
+        $requestedColumns = $request->columns ? explode(',', $request->columns) : $availableColumns;
+        $columns = array_intersect($requestedColumns, $availableColumns);
+
+        // Filtrer les colonnes admin-only pour les non-admin
+        if (!$isAdmin) {
+            $columns = array_diff($columns, ['checked_out_to']);
+        }
+
+        // Si aucune colonne valide, utiliser les colonnes par défaut
+        if (empty($columns)) {
+            $columns = array_diff($availableColumns, $isAdmin ? [] : ['checked_out_to']);
+        }
+
+        // Récupérer les équipements sélectionnés
+        $assets = Asset::with(['category', 'equipmentModel', 'manufacturerModel', 'checkedOutTo'])
+            ->whereIn('id', $ids)
+            ->when(!$isAdmin, function ($q) {
+                // Les utilisateurs non-admin ne peuvent exporter que les équipements visibles
+                $hiddenStatusKeys = \App\Models\AssetStatus::allCached()
+                    ->where('hide_from_users', true)
+                    ->pluck('key')
+                    ->toArray();
+                if (!empty($hiddenStatusKeys)) {
+                    $q->whereNotIn('status', $hiddenStatusKeys);
+                }
+            })
+            ->orderBy('name')
+            ->get();
+
+        if ($assets->isEmpty()) {
+            abort(404, 'Aucun équipement trouvé');
+        }
+
+        if ($request->format === 'pdf') {
+            return $this->exportSelectionPdf($assets, $columns);
+        } else {
+            return $this->exportSelectionExcel($assets, $columns);
+        }
+    }
+
+    /**
+     * Générer un PDF listant les équipements sélectionnés.
+     */
+    private function exportSelectionPdf($assets, $columns)
+    {
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.assets-selection-pdf', [
+            'assets'  => $assets,
+            'columns' => $columns,
+            'date'    => now()->format('d/m/Y H:i'),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download('equipements-selection-' . now()->format('Y-m-d') . '.pdf');
+    }
+
+    /**
+     * Générer un fichier Excel (CSV) listant les équipements sélectionnés.
+     */
+    private function exportSelectionExcel($assets, $columns)
+    {
+        $filename = 'equipements-selection-' . now()->format('Y-m-d') . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $columnLabels = [
+            'name'           => 'Nom',
+            'asset_tag'      => 'Tag',
+            'serial'         => 'Numéro de série',
+            'category'       => 'Catégorie',
+            'model'          => 'Modèle',
+            'manufacturer'   => 'Fabricant',
+            'location'       => 'Emplacement',
+            'status'         => 'Statut',
+            'checked_out_to' => 'Affecté à',
+        ];
+
+        $callback = function () use ($assets, $columns, $columnLabels) {
+            $file = fopen('php://output', 'w');
+
+            // BOM UTF-8 pour Excel
+            fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            // En-têtes (colonnes sélectionnées uniquement)
+            $headers = [];
+            foreach ($columns as $col) {
+                $headers[] = $columnLabels[$col] ?? $col;
+            }
+            fputcsv($file, $headers, ';');
+
+            // Données
+            foreach ($assets as $asset) {
+                $row = [];
+                foreach ($columns as $col) {
+                    switch ($col) {
+                        case 'name':
+                            $row[] = $asset->name;
+                            break;
+                        case 'asset_tag':
+                            $row[] = $asset->asset_tag;
+                            break;
+                        case 'serial':
+                            $row[] = $asset->serial ?? '';
+                            break;
+                        case 'category':
+                            $row[] = $asset->category?->name ?? '';
+                            break;
+                        case 'model':
+                            $row[] = $asset->equipmentModel?->name ?? $asset->model ?? '';
+                            break;
+                        case 'manufacturer':
+                            $row[] = $asset->manufacturer?->name ?? $asset->manufacturer ?? '';
+                            break;
+                        case 'location':
+                            $row[] = $asset->location ?? '';
+                            break;
+                        case 'status':
+                            $row[] = $asset->status_label;
+                            break;
+                        case 'checked_out_to':
+                            $row[] = $asset->checkedOutTo?->name ?? '';
+                            break;
+                        default:
+                            $row[] = '';
+                    }
+                }
+                fputcsv($file, $row, ';');
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Export des équipements sélectionnés en PDF.
+     * Avec option de regroupement par modèle (groupByModel=true).
+     */
+    public function exportPdf(Request $request)
+    {
+        $isAdmin = $request->user()->hasRole('admin');
+
+        $request->validate([
+            'ids'          => 'required|array|min:1',
+            'ids.*'        => 'integer|exists:assets,id',
+            'columns'      => 'nullable|array',
+            'columns.*'    => 'string',
+            'groupByModel' => 'nullable|boolean',
+            'title'        => 'nullable|string|max:255',
+        ]);
+
+        $ids = $request->input('ids', []);
+        $groupByModel = $request->boolean('groupByModel', false);
+        $title = $request->input('title', 'Liste des Équipements');
+
+        // Colonnes disponibles selon le rôle
+        $allowedColumns = $isAdmin
+            ? ['name', 'asset_tag', 'serial', 'category', 'model', 'manufacturer', 'location', 'status', 'checked_out_to']
+            : ['name', 'category', 'model', 'manufacturer'];
+
+        // Filtrer et valider les colonnes demandées
+        $requestedColumns = $request->input('columns', []);
+        $columns = !empty($requestedColumns)
+            ? array_values(array_intersect($requestedColumns, $allowedColumns))
+            : $allowedColumns;
+
+        // Si aucune colonne valide, utiliser les colonnes par défaut selon le rôle
+        if (empty($columns)) {
+            $columns = $allowedColumns;
+        }
+
+        $assets = Asset::with(['category', 'equipmentModel', 'manufacturerModel', 'checkedOutTo'])
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->get();
+
+        $date = now()->format('d/m/Y à H:i');
+
+        if ($groupByModel) {
+            // Regrouper par modèle et compter les quantités
+            $grouped = $assets->groupBy(function ($asset) {
+                // Clé de regroupement : category_id + model_id (ou nom de modèle si legacy)
+                $modelKey = $asset->equipment_model_id ?? $asset->model ?? 'sans_modele';
+                $categoryKey = $asset->category_id ?? 'sans_categorie';
+                return $categoryKey . '|' . $modelKey;
+            })->map(function ($group) use ($columns) {
+                $first = $group->first();
+
+                $result = [
+                    'quantity' => $group->count(),
+                    'assets'   => $group,
+                ];
+
+                // Ajouter uniquement les colonnes demandées
+                if (in_array('name', $columns)) {
+                    $result['names'] = $group->pluck('name')->values()->toArray();
+                }
+                if (in_array('asset_tag', $columns)) {
+                    $result['asset_tags'] = $group->pluck('asset_tag')->values()->toArray();
+                }
+                if (in_array('category', $columns)) {
+                    $result['category'] = $first->category;
+                }
+                if (in_array('model', $columns)) {
+                    $result['model'] = $first->equipmentModel?->name ?? $first->model ?? '—';
+                }
+                if (in_array('manufacturer', $columns)) {
+                    $result['manufacturer'] = $first->manufacturerModel?->name ?? $first->manufacturer ?? '—';
+                }
+                if (in_array('location', $columns)) {
+                    $result['locations'] = $group->pluck('location')->unique()->filter()->values()->toArray();
+                }
+                if (in_array('status', $columns)) {
+                    $result['statuses'] = $group->map(fn($a) => $a->status_label)->unique()->values()->toArray();
+                }
+
+                return $result;
+            })->values();
+
+            $pdf = Pdf::loadView('exports.assets-grouped-pdf', [
+                'groups'  => $grouped,
+                'date'    => $date,
+                'columns' => $columns,
+                'title'   => $title,
+            ])->setPaper('a4', 'landscape');
+        } else {
+            // Export individuel classique
+            $pdf = Pdf::loadView('exports.assets-selection-pdf', [
+                'assets'  => $assets,
+                'date'    => $date,
+                'columns' => $columns,
+                'title'   => $title,
+            ])->setPaper('a4', 'landscape');
+        }
+
+        $filename = $groupByModel
+            ? 'equipements-groupes-' . now()->format('Y-m-d_His') . '.pdf'
+            : 'equipements-' . now()->format('Y-m-d_His') . '.pdf';
+
+        return $pdf->download($filename);
     }
 }

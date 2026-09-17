@@ -10,9 +10,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class Computer extends Model
 {
     protected $fillable = [
-        'asset_id',
+        'asset_id', 'place_id',
         'name', 'asset_tag', 'type', 'os', 'os_version',
-        'serial_number', 'ip_addresses', 'processor', 'ram',
+        'serial_number', 'ip_addresses', 'mac_address', 'subnet_mask', 'gateway',
+        'dns_primary', 'dns_secondary', 'processor', 'ram',
         'photo', 'notes',
     ];
 
@@ -25,6 +26,11 @@ class Computer extends Model
     public function asset(): BelongsTo
     {
         return $this->belongsTo(Asset::class);
+    }
+
+    public function place(): BelongsTo
+    {
+        return $this->belongsTo(Place::class);
     }
 
     public function licenseAssignments(): HasMany

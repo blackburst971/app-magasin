@@ -6,11 +6,13 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({
-  requiredForm:     Object,
-  examMode:         Boolean,
-  examAdvanceHours: { type: Number, default: 24 },
-  examProcessStart: { type: Number, default: 7 },
-  examProcessEnd:   { type: Number, default: 9 },
+  requiredForm:           Object,
+  examMode:               Boolean,
+  examAdvanceHours:       { type: Number, default: 24 },
+  examProcessStart:       { type: Number, default: 7 },
+  examProcessEnd:         { type: Number, default: 9 },
+  userSupervisors:        { type: Array, default: () => [] },
+  principalSupervisorId:  { type: Number, default: null },
 })
 
 function goBack() {
@@ -26,6 +28,8 @@ const form = useForm({
   notes: '',
   form_id: props.requiredForm?.id ?? null,
   form_responses: {},
+  // Présélectionner le superviseur principal par défaut
+  supervisor_chosen_id: props.principalSupervisorId,
 })
 
 // ─── Équipements disponibles ──────────────────────────────────────────────────
@@ -156,6 +160,24 @@ const submit = () => form.post(route('reservations.store'))
               <label class="block text-sm font-medium text-gray-700 mb-1">Notes (optionnel)</label>
               <textarea v-model="form.notes" rows="2" placeholder="Informations supplémentaires..."
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+            </div>
+
+            <!-- ── Sélection du superviseur si plusieurs disponibles ── -->
+            <div v-if="userSupervisors.length >= 2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Responsable pour validation *
+                <span class="text-xs text-gray-500 font-normal ml-1">
+                  {{ principalSupervisorId ? '(Votre responsable principal est présélectionné par défaut)' : '(Choisissez le responsable qui validera votre demande)' }}
+                </span>
+              </label>
+              <select v-model="form.supervisor_chosen_id" required
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <option :value="null" disabled>-- Sélectionnez un responsable --</option>
+                <option v-for="supervisor in userSupervisors" :key="supervisor.id" :value="supervisor.id">
+                  {{ supervisor.name }}{{ supervisor.id === principalSupervisorId ? ' (principal)' : '' }}
+                </option>
+              </select>
+              <p v-if="form.errors.supervisor_chosen_id" class="mt-1 text-xs text-red-600">{{ form.errors.supervisor_chosen_id }}</p>
             </div>
           </div>
         </div>

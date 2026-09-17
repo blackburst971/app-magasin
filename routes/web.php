@@ -58,6 +58,10 @@ Route::middleware('auth')->group(function () {
     // Assets
     Route::get('/assets', [AssetController::class, 'index'])->name('assets.index');
 
+    // Export de sélection (accessible à tous les utilisateurs authentifiés)
+    Route::get('/assets/export-selection', [AssetController::class, 'exportSelection'])->name('assets.export-selection');
+    Route::post('/assets/export-pdf', [AssetController::class, 'exportPdf'])->name('assets.export-pdf');
+
     // Routes admin sans paramètre — AVANT {asset} pour éviter le conflit de routing
     Route::middleware('role:admin')->group(function () {
         Route::get('/assets/create', [AssetController::class, 'create'])->name('assets.create');
@@ -92,6 +96,7 @@ Route::middleware('auth')->group(function () {
         Route::patch('/assets/{asset}/toggle-label-apply', [AssetController::class, 'toggleLabelApply'])->name('assets.toggle-label-apply');
         Route::patch('/assets/{asset}/return-check-note', [AssetController::class, 'updateReturnCheckNote'])->name('assets.return-check-note');
         Route::patch('/assets/{asset}/condition-note', [AssetController::class, 'updateConditionNote'])->name('assets.condition-note');
+        Route::patch('/assets/{asset}/quick-update', [AssetController::class, 'quickUpdate'])->name('assets.quick-update');
         Route::post('/assets/{asset}/duplicate', [AssetController::class, 'duplicate'])->name('assets.duplicate');
         Route::post('/assets/{asset}/link-accessory', [AssetController::class, 'linkAccessory'])->name('assets.link-accessory');
         Route::delete('/assets/{asset}/unlink-accessory', [AssetController::class, 'unlinkAccessory'])->name('assets.unlink-accessory');
@@ -323,12 +328,16 @@ Route::middleware('auth')->group(function () {
         // Routes avec paramètre {user}
         Route::get('/users/{user}', [AdminController::class, 'showUser'])->name('users.show');
         Route::put('/users/{user}', [AdminController::class, 'updateUser'])->name('users.update');
+        Route::put('/users/{user}/supervisors', [AdminController::class, 'updateUserSupervisors'])->name('users.update-supervisors');
         Route::delete('/users/{user}', [AdminController::class, 'destroyUser'])->name('users.destroy');
         Route::post('/users/{user}/role', [AdminController::class, 'changeRole'])->name('users.role');
         Route::post('/users/{user}/avatar', [AdminController::class, 'updateUserAvatar'])->name('users.avatar');
         // Gestion des rôles & permissions
         Route::get('/roles',  [RolesController::class, 'index'])->name('roles');
         Route::post('/roles', [RolesController::class, 'update'])->name('roles.update');
+        // Signature par procuration (admin)
+        Route::get('/proxy-sign', [\App\Http\Controllers\AdminProxySignController::class, 'index'])->name('proxy-sign.index');
+        Route::post('/proxy-sign/{reservation}', [\App\Http\Controllers\AdminProxySignController::class, 'sign'])->name('proxy-sign.sign');
     });
 
     // Affectation équipement → équipement (admin only)
@@ -400,12 +409,57 @@ Route::middleware('auth')->group(function () {
         Route::delete('/licenses/{license}/assignments/{assignment}', [\App\Http\Controllers\LicenseController::class, 'unassign'])->name('licenses.unassign');
     });
 
-    // Postes informatiques (admin only)
+    // Postes informatiques - consultation pour tous
+    Route::get('/computers', [\App\Http\Controllers\ComputerController::class, 'index'])->name('computers.index');
+    Route::get('/computers/ip-addressing', [\App\Http\Controllers\ComputerController::class, 'ipAddressing'])->name('computers.ip-addressing');
+    Route::get('/computers/ip-change-requests', [\App\Http\Controllers\ComputerController::class, 'ipChangeRequests'])->name('computers.ip-change-requests');
+
+    // Périphériques IP - consultation pour tous
+    Route::get('/ip-devices', [\App\Http\Controllers\IpDeviceController::class, 'index'])->name('ip-devices.index');
+    Route::get('/ip-devices/ip-addressing', [\App\Http\Controllers\IpDeviceController::class, 'ipAddressing'])->name('ip-devices.ip-addressing');
+    Route::get('/ip-devices/ip-change-requests', [\App\Http\Controllers\IpDeviceController::class, 'ipChangeRequests'])->name('ip-devices.ip-change-requests');
+
+    // IMPORTANT: Toutes les routes statiques/spécifiques AVANT les routes avec paramètres
+    // Routes admin - actions spécifiques
     Route::middleware('role:admin')->group(function () {
-        Route::get('/computers', [\App\Http\Controllers\ComputerController::class, 'index'])->name('computers.index');
+        Route::post('/computers/export-ip-pdf', [\App\Http\Controllers\ComputerController::class, 'exportIpPdf'])->name('computers.ip-pdf');
+        Route::get('/computers/export-ip-csv', [\App\Http\Controllers\ComputerController::class, 'exportIpCsv'])->name('computers.ip-csv');
+        Route::post('/computers/bulk-update', [\App\Http\Controllers\ComputerController::class, 'bulkUpdate'])->name('computers.bulk-update');
+        Route::post('/computers/bulk-delete', [\App\Http\Controllers\ComputerController::class, 'bulkDelete'])->name('computers.bulk-delete');
+        Route::post('/computers/batch-store', [\App\Http\Controllers\ComputerController::class, 'batchStore'])->name('computers.batch-store');
+        Route::post('/computers/ip-change-requests/{request}/approve', [\App\Http\Controllers\ComputerController::class, 'approveIpChangeRequest'])->name('computers.approve-ip-change');
+        Route::post('/computers/ip-change-requests/{request}/reject', [\App\Http\Controllers\ComputerController::class, 'rejectIpChangeRequest'])->name('computers.reject-ip-change');
+    });
+
+    // Route pour demandes IP (utilisateurs non-admin) - DOIT être AVANT /computers/{computer}
+    Route::post('/computers/{computer}/request-ip-change', [\App\Http\Controllers\ComputerController::class, 'requestIpChange'])->name('computers.request-ip-change');
+
+    // Routes admin - CRUD de base (routes paramétrées EN DERNIER)
+    Route::middleware('role:admin')->group(function () {
         Route::post('/computers', [\App\Http\Controllers\ComputerController::class, 'store'])->name('computers.store');
-        Route::post('/computers/{computer}', [\App\Http\Controllers\ComputerController::class, 'update'])->name('computers.update');
+        Route::put('/computers/{computer}', [\App\Http\Controllers\ComputerController::class, 'update'])->name('computers.update');
         Route::delete('/computers/{computer}', [\App\Http\Controllers\ComputerController::class, 'destroy'])->name('computers.destroy');
+    });
+
+    // Périphériques IP - Routes admin
+    Route::middleware('role:admin')->group(function () {
+        Route::post('/ip-devices/batch-store', [\App\Http\Controllers\IpDeviceController::class, 'batchStore'])->name('ip-devices.batch-store');
+        Route::post('/ip-devices/export-ip-pdf', [\App\Http\Controllers\IpDeviceController::class, 'exportIpPdf'])->name('ip-devices.ip-pdf');
+        Route::get('/ip-devices/export-ip-csv', [\App\Http\Controllers\IpDeviceController::class, 'exportIpCsv'])->name('ip-devices.ip-csv');
+        Route::post('/ip-devices/bulk-update', [\App\Http\Controllers\IpDeviceController::class, 'bulkUpdate'])->name('ip-devices.bulk-update');
+        Route::post('/ip-devices/bulk-delete', [\App\Http\Controllers\IpDeviceController::class, 'bulkDelete'])->name('ip-devices.bulk-delete');
+        Route::post('/ip-devices/ip-change-requests/{changeRequest}/approve', [\App\Http\Controllers\IpDeviceController::class, 'approveIpChangeRequest'])->name('ip-devices.approve-ip-change');
+        Route::post('/ip-devices/ip-change-requests/{changeRequest}/reject', [\App\Http\Controllers\IpDeviceController::class, 'rejectIpChangeRequest'])->name('ip-devices.reject-ip-change');
+    });
+
+    // Route pour demandes IP périphériques (utilisateurs non-admin) - DOIT être AVANT /ip-devices/{ipDevice}
+    Route::post('/ip-devices/{ipDevice}/request-ip-change', [\App\Http\Controllers\IpDeviceController::class, 'requestIpChange'])->name('ip-devices.request-ip-change');
+
+    // Périphériques IP - CRUD de base (routes paramétrées EN DERNIER)
+    Route::middleware('role:admin')->group(function () {
+        Route::post('/ip-devices', [\App\Http\Controllers\IpDeviceController::class, 'store'])->name('ip-devices.store');
+        Route::put('/ip-devices/{ipDevice}', [\App\Http\Controllers\IpDeviceController::class, 'update'])->name('ip-devices.update');
+        Route::delete('/ip-devices/{ipDevice}', [\App\Http\Controllers\IpDeviceController::class, 'destroy'])->name('ip-devices.destroy');
     });
 
     // Suppliers (admin only)

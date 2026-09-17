@@ -46,6 +46,20 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'supervisor_id');
     }
 
+    /** Superviseurs multiples (relation many-to-many via user_supervisors) */
+    public function supervisors()
+    {
+        return $this->belongsToMany(User::class, 'user_supervisors', 'user_id', 'supervisor_id')
+            ->withTimestamps();
+    }
+
+    /** Utilisateurs dont cet utilisateur est superviseur (relation many-to-many inverse) */
+    public function supervises()
+    {
+        return $this->belongsToMany(User::class, 'user_supervisors', 'supervisor_id', 'user_id')
+            ->withTimestamps();
+    }
+
     public function reservations()
     {
         return $this->hasMany(Reservation::class);
@@ -70,16 +84,25 @@ class User extends Authenticatable
 
     /**
      * Retourne le superviseur de cet utilisateur.
-     * Priorité : supervisor_id direct, sinon premier superviseur trouvé dans les groupes.
+     * Priorité :
+     * 1. Superviseurs multiples via user_supervisors (retourne collection)
+     * 2. supervisor_id direct (ancien système, retourne un seul)
+     * 3. Superviseur via les groupes
      */
     public function getSupervisor(): ?User
     {
-        // 1. Superviseur direct
+        // 1. Superviseurs multiples via table pivot
+        $multiSupervisors = $this->supervisors;
+        if ($multiSupervisors->isNotEmpty()) {
+            return $multiSupervisors->first(); // Retourner le premier pour compatibilité
+        }
+
+        // 2. Superviseur direct (ancien système)
         if ($this->supervisor_id) {
             return $this->supervisor;
         }
 
-        // 2. Fallback : superviseur via les groupes
+        // 3. Fallback : superviseur via les groupes
         $memberGroupIds = $this->groups()
             ->wherePivot('role', 'member')
             ->pluck('user_groups.id');
@@ -92,6 +115,38 @@ class User extends Authenticatable
             $q->whereIn('user_groups.id', $memberGroupIds)
               ->wherePivot('role', 'supervisor')
         )->first();
+    }
+
+    /**
+     * Retourne TOUS les superviseurs de cet utilisateur (collection).
+     * Combine : user_supervisors + supervisor_id + groupes
+     */
+    public function getAllSupervisors()
+    {
+        $supervisors = collect();
+
+        // 1. Superviseurs via table pivot user_supervisors
+        $supervisors = $supervisors->merge($this->supervisors);
+
+        // 2. Superviseur direct via supervisor_id (ancien système)
+        if ($this->supervisor_id && $this->supervisor) {
+            $supervisors->push($this->supervisor);
+        }
+
+        // 3. Superviseurs via les groupes
+        $memberGroupIds = $this->groups()
+            ->wherePivot('role', 'member')
+            ->pluck('user_groups.id');
+
+        if ($memberGroupIds->isNotEmpty()) {
+            $groupSupervisors = User::whereHas('groups', fn($q) =>
+                $q->whereIn('user_groups.id', $memberGroupIds)
+                  ->wherePivot('role', 'supervisor')
+            )->get();
+            $supervisors = $supervisors->merge($groupSupervisors);
+        }
+
+        return $supervisors->unique('id')->values();
     }
 
     /**

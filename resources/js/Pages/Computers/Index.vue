@@ -12,11 +12,13 @@ import {
 import { useViewMode } from '@/composables/useViewMode'
 
 const props = defineProps({
-  computers:       Array,
-  availableAssets: Array,
-  isAdmin:         Boolean,
-  canEdit:         { type: Boolean, default: false },
-  editableFields:  { type: Array, default: () => [] },
+  computers:          Array,
+  availableAssets:    Array,
+  places:             Array,
+  isAdmin:            Boolean,
+  canEdit:            { type: Boolean, default: false },
+  canRequestIpChange: { type: Boolean, default: false },
+  editableFields:     { type: Array, default: () => [] },
 })
 
 /* ── Listes d'options ────────────────────────────────────────────────────── */
@@ -136,8 +138,10 @@ function clearSelectedAssets() {
 }
 
 const emptyForm = () => ({
-  name: '', asset_tag: '', type: 'desktop', os: 'windows_11',
+  name: '', place_id: null, asset_tag: '', type: 'desktop', os: 'windows_11',
   os_version: '', serial_number: '', ip_addresses: [],
+  mac_address: '', subnet_mask: '255.255.255.0', gateway: '',
+  dns_primary: '', dns_secondary: '',
   processor: '', ram: '', notes: '',
 })
 
@@ -164,12 +168,18 @@ function openEdit(c) {
   editing.value = c
   form.value = {
     name:          c.name ?? '',
+    place_id:      c.place_id ?? null,
     asset_tag:     c.asset_tag ?? '',
     type:          c.type,
     os:            c.os,
     os_version:    c.os_version ?? '',
     serial_number: c.serial_number ?? '',
     ip_addresses:  (c.ip_addresses ?? []).map(e => ({ ip: e.ip ?? '', description: e.description ?? '' })),
+    mac_address:   c.mac_address ?? '',
+    subnet_mask:   c.subnet_mask ?? '255.255.255.0',
+    gateway:       c.gateway ?? '',
+    dns_primary:   c.dns_primary ?? '',
+    dns_secondary: c.dns_secondary ?? '',
     processor:     c.processor ?? '',
     ram:           c.ram ?? '',
     notes:         c.notes ?? '',
@@ -201,19 +211,18 @@ function clearPhoto() {
 }
 
 function submitForm() {
-  // ── Modification non-admin (champs restreints, JSON) ─────────────────
+  // ── Modification non-admin (demande de changement IP) ─────────────────
   if (editing.value && !props.isAdmin) {
     processing.value = true
-    const payload = {}
-    if (props.editableFields.includes('ip_addresses')) {
-      payload.ip_addresses = JSON.stringify(form.value.ip_addresses.filter(e => e.ip.trim()))
+    const payload = {
+      ip_addresses: JSON.stringify(form.value.ip_addresses.filter(e => e.ip.trim())),
+      subnet_mask: form.value.subnet_mask || '',
+      gateway: form.value.gateway || '',
+      dns_primary: form.value.dns_primary || '',
+      dns_secondary: form.value.dns_secondary || '',
+      ip_change_notes: form.value.notes || ''
     }
-    for (const field of ['ram', 'processor', 'os_version', 'os', 'notes']) {
-      if (props.editableFields.includes(field)) {
-        payload[field] = form.value[field]
-      }
-    }
-    router.post(route('computers.update', editing.value.id), payload, {
+    router.post(route('computers.request-ip-change', editing.value.id), payload, {
       onSuccess: closeFormModal,
       onFinish:  () => { processing.value = false },
     })
@@ -524,7 +533,7 @@ function confirmBulkDelete() {
                   @click="openDetail(c)">{{ c.name }}</h3>
                 <p v-if="c.asset_tag" class="text-xs text-gray-400 font-mono">{{ c.asset_tag }}</p>
               </div>
-              <div v-if="isAdmin || canEdit" class="flex gap-1 flex-shrink-0">
+              <div v-if="isAdmin || canEdit || canRequestIpChange" class="flex gap-1 flex-shrink-0">
                 <button @click="openEdit(c)"
                   class="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition">
                   <PencilIcon class="w-3.5 h-3.5" />
@@ -608,9 +617,12 @@ function confirmBulkDelete() {
                   </div>
                 </div>
               </td>
-              <!-- Nom + tag -->
+              <!-- Nom + tag + emplacement -->
               <td class="px-4 py-2.5">
                 <p class="font-semibold text-gray-900 text-sm">{{ c.name }}</p>
+                <p v-if="c.place_name" class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                  📍 {{ c.place_name }}
+                </p>
                 <p v-if="c.asset_tag" class="text-xs font-mono text-gray-400">{{ c.asset_tag }}</p>
               </td>
               <!-- OS + type -->
@@ -643,7 +655,7 @@ function confirmBulkDelete() {
               </td>
               <!-- Actions -->
               <td class="px-3 py-2.5" @click.stop>
-                <div v-if="isAdmin || canEdit" class="flex gap-1 justify-end">
+                <div v-if="isAdmin || canEdit || canRequestIpChange" class="flex gap-1 justify-end">
                   <button @click="openEdit(c)"
                     class="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition">
                     <PencilIcon class="w-4 h-4" />
@@ -719,6 +731,26 @@ function confirmBulkDelete() {
                   </div>
                 </div>
               </div>
+              <div v-if="detailComputer.mac_address">
+                <p class="text-xs text-gray-400">Adresse MAC</p>
+                <p class="font-mono text-sm text-gray-700">{{ detailComputer.mac_address }}</p>
+              </div>
+              <div v-if="detailComputer.subnet_mask">
+                <p class="text-xs text-gray-400">Masque de sous-réseau</p>
+                <p class="font-mono text-sm text-gray-700">{{ detailComputer.subnet_mask }}</p>
+              </div>
+              <div v-if="detailComputer.gateway">
+                <p class="text-xs text-gray-400">Passerelle</p>
+                <p class="font-mono text-sm text-gray-700">{{ detailComputer.gateway }}</p>
+              </div>
+              <div v-if="detailComputer.dns_primary">
+                <p class="text-xs text-gray-400">DNS Primaire</p>
+                <p class="font-mono text-sm text-gray-700">{{ detailComputer.dns_primary }}</p>
+              </div>
+              <div v-if="detailComputer.dns_secondary">
+                <p class="text-xs text-gray-400">DNS Secondaire</p>
+                <p class="font-mono text-sm text-gray-700">{{ detailComputer.dns_secondary }}</p>
+              </div>
               <div v-if="detailComputer.asset_tag">
                 <p class="text-xs text-gray-400">Tag</p>
                 <p class="text-gray-700 font-mono">{{ detailComputer.asset_tag }}</p>
@@ -758,7 +790,7 @@ function confirmBulkDelete() {
               <p class="text-sm text-gray-700">{{ detailComputer.notes }}</p>
             </div>
             <!-- Actions -->
-            <div v-if="isAdmin || canEdit" class="flex gap-3 mt-5 pt-4 border-t">
+            <div v-if="isAdmin || canEdit || canRequestIpChange" class="flex gap-3 mt-5 pt-4 border-t">
               <button @click="openEdit(detailComputer); closeDetail()"
                 class="flex-1 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition flex items-center justify-center gap-2">
                 <PencilIcon class="w-4 h-4" /> Modifier
@@ -775,7 +807,7 @@ function confirmBulkDelete() {
 
     <!-- ── Modal Créer / Modifier ────────────────────────────────────────────── -->
     <Transition name="modal">
-      <div v-if="(isAdmin || (canEdit && editing)) && showFormModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div v-if="(isAdmin || (canEdit && editing) || (canRequestIpChange && editing)) && showFormModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeFormModal" />
         <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <div class="flex items-center justify-between p-6 border-b">
@@ -923,6 +955,15 @@ function confirmBulkDelete() {
                   <input v-model="form.name" required type="text" placeholder="ex : PC-SALLE101-01"
                     class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">📍 Emplacement</label>
+                  <select v-model="form.place_id"
+                    class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <option :value="null">-- Aucun emplacement --</option>
+                    <option v-for="place in places" :key="place.id" :value="place.id">{{ place.name }}</option>
+                  </select>
+                  <p class="text-xs text-gray-400 mt-1">Choisissez le lieu où se trouve physiquement le poste</p>
+                </div>
                 <div>
                   <label class="block text-xs font-semibold text-gray-600 mb-1">
                     Tag d'inventaire
@@ -960,8 +1001,12 @@ function confirmBulkDelete() {
               </div>
 
               <!-- Adresses IP multiples -->
-              <!-- Adresses IP : masquées en from_asset, et pour les non-admins si champ non autorisé -->
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editableFields.includes('ip_addresses'))" class="col-span-2">
+              <!-- Adresses IP : pour admin + pour non-admins en mode édition (demande de changement) -->
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)" class="col-span-2">
+                <!-- Bandeau info pour les non-admins -->
+                <div v-if="!isAdmin && editing" class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  🔔 <strong>Demande de changement réseau :</strong> Les modifications d'adresses IP et de configuration réseau ne seront effectives qu'après validation par l'administrateur. Vous recevrez une notification une fois la demande traitée.
+                </div>
                 <div class="flex items-center justify-between mb-2">
                   <label class="text-xs font-semibold text-gray-600">
                     Adresses IP
@@ -989,6 +1034,40 @@ function confirmBulkDelete() {
                     </button>
                   </div>
                 </div>
+              </div>
+
+              <!-- Adresse MAC (admin : éditable, non-admin : lecture seule) -->
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)" class="col-span-2">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">
+                  Adresse MAC
+                  <span v-if="!isAdmin" class="font-normal text-amber-600">(lecture seule)</span>
+                </label>
+                <input v-model="form.mac_address" type="text" placeholder="ex : 00:1A:2B:3C:4D:5E"
+                  :disabled="!isAdmin"
+                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                <p v-if="!isAdmin" class="text-xs text-gray-400 mt-1">⚠️ L'adresse MAC ne peut être modifiée que par un administrateur</p>
+              </div>
+
+              <!-- Configuration réseau (admin : éditable, non-admin : demande de changement) -->
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Masque de sous-réseau</label>
+                <input v-model="form.subnet_mask" type="text" placeholder="ex : 255.255.255.0"
+                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Passerelle</label>
+                <input v-model="form.gateway" type="text" placeholder="ex : 192.168.1.1"
+                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">DNS Primaire</label>
+                <input v-model="form.dns_primary" type="text" placeholder="ex : 8.8.8.8"
+                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">DNS Secondaire</label>
+                <input v-model="form.dns_secondary" type="text" placeholder="ex : 8.8.4.4"
+                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
               </div>
               <!-- CPU + RAM -->
               <div v-if="isAdmin || editableFields.includes('processor')">

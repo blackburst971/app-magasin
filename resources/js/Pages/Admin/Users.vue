@@ -5,9 +5,10 @@ import { ref, computed, watch } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({
-  users:       Array,
-  roles:       Array,
-  supervisors: Array,
+  users:           Array,
+  roles:           Array,
+  supervisors:     Array,
+  allSupervisors:  Array,
 })
 
 const page = usePage()
@@ -17,6 +18,9 @@ const search     = ref('')
 const filterRole = ref('')
 
 const filteredUsers = computed(() => {
+  if (!props.users || !Array.isArray(props.users)) {
+    return []
+  }
   let list = [...props.users]
   if (filterRole.value) {
     list = list.filter(u => u.roles?.[0] === filterRole.value)
@@ -163,11 +167,76 @@ const openEdit = (user) => {
   editForm.password      = ''
   editForm.supervisor_id = user.supervisor_id ?? null
   editForm.role          = user.roles?.[0] ?? 'user'
+  // Charger les superviseurs multiples
+  selectedSupervisors.value = user.supervisors?.map(s => s.id) ?? []
 }
 
 const closeEdit = () => {
   editingUser.value = null
   editForm.reset()
+  selectedSupervisors.value = []
+}
+
+// ── Gestion des superviseurs multiples ────────────────────────────────────────
+const selectedSupervisors = ref([])
+const addSupervisorSelect = ref(null)
+
+// Liste des superviseurs disponibles (exclure l'utilisateur édité)
+const availableSupervisors = computed(() => {
+  const supervisorList = props.allSupervisors ?? props.supervisors
+  if (!supervisorList || !Array.isArray(supervisorList)) {
+    return []
+  }
+  if (!editingUser.value) {
+    return supervisorList
+  }
+  return supervisorList.filter(s => s && s.id !== editingUser.value.id)
+})
+
+// Superviseurs disponibles non encore sélectionnés
+const unselectedSupervisors = computed(() => {
+  const available = availableSupervisors.value
+  if (!available || !Array.isArray(available)) {
+    return []
+  }
+  return available.filter(s => s && !selectedSupervisors.value.includes(s.id))
+})
+
+// Sauvegarder les superviseurs secondaires
+const saveSupervisors = () => {
+  if (!editingUser.value) return
+
+  router.put(route('admin.users.update-supervisors', editingUser.value.id), {
+    supervisor_ids: selectedSupervisors.value,
+  }, {
+    preserveScroll: true,
+    preserveState: true,
+  })
+}
+
+// Ajouter un superviseur secondaire
+const addSupervisor = (supervisorId) => {
+  if (!supervisorId || selectedSupervisors.value.includes(supervisorId)) {
+    return
+  }
+  selectedSupervisors.value.push(supervisorId)
+  saveSupervisors()
+}
+
+// Ajouter un superviseur depuis le select
+const handleAddSupervisorClick = () => {
+  if (!addSupervisorSelect.value || !addSupervisorSelect.value.value) {
+    return
+  }
+  const supervisorId = parseInt(addSupervisorSelect.value.value)
+  addSupervisor(supervisorId)
+  addSupervisorSelect.value.value = ''
+}
+
+// Retirer un superviseur secondaire
+const removeSupervisor = (supervisorId) => {
+  selectedSupervisors.value = selectedSupervisors.value.filter(id => id !== supervisorId)
+  saveSupervisors()
 }
 
 const submitEdit = () => {
@@ -203,11 +272,15 @@ async function onAvatarChange(e, user) {
 }
 
 // Exclure l'utilisateur édité de sa propre liste de superviseurs
-const editSupervisors = computed(() =>
-  editingUser.value
-    ? props.supervisors.filter(s => s.id !== editingUser.value.id)
-    : props.supervisors
-)
+const editSupervisors = computed(() => {
+  const supervisorList = props.allSupervisors ?? []
+  if (!Array.isArray(supervisorList)) {
+    return []
+  }
+  return editingUser.value
+    ? supervisorList.filter(s => s && s.id !== editingUser.value.id)
+    : supervisorList
+})
 
 // ── Actions diverses ──────────────────────────────────────────────────────────
 const changeRole = (user, role) => {
@@ -491,11 +564,22 @@ watch(importResults, (val) => {
 
               <!-- Responsable -->
               <td class="px-4 py-3 hidden lg:table-cell">
-                <span v-if="user.supervisor_name"
-                  class="inline-flex items-center gap-1 text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">
-                  👤 {{ user.supervisor_name }}
-                </span>
-                <span v-else class="text-gray-400 text-xs">—</span>
+                <div class="flex flex-col gap-1">
+                  <!-- Responsable principal -->
+                  <span v-if="user.supervisor_name"
+                    class="inline-flex items-center gap-1 text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium w-fit">
+                    👤 {{ user.supervisor_name }}
+                  </span>
+                  <!-- Superviseurs multiples -->
+                  <div v-if="user.supervisors && user.supervisors.length > 0" class="flex flex-wrap gap-1">
+                    <span v-for="sup in user.supervisors" :key="sup.id"
+                      class="inline-flex items-center gap-1 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full font-medium">
+                      {{ sup.name }}
+                    </span>
+                  </div>
+                  <!-- Aucun -->
+                  <span v-if="!user.supervisor_name && (!user.supervisors || user.supervisors.length === 0)" class="text-gray-400 text-xs">—</span>
+                </div>
               </td>
 
               <!-- Rôle -->
@@ -927,14 +1011,59 @@ watch(importResults, (val) => {
                 <p v-if="editForm.errors.role" class="mt-1 text-xs text-red-600">{{ editForm.errors.role }}</p>
               </div>
               <div class="col-span-2">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Responsable (superviseur)</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Responsable principal (par défaut)
+                  <span class="text-xs text-gray-500 font-normal ml-1">Ce superviseur sera présélectionné automatiquement pour ses demandes</span>
+                </label>
                 <select v-model="editForm.supervisor_id"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
-                  <option :value="null">— Aucun —</option>
+                  <option :value="null">— Aucun responsable principal —</option>
                   <option v-for="s in editSupervisors" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
                 <p v-if="editForm.errors.supervisor_id" class="mt-1 text-xs text-red-600">{{ editForm.errors.supervisor_id }}</p>
               </div>
+
+              <!-- ── Superviseurs secondaires ── -->
+              <div class="col-span-2">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Responsables secondaires (optionnels)
+                  <span class="text-xs text-gray-500 font-normal ml-1">L'utilisateur pourra choisir parmi ces superviseurs alternatifs si besoin</span>
+                </label>
+
+                <!-- Liste des superviseurs actuels -->
+                <div v-if="selectedSupervisors.length > 0" class="mb-3 flex flex-wrap gap-2">
+                  <div v-for="supId in selectedSupervisors" :key="supId"
+                    class="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2.5 py-1 rounded-full text-xs font-medium border border-indigo-200 dark:border-indigo-800">
+                    <span>{{ (availableSupervisors || []).find(s => s && s.id === supId)?.name ?? 'Superviseur inconnu' }}</span>
+                    <button type="button" @click="removeSupervisor(supId)"
+                      class="text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-200 ml-0.5">
+                      ×
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Aucun superviseur secondaire -->
+                <div v-else class="mb-3 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-200 dark:border-gray-700">
+                  Aucun responsable secondaire. L'utilisateur utilisera uniquement le responsable principal ci-dessus (ou les superviseurs de ses groupes).
+                </div>
+
+                <!-- Ajouter un superviseur -->
+                <div class="flex gap-2">
+                  <select ref="addSupervisorSelect"
+                    class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                    <option value="">— Ajouter un superviseur —</option>
+                    <option v-for="s in unselectedSupervisors"
+                      :key="s.id" :value="s.id">
+                      {{ s.name }}
+                    </option>
+                  </select>
+                  <button type="button" @click="handleAddSupervisorClick"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition">
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+
               <div class="col-span-2">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Nouveau mot de passe

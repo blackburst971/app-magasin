@@ -86,7 +86,7 @@ class ReservationController extends Controller
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         $requiredForm = CheckoutForm::where('is_active', true)
             ->where('is_required_for_reservation', true)
@@ -95,12 +95,24 @@ class ReservationController extends Controller
 
         $examMode = Setting::get('exam_mode', 'false') === 'true';
 
+        // Récupérer tous les superviseurs de l'utilisateur connecté
+        $userSupervisors = $request->user()->getAllSupervisors()->map(fn($s) => [
+            'id'    => $s->id,
+            'name'  => $s->name,
+            'email' => $s->email,
+        ])->values();
+
+        // Superviseur principal (par défaut)
+        $principalSupervisorId = $request->user()->supervisor_id;
+
         return Inertia::render('Reservations/Create', [
-            'requiredForm'       => $requiredForm,
-            'examMode'           => $examMode,
-            'examAdvanceHours'   => (int) Setting::get('exam_advance_hours', 24),
-            'examProcessStart'   => (int) Setting::get('exam_process_start', 7),
-            'examProcessEnd'     => (int) Setting::get('exam_process_end', 9),
+            'requiredForm'            => $requiredForm,
+            'examMode'                => $examMode,
+            'userSupervisors'         => $userSupervisors,
+            'principalSupervisorId'   => $principalSupervisorId,
+            'examAdvanceHours'        => (int) Setting::get('exam_advance_hours', 24),
+            'examProcessStart'        => (int) Setting::get('exam_process_start', 7),
+            'examProcessEnd'          => (int) Setting::get('exam_process_end', 9),
         ]);
     }
 
@@ -230,13 +242,14 @@ class ReservationController extends Controller
             : null;
 
         $reservation = Reservation::create([
-            'user_id'    => $targetUserId,
-            'kit_id'     => $singleKitId,
-            'title'      => $autoTitle,
-            'start_date' => $data['start_date'],
-            'end_date'   => $data['end_date'],
-            'notes'      => $data['notes'] ?? null,
-            'status'     => $initialStatus,
+            'user_id'              => $targetUserId,
+            'kit_id'               => $singleKitId,
+            'title'                => $autoTitle,
+            'start_date'           => $data['start_date'],
+            'end_date'             => $data['end_date'],
+            'notes'                => $data['notes'] ?? null,
+            'status'               => $initialStatus,
+            'supervisor_chosen_id' => $data['supervisor_chosen_id'] ?? null,
         ]);
 
         // Attacher les assets individuels
@@ -300,7 +313,14 @@ class ReservationController extends Controller
         if (!$isAdmin) {
             $bypassSupervisor = $targetUser->hasPermissionTo('bypass_supervisor_approval');
             if (!$bypassSupervisor) {
-                $supervisor = $targetUser->getSupervisor();
+                // Utiliser le superviseur choisi si spécifié, sinon fallback sur getSupervisor()
+                $supervisor = null;
+                if (!empty($data['supervisor_chosen_id'])) {
+                    $supervisor = User::find($data['supervisor_chosen_id']);
+                } else {
+                    $supervisor = $targetUser->getSupervisor();
+                }
+
                 if ($supervisor) {
                     $supervisor->notify(new \App\Notifications\ReservationAwaitingSupervisorNotification($reservation));
                     try { Mail::to($supervisor->email)->send(new ReservationAwaitingSupervisor($reservation, $supervisor)); } catch (\Exception $e) {}

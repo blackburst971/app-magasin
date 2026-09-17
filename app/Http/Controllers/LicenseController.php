@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\License;
 use App\Models\LicenseAssignment;
+use App\Models\LicenseKey;
 use App\Models\Computer;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
@@ -14,7 +15,7 @@ class LicenseController extends Controller
 {
     public function index()
     {
-        $licenses = License::with(['assignments.computer', 'supplier'])
+        $licenses = License::with(['assignments.computer', 'supplier', 'keys.assignedToComputer'])
             ->withCount('assignments')
             ->orderBy('name')
             ->get()
@@ -37,6 +38,17 @@ class LicenseController extends Controller
                     'order_number'     => $l->order_number,
                     'supplier'         => $l->supplier ? ['id' => $l->supplier->id, 'name' => $l->supplier->name] : null,
                     'notes'            => $l->notes,
+                    'keys'             => $l->keys->map(fn($k) => [
+                        'id'            => $k->id,
+                        'key_code'      => $k->key_code,
+                        'status'        => $k->status,
+                        'assigned_to'   => $k->assignedToComputer ? [
+                            'id'   => $k->assignedToComputer->id,
+                            'name' => $k->assignedToComputer->name,
+                        ] : null,
+                        'assigned_at'   => $k->assigned_at?->format('Y-m-d H:i'),
+                        'notes'         => $k->notes,
+                    ]),
                     'assignments'      => $l->assignments->map(fn($a) => [
                         'id'          => $a->id,
                         'computer'    => $a->computer ? [
@@ -83,6 +95,9 @@ class LicenseController extends Controller
             'order_number'  => 'nullable|string|max:100',
             'supplier_id'   => 'nullable|exists:suppliers,id',
             'notes'         => 'nullable|string',
+            'license_keys'  => 'nullable|array',
+            'license_keys.*.key_code' => 'required|string|max:255',
+            'license_keys.*.notes'    => 'nullable|string',
         ]);
 
         // Normaliser les chaînes vides en null pour les champs nullable FK
@@ -92,7 +107,19 @@ class LicenseController extends Controller
             }
         }
 
-        License::create($data);
+        $licenseKeys = $data['license_keys'] ?? [];
+        unset($data['license_keys']);
+
+        $license = License::create($data);
+
+        // Créer les clés de licence
+        foreach ($licenseKeys as $keyData) {
+            $license->keys()->create([
+                'key_code' => $keyData['key_code'],
+                'status'   => 'available',
+                'notes'    => $keyData['notes'] ?? null,
+            ]);
+        }
 
         return back()->with('success', 'Licence créée avec succès.');
     }
@@ -113,6 +140,10 @@ class LicenseController extends Controller
             'order_number'  => 'nullable|string|max:100',
             'supplier_id'   => 'nullable|exists:suppliers,id',
             'notes'         => 'nullable|string',
+            'license_keys'  => 'nullable|array',
+            'license_keys.*.id'       => 'nullable|exists:license_keys,id',
+            'license_keys.*.key_code' => 'required|string|max:255',
+            'license_keys.*.notes'    => 'nullable|string',
         ]);
 
         // Normaliser les chaînes vides en null pour les champs nullable FK
@@ -122,7 +153,40 @@ class LicenseController extends Controller
             }
         }
 
+        $licenseKeys = $data['license_keys'] ?? [];
+        unset($data['license_keys']);
+
         $license->update($data);
+
+        // Gérer les clés de licence
+        $submittedKeyIds = [];
+        foreach ($licenseKeys as $keyData) {
+            if (isset($keyData['id'])) {
+                // Mise à jour d'une clé existante
+                $key = $license->keys()->find($keyData['id']);
+                if ($key) {
+                    $key->update([
+                        'key_code' => $keyData['key_code'],
+                        'notes'    => $keyData['notes'] ?? null,
+                    ]);
+                    $submittedKeyIds[] = $keyData['id'];
+                }
+            } else {
+                // Nouvelle clé
+                $newKey = $license->keys()->create([
+                    'key_code' => $keyData['key_code'],
+                    'status'   => 'available',
+                    'notes'    => $keyData['notes'] ?? null,
+                ]);
+                $submittedKeyIds[] = $newKey->id;
+            }
+        }
+
+        // Supprimer les clés qui ne sont plus dans la liste (seulement si disponibles)
+        $license->keys()
+            ->whereNotIn('id', $submittedKeyIds)
+            ->where('status', 'available')
+            ->delete();
 
         return back()->with('success', 'Licence mise à jour.');
     }

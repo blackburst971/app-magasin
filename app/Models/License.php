@@ -30,6 +30,11 @@ class License extends Model
         return $this->hasMany(LicenseAssignment::class);
     }
 
+    public function keys(): HasMany
+    {
+        return $this->hasMany(LicenseKey::class);
+    }
+
     public function computers(): BelongsToMany
     {
         return $this->belongsToMany(Computer::class, 'license_assignments')

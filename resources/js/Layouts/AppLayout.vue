@@ -22,6 +22,7 @@ import {
   ShoppingBagIcon,
   QueueListIcon,
   ExclamationTriangleIcon,
+  WifiIcon,
 } from '@heroicons/vue/24/outline'
 import { BellIcon as BellSolid } from '@heroicons/vue/24/solid'
 
@@ -34,6 +35,7 @@ const flash        = computed(() => page.props.flash)
 const tabSettings  = computed(() => page.props.tabSettings)
 const unreadCount      = computed(() => page.props.unreadNotifications ?? 0)
 const localUnreadCount = ref(unreadCount.value)
+const pendingIpRequests = computed(() => page.props.pendingIpChangeRequests ?? 0)
 const appLogos     = computed(() => page.props.appLogos)
 
 const sidebarOpen = ref(false)
@@ -155,6 +157,30 @@ const navItems = computed(() => {
   items.push({ name: 'Calendrier', href: route('calendar.index'),      icon: CalendarDaysIcon,       current: route().current('calendar.*') })
   items.push({ name: 'Salles',     href: route('rooms.index'),         icon: BuildingOfficeIcon,     current: route().current('rooms.*') || route().current('room-reservations.*') })
   items.push({ name: 'Kits',       href: route('kits.index'),          icon: ArchiveBoxIcon,         current: route().current('kits.*') })
+  items.push({
+    name: 'Postes',
+    href: route('computers.index'),
+    icon: ComputerDesktopIcon,
+    current: route().current('computers.index') || route().current('computers.ip-addressing')
+  })
+
+  if (isAdmin.value) {
+    items.push({
+      name: 'Demandes IP',
+      href: route('computers.ip-change-requests'),
+      icon: ExclamationTriangleIcon,
+      current: route().current('computers.ip-change-requests'),
+      sub: true,
+      badge: pendingIpRequests.value > 0 ? pendingIpRequests.value : null
+    })
+  }
+
+  items.push({
+    name: 'Périphériques IP',
+    href: route('ip-devices.index'),
+    icon: WifiIcon,
+    current: route().current('ip-devices.index') || route().current('ip-devices.ip-addressing')
+  })
 
   // To-Do List (admin toujours, autres utilisateurs si activé)
   if (todoEnabled.value) {
@@ -203,6 +229,7 @@ const navItems = computed(() => {
       { name: 'Sauvegardes',  href: route('backups.index'),           icon: ShieldCheckIcon,         current: route().current('backups.*') },
       { name: 'Licences',     href: route('licenses.index'),          icon: KeyIcon,                current: route().current('licenses.*') },
       { name: 'Postes',       href: route('computers.index'),         icon: ComputerDesktopIcon,    current: route().current('computers.*') },
+      { name: 'Périphériques IP', href: route('ip-devices.index'),    icon: WifiIcon,               current: route().current('ip-devices.*') },
       { name: 'Fournisseurs', href: route('suppliers.index'),         icon: BuildingStorefrontIcon, current: route().current('suppliers.*') },
     )
     // ── Rapports ──────────────────────────────────────────────
@@ -353,6 +380,10 @@ onUnmounted(() => {
                     : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900']">
             <component :is="item.icon" :class="['flex-shrink-0', item.sub ? 'w-4 h-4' : 'w-5 h-5']" />
             {{ item.name }}
+            <span v-if="item.badge && item.badge > 0"
+                  class="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center leading-none">
+              {{ item.badge }}
+            </span>
           </Link>
         </template>
 

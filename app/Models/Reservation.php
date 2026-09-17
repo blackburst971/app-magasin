@@ -27,6 +27,7 @@ class Reservation extends Model
         'supervisor_signature',
         'supervisor_approved_at',
         'supervisor_approved_by',
+        'supervisor_chosen_id',
         'return_reminder_sent_at',
         'google_event_id',
     ];
@@ -76,6 +77,11 @@ class Reservation extends Model
     public function supervisorApprovedBy()
     {
         return $this->belongsTo(User::class, 'supervisor_approved_by');
+    }
+
+    public function supervisorChosen()
+    {
+        return $this->belongsTo(User::class, 'supervisor_chosen_id');
     }
 
     public function assets()
@@ -166,5 +172,41 @@ class Reservation extends Model
     public function scopeAwaitingSupervisor($query)
     {
         return $query->where('status', 'awaiting_supervisor');
+    }
+
+    /**
+     * Libère automatiquement les équipements "réservés" qui n'ont pas été sortis
+     * (cas de substitution par un autre équipement du même modèle).
+     * Appeler cette méthode quand tous les équipements de la réservation ont été attribués.
+     */
+    public function releaseUnusedReservedAssets()
+    {
+        // Récupérer tous les équipements de cette réservation qui n'ont pas été sortis
+        $unusedAssetIds = $this->assets()
+            ->wherePivot('checkout_at', null)
+            ->pluck('assets.id')
+            ->toArray();
+
+        if (empty($unusedAssetIds)) {
+            return;
+        }
+
+        // Pour chaque équipement non sorti, vérifier s'il a le statut "reserved"
+        // et le remettre à "available"
+        foreach ($unusedAssetIds as $assetId) {
+            $asset = Asset::find($assetId);
+            if ($asset && $asset->status === 'reserved') {
+                $asset->update(['status' => 'available']);
+
+                // Log le mouvement
+                AssetMovement::create([
+                    'asset_id'       => $asset->id,
+                    'reservation_id' => $this->id,
+                    'user_id'        => \Illuminate\Support\Facades\Auth::id(),
+                    'action'         => 'status_change',
+                    'notes'          => "Libération automatique (réservé → disponible) car équipement non sorti (probablement substitué) — Réservation #{$this->id}",
+                ]);
+            }
+        }
     }
 }

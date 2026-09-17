@@ -150,6 +150,10 @@ class AttributionController extends Controller
         $checkoutEmailSent = false;
         if ($reservation->assets->every(fn($a) => $a->pivot->checkout_at !== null)) {
             $reservation->update(['status' => 'active', 'checkout_at' => now()]);
+
+            // Libérer automatiquement les équipements réservés non sortis (substitution)
+            $reservation->releaseUnusedReservedAssets();
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
@@ -210,6 +214,10 @@ class AttributionController extends Controller
         $checkoutEmailSent = false;
         if ($reservation->assets->every(fn($a) => $a->pivot->checkout_at !== null)) {
             $reservation->update(['status' => 'active', 'checkout_at' => now()]);
+
+            // Libérer automatiquement les équipements réservés non sortis (substitution)
+            $reservation->releaseUnusedReservedAssets();
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
@@ -289,6 +297,10 @@ class AttributionController extends Controller
         if ($reservation->assets->every(fn($a) => $a->pivot->checkout_at !== null)) {
             $reservation->update(['status' => 'active', 'checkout_at' => now()]);
             $allCheckedOut = true;
+
+            // Libérer automatiquement les équipements réservés non sortis (substitution)
+            $reservation->releaseUnusedReservedAssets();
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
@@ -348,6 +360,10 @@ class AttributionController extends Controller
         $checkoutEmailSent = false;
         if ($reservation->assets->every(fn($a) => $a->pivot->checkout_at !== null)) {
             $reservation->update(['status' => 'active', 'checkout_at' => now()]);
+
+            // Libérer automatiquement les équipements réservés non sortis (substitution)
+            $reservation->releaseUnusedReservedAssets();
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new \App\Mail\CheckoutSummary($reservation->fresh()));
@@ -710,6 +726,10 @@ class AttributionController extends Controller
         $checkoutEmailSent = false;
         if ($reservation->assets->every(fn($a) => $a->pivot->checkout_at !== null)) {
             $reservation->update(['status' => 'active', 'checkout_at' => now()]);
+
+            // Libérer automatiquement les équipements réservés non sortis (substitution)
+            $reservation->releaseUnusedReservedAssets();
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));

@@ -72,6 +72,7 @@ const emptyForm = () => ({
   seats: '', type: 'per_seat', is_cloud: false,
   purchase_date: '', expiry_date: '', purchase_cost: '',
   order_number: '', supplier_id: '', notes: '',
+  license_keys: [],
 })
 const form = ref(emptyForm())
 
@@ -98,10 +99,24 @@ function openEdit(license) {
     order_number:  license.order_number ?? '',
     supplier_id:   license.supplier?.id ?? '',
     notes:         license.notes ?? '',
+    license_keys:  (license.keys ?? []).map(k => ({
+      id: k.id,
+      key_code: k.key_code,
+      notes: k.notes ?? '',
+    })),
   }
   showFormModal.value = true
 }
 function closeFormModal() { showFormModal.value = false; editing.value = null }
+
+/* ── Gestion des clés de licence ───────────────────────────────────────────── */
+function addLicenseKey() {
+  form.value.license_keys.push({ key_code: '', notes: '' })
+}
+
+function removeLicenseKey(index) {
+  form.value.license_keys.splice(index, 1)
+}
 
 function submitForm() {
   processing.value = true
@@ -477,6 +492,42 @@ const osLabel = (os) => ({
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
                 <textarea v-model="form.notes" rows="2"
                   class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"></textarea>
+              </div>
+
+              <!-- Clés de licence -->
+              <div class="col-span-2 border-t pt-4">
+                <div class="flex items-center justify-between mb-3">
+                  <label class="block text-xs font-semibold text-gray-600">
+                    🔑 Clés de licence (codes d'activation)
+                  </label>
+                  <button type="button" @click="addLicenseKey"
+                    class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition">
+                    <PlusIcon class="w-3.5 h-3.5" />
+                    Ajouter une clé
+                  </button>
+                </div>
+                <p class="text-xs text-gray-500 mb-3">
+                  Pour les licences par poste, vous pouvez saisir plusieurs clés d'activation (une par siège).
+                  Cela facilite le suivi des codes de licence individuels.
+                </p>
+                <div v-if="form.license_keys.length === 0" class="text-xs text-gray-400 italic py-3 text-center bg-gray-50 rounded-lg">
+                  Aucune clé de licence. Cliquez sur "Ajouter une clé" pour en créer.
+                </div>
+                <div v-else class="space-y-2">
+                  <div v-for="(key, index) in form.license_keys" :key="index"
+                    class="flex gap-2 items-start p-3 bg-gray-50 rounded-lg">
+                    <div class="flex-1 space-y-2">
+                      <input v-model="key.key_code" type="text" placeholder="Code d'activation / Clé de licence *" required
+                        class="w-full px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                      <input v-model="key.notes" type="text" placeholder="Notes (optionnel)"
+                        class="w-full px-2 py-1.5 text-xs border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <button type="button" @click="removeLicenseKey(index)" title="Retirer cette clé"
+                      class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition mt-1">
+                      <TrashIcon class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="flex justify-end gap-3 pt-2 border-t">

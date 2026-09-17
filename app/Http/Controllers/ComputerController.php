@@ -51,7 +51,7 @@ class ComputerController extends Controller
         $this->checkSectionAccess('computers');
 
         $computers = Computer::withCount('licenseAssignments')
-            ->with(['licenseAssignments.license', 'asset'])
+            ->with(['licenseAssignments.license', 'asset', 'place'])
             ->orderBy('name')
             ->get()
             ->map(function ($c) use ($isAdmin) {
@@ -61,6 +61,8 @@ class ComputerController extends Controller
                     'asset_tag_asset'           => $c->asset?->asset_tag,
                     'asset_is_reservable'       => $c->asset ? (bool) $c->asset->is_reservable : null,
                     'name'                      => $c->name,
+                    'place_id'                  => $c->place_id,
+                    'place_name'                => $c->place?->name,
                     'asset_tag'                 => $c->asset_tag,
                     'type'                      => $c->type,
                     'os'                        => $c->os,
@@ -72,18 +74,25 @@ class ComputerController extends Controller
                     'notes'                     => $isAdmin ? $c->notes : null,
                     'photo_url'                 => $c->photo ? Storage::url($c->photo) : null,
                     'license_assignments_count' => $c->license_assignments_count,
-                    'licenses'                  => $c->licenseAssignments->map(fn($a) => [
-                        'id'          => $a->id,
-                        'license_id'  => $a->license_id,
-                        'name'        => $a->license->name,
-                        'version'     => $a->license->version,
-                        'type'        => $a->license->type,
-                        'is_cloud'    => $a->license->is_cloud,
-                        'expiry_date' => $a->license->expiry_date?->format('Y-m-d'),
-                        'is_expired'  => $a->license->is_expired,
-                        'notes'       => $isAdmin ? $a->notes : null,
-                        'assigned_at' => $isAdmin ? $a->assigned_at?->format('Y-m-d') : null,
-                    ]),
+                    'licenses'                  => $c->licenseAssignments->map(function($a) use ($isAdmin) {
+                        $data = [
+                            'id'          => $a->id,
+                            'license_id'  => $a->license_id,
+                            'name'        => $a->license->name,
+                            'version'     => $a->license->version,
+                            'type'        => $a->license->type,
+                            'is_cloud'    => $a->license->is_cloud,
+                            'expiry_date' => $a->license->expiry_date?->format('Y-m-d'),
+                            'is_expired'  => $a->license->is_expired,
+                        ];
+                        // Informations sensibles uniquement pour les admins
+                        if ($isAdmin) {
+                            $data['license_key'] = $a->license->license_key;
+                            $data['notes'] = $a->notes;
+                            $data['assigned_at'] = $a->assigned_at?->format('Y-m-d');
+                        }
+                        return $data;
+                    }),
                 ];
             });
 
@@ -101,28 +110,27 @@ class ComputerController extends Controller
                 ])
             : [];
 
-        $canEdit      = false;
-        $editableFields = [];
-        if (!$isAdmin) {
-            $user = auth()->user();
-            $role = $user->hasRole('professeur') ? 'professeur'
-                  : ($user->hasRole('personnel')  ? 'personnel' : 'etudiant');
-            $canEdit = Setting::get("section_computers_edit_{$role}", 'false') === 'true';
-            if ($canEdit) {
-                foreach (['ip_addresses', 'ram', 'processor', 'os_version', 'os', 'notes'] as $field) {
-                    if (Setting::get("section_computers_edit_field_{$field}_{$role}", 'false') === 'true') {
-                        $editableFields[] = $field;
-                    }
-                }
-            }
-        }
+        // Pour les non-admins : pas de modification directe, uniquement demande de changement IP
+        $canEdit = false;
+        $canRequestIpChange = !$isAdmin; // Les non-admins peuvent demander un changement d'IP
+        $editableFields = []; // Aucun champ directement modifiable pour les non-admins
+
+        // Récupérer tous les lieux pour le formulaire admin
+        $places = $isAdmin
+            ? \App\Models\Place::orderBy('name')->get()->map(fn($p) => [
+                'id'   => $p->id,
+                'name' => $p->name,
+            ])
+            : [];
 
         return Inertia::render('Computers/Index', [
-            'computers'      => $computers,
-            'availableAssets' => $availableAssets,
-            'isAdmin'        => $isAdmin,
-            'canEdit'        => $canEdit,
-            'editableFields' => $editableFields,
+            'computers'          => $computers,
+            'availableAssets'    => $availableAssets,
+            'places'             => $places,
+            'isAdmin'            => $isAdmin,
+            'canEdit'            => $canEdit,
+            'canRequestIpChange' => $canRequestIpChange,
+            'editableFields'     => $editableFields,
         ]);
     }
 
@@ -318,6 +326,7 @@ class ComputerController extends Controller
 
             Computer::create([
                 'asset_id'      => $asset->id,
+                'place_id'      => $asset->place_id ?? null,
                 'name'          => $asset->name,
                 'asset_tag'     => $asset->asset_tag,
                 'type'          => $data['type'],
@@ -358,6 +367,11 @@ class ComputerController extends Controller
                 'os'            => 'required|in:windows_10,windows_11,windows_server,macos,linux,chromeos,other',
                 'os_version'    => 'nullable|string|max:100',
                 'serial_number' => 'nullable|string|max:255',
+                'mac_address'   => 'nullable|string|max:17',
+                'subnet_mask'   => 'nullable|string|max:15',
+                'gateway'       => 'nullable|string|max:15',
+                'dns_primary'   => 'nullable|string|max:15',
+                'dns_secondary' => 'nullable|string|max:15',
                 'processor'     => 'nullable|string|max:255',
                 'ram'           => 'nullable|string|max:50',
                 'notes'         => 'nullable|string',
@@ -381,6 +395,7 @@ class ComputerController extends Controller
 
             Computer::create([
                 'asset_id'      => $asset->id,
+                'place_id'      => $asset->place_id ?? null,
                 'name'          => $asset->name,
                 'asset_tag'     => $asset->asset_tag,
                 'type'          => $data['type'],
@@ -388,6 +403,11 @@ class ComputerController extends Controller
                 'os_version'    => $data['os_version'] ?? null,
                 'serial_number' => $data['serial_number'] ?? ($asset->serial ?? null),
                 'ip_addresses'  => $ipAddresses ?: null,
+                'mac_address'   => $data['mac_address'] ?? null,
+                'subnet_mask'   => $data['subnet_mask'] ?? '255.255.255.0',
+                'gateway'       => $data['gateway'] ?? null,
+                'dns_primary'   => $data['dns_primary'] ?? null,
+                'dns_secondary' => $data['dns_secondary'] ?? null,
                 'processor'     => $data['processor'] ?? null,
                 'ram'           => $data['ram'] ?? null,
                 'notes'         => $data['notes'] ?? null,
@@ -402,6 +422,11 @@ class ComputerController extends Controller
                 'os'            => 'required|in:windows_10,windows_11,windows_server,macos,linux,chromeos,other',
                 'os_version'    => 'nullable|string|max:100',
                 'serial_number' => 'nullable|string|max:255',
+                'mac_address'   => 'nullable|string|max:17',
+                'subnet_mask'   => 'nullable|string|max:15',
+                'gateway'       => 'nullable|string|max:15',
+                'dns_primary'   => 'nullable|string|max:15',
+                'dns_secondary' => 'nullable|string|max:15',
                 'processor'     => 'nullable|string|max:255',
                 'ram'           => 'nullable|string|max:50',
                 'notes'         => 'nullable|string',
@@ -436,6 +461,11 @@ class ComputerController extends Controller
                 'os_version'    => $data['os_version'] ?? null,
                 'serial_number' => $data['serial_number'] ?? null,
                 'ip_addresses'  => $ipAddresses ?: null,
+                'mac_address'   => $data['mac_address'] ?? null,
+                'subnet_mask'   => $data['subnet_mask'] ?? '255.255.255.0',
+                'gateway'       => $data['gateway'] ?? null,
+                'dns_primary'   => $data['dns_primary'] ?? null,
+                'dns_secondary' => $data['dns_secondary'] ?? null,
                 'processor'     => $data['processor'] ?? null,
                 'ram'           => $data['ram'] ?? null,
                 'notes'         => $data['notes'] ?? null,
@@ -450,50 +480,24 @@ class ComputerController extends Controller
 
     public function update(Request $request, Computer $computer)
     {
-        $isAdmin = auth()->user()->hasRole('admin');
-
-        /* ── Mise à jour non-admin (champs restreints) ──────────────────── */
-        if (!$isAdmin) {
-            $user = auth()->user();
-            $role = $user->hasRole('professeur') ? 'professeur'
-                  : ($user->hasRole('personnel')  ? 'personnel' : 'etudiant');
-
-            if (Setting::get("section_computers_{$role}", 'false') !== 'true') {
-                abort(403, 'Accès non autorisé.');
-            }
-            if (Setting::get("section_computers_edit_{$role}", 'false') !== 'true') {
-                abort(403, 'Édition non autorisée.');
-            }
-
-            $updateData = [];
-            $allFields  = ['ip_addresses', 'ram', 'processor', 'os_version', 'os', 'notes'];
-
-            foreach ($allFields as $field) {
-                if (Setting::get("section_computers_edit_field_{$field}_{$role}", 'false') !== 'true') {
-                    continue;
-                }
-                if ($field === 'ip_addresses') {
-                    $updateData['ip_addresses'] = $this->parseIpAddresses($request) ?: null;
-                } else {
-                    $updateData[$field] = $request->input($field);
-                }
-            }
-
-            if (!empty($updateData)) {
-                $computer->update($updateData);
-            }
-
-            return back()->with('success', 'Poste mis à jour.');
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
         }
 
         /* ── Mise à jour admin (complète) ───────────────────────────────── */
         $data = $request->validate([
             'name'          => 'required|string|max:255',
+            'place_id'      => 'nullable|exists:places,id',
             'asset_tag'     => 'nullable|string|max:100|unique:computers,asset_tag,' . $computer->id,
             'type'          => 'required|in:desktop,laptop,imac,macbook,mac_mini,mac_studio,server,tablet,other',
             'os'            => 'required|in:windows_10,windows_11,windows_server,macos,linux,chromeos,other',
             'os_version'    => 'nullable|string|max:100',
             'serial_number' => 'nullable|string|max:255',
+            'mac_address'   => 'nullable|string|max:17',
+            'subnet_mask'   => 'nullable|string|max:15',
+            'gateway'       => 'nullable|string|max:15',
+            'dns_primary'   => 'nullable|string|max:15',
+            'dns_secondary' => 'nullable|string|max:15',
             'processor'     => 'nullable|string|max:255',
             'ram'           => 'nullable|string|max:50',
             'notes'         => 'nullable|string',
@@ -519,11 +523,61 @@ class ComputerController extends Controller
         unset($data['remove_photo']);
         $computer->update($data);
 
-        if ($computer->asset_id && $computer->asset) {
-            $computer->asset->update(['name' => $data['name']]);
-        }
+        // Ne pas synchroniser le nom du Computer avec l'Asset
+        // Le nom du Computer sert à décrire sa fonction/rôle
 
         return back()->with('success', 'Poste mis à jour.');
+    }
+
+    /* ── Demande de changement IP (utilisateurs non-admin) ───────────────── */
+
+    public function requestIpChange(Request $request, Computer $computer)
+    {
+        $user = auth()->user();
+
+        // Vérifier si l'utilisateur tente de modifier les paramètres réseau
+        $newIpAddresses = $this->parseIpAddresses($request);
+        $newSubnetMask = $request->input('subnet_mask');
+        $newGateway = $request->input('gateway');
+        $newDnsPrimary = $request->input('dns_primary');
+        $newDnsSecondary = $request->input('dns_secondary');
+
+        // Vérifier qu'au moins un champ réseau a changé
+        $hasChanges = ($newIpAddresses !== $computer->ip_addresses)
+            || ($newSubnetMask !== $computer->subnet_mask)
+            || ($newGateway !== $computer->gateway)
+            || ($newDnsPrimary !== $computer->dns_primary)
+            || ($newDnsSecondary !== $computer->dns_secondary);
+
+        if (!$hasChanges) {
+            return back()->with('info', 'Aucune modification réseau détectée.');
+        }
+
+        // Créer une demande de changement réseau
+        \App\Models\ComputerIpChangeRequest::create([
+            'computer_id' => $computer->id,
+            'requested_by' => auth()->id(),
+            'old_ip_addresses' => $computer->ip_addresses ?? [],
+            'new_ip_addresses' => $newIpAddresses ?? [],
+            'old_subnet_mask' => $computer->subnet_mask,
+            'new_subnet_mask' => $newSubnetMask,
+            'old_gateway' => $computer->gateway,
+            'new_gateway' => $newGateway,
+            'old_dns_primary' => $computer->dns_primary,
+            'new_dns_primary' => $newDnsPrimary,
+            'old_dns_secondary' => $computer->dns_secondary,
+            'new_dns_secondary' => $newDnsSecondary,
+            'status' => 'pending',
+            'notes' => $request->input('ip_change_notes'),
+        ]);
+
+        // Notifier les admins
+        $admins = \App\Models\User::role('admin')->get();
+        foreach ($admins as $admin) {
+            $admin->notify(new \App\Notifications\ComputerIpChangeRequested($computer, $user));
+        }
+
+        return back()->with('success', 'Demande de changement réseau envoyée. Un administrateur la validera prochainement.');
     }
 
     /* ── Destroy ────────────────────────────────────────────────────────── */
@@ -544,5 +598,103 @@ class ComputerController extends Controller
         $slug = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $name), 0, 6));
         if (empty($slug)) $slug = 'PC';
         return $slug . '-' . strtoupper(Str::random(4));
+    }
+
+    /* ── Gestion des demandes de changement d'IP ─────────────────────────── */
+
+    public function ipChangeRequests()
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        $requests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy'])
+            ->orderBy('status', 'asc')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn($r) => [
+                'id'                => $r->id,
+                'computer_id'       => $r->computer_id,
+                'computer_name'     => $r->computer?->name,
+                'requested_by_name' => $r->requestedBy?->name,
+                'old_ip_addresses'  => $r->old_ip_addresses,
+                'new_ip_addresses'  => $r->new_ip_addresses,
+                'old_subnet_mask'   => $r->old_subnet_mask,
+                'new_subnet_mask'   => $r->new_subnet_mask,
+                'old_gateway'       => $r->old_gateway,
+                'new_gateway'       => $r->new_gateway,
+                'old_dns_primary'   => $r->old_dns_primary,
+                'new_dns_primary'   => $r->new_dns_primary,
+                'old_dns_secondary' => $r->old_dns_secondary,
+                'new_dns_secondary' => $r->new_dns_secondary,
+                'status'            => $r->status,
+                'notes'             => $r->notes,
+                'created_at'        => $r->created_at?->format('Y-m-d H:i'),
+                'reviewed_by_name'  => $r->reviewedBy?->name,
+                'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
+            ]);
+
+        return Inertia::render('Computers/IpChangeRequests', [
+            'requests' => $requests,
+        ]);
+    }
+
+    public function getIpChangeRequests()
+    {
+        $requests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy'])
+            ->where('status', 'pending')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($requests);
+    }
+
+    public function approveIpChangeRequest(\App\Models\ComputerIpChangeRequest $request)
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        $computer = $request->computer;
+
+        // Appliquer les changements réseau
+        $computer->update([
+            'ip_addresses' => $request->new_ip_addresses,
+            'subnet_mask' => $request->new_subnet_mask,
+            'gateway' => $request->new_gateway,
+            'dns_primary' => $request->new_dns_primary,
+            'dns_secondary' => $request->new_dns_secondary,
+        ]);
+
+        // Marquer la demande comme approuvée
+        $request->update([
+            'status' => 'approved',
+            'reviewed_by' => auth()->id(),
+            'reviewed_at' => now(),
+        ]);
+
+        // Notifier le demandeur
+        $request->requestedBy->notify(new \App\Notifications\ComputerIpChangeReviewed($request, 'approved'));
+
+        return back()->with('success', 'Changement réseau approuvé et appliqué.');
+    }
+
+    public function rejectIpChangeRequest(\App\Models\ComputerIpChangeRequest $request)
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        // Marquer la demande comme rejetée
+        $request->update([
+            'status' => 'rejected',
+            'reviewed_by' => auth()->id(),
+            'reviewed_at' => now(),
+        ]);
+
+        // Notifier le demandeur
+        $request->requestedBy->notify(new \App\Notifications\ComputerIpChangeReviewed($request, 'rejected'));
+
+        return back()->with('success', 'Demande de changement d\'adresse IP rejetée.');
     }
 }

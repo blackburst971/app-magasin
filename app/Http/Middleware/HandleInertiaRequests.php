@@ -48,6 +48,9 @@ class HandleInertiaRequests extends Middleware
                 'section_procurement_etudiant_read'   => \App\Models\Setting::get('section_procurement_etudiant_read', 'false'),
             ] : null,
             'unreadNotifications' => fn () => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
+            'pendingIpChangeRequests' => fn () => $request->user() && $request->user()->hasRole('admin')
+                ? \App\Models\ComputerIpChangeRequest::where('status', 'pending')->count()
+                : 0,
             'flash' => [
                 'success'        => fn () => $request->session()->get('success'),
                 'error'          => fn () => $request->session()->get('error'),

@@ -18,7 +18,7 @@ class AdminController extends Controller
 {
     public function users()
     {
-        $allUsers = User::with(['roles', 'supervisor'])->orderBy('name')->get();
+        $allUsers = User::with(['roles', 'supervisor', 'supervisors'])->orderBy('name')->get();
 
         return Inertia::render('Admin/Users', [
             'users' => $allUsers->map(fn($u) => [
@@ -29,12 +29,16 @@ class AdminController extends Controller
                 'phone'           => $u->phone,
                 'supervisor_id'   => $u->supervisor_id,
                 'supervisor_name' => $u->supervisor?->name,
+                'supervisors'     => $u->supervisors->map(fn($s) => [
+                    'id'   => $s->id,
+                    'name' => $s->name,
+                ]),
                 'roles'           => $u->getRoleNames(),
                 'created_at'      => $u->created_at->format('d/m/Y'),
                 'avatar_url'      => $u->avatar ? Storage::disk('public')->url($u->avatar) : null,
             ]),
             // Liste plate id+name pour les dropdowns superviseur
-            'supervisors' => $allUsers->map(fn($u) => ['id' => $u->id, 'name' => $u->name]),
+            'allSupervisors' => $allUsers->map(fn($u) => ['id' => $u->id, 'name' => $u->name]),
             'roles' => Role::all(['id', 'name']),
         ]);
     }
@@ -417,5 +421,26 @@ class AdminController extends Controller
             'stats'         => $stats,
             'missing_items' => $missingItems,
         ]);
+    }
+
+    /**
+     * Mettre à jour les superviseurs d'un utilisateur (relation many-to-many).
+     */
+    public function updateUserSupervisors(Request $request, User $user)
+    {
+        $request->validate([
+            'supervisor_ids'   => 'nullable|array',
+            'supervisor_ids.*' => 'exists:users,id',
+        ]);
+
+        $supervisorIds = $request->input('supervisor_ids', []);
+
+        // Ne pas permettre à un utilisateur d'être son propre superviseur
+        $supervisorIds = array_filter($supervisorIds, fn($id) => $id != $user->id);
+
+        // Synchroniser les superviseurs
+        $user->supervisors()->sync($supervisorIds);
+
+        return back()->with('success', 'Superviseurs mis à jour avec succès.');
     }
 }

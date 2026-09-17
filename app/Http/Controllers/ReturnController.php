@@ -394,7 +394,12 @@ class ReturnController extends Controller
         ]);
 
         // Récupérer les composants de l'équipement pour la vérification post-retour
+        // Exclure les composants marqués comme "missing" (manquants) car ils ne doivent pas être vérifiés
         $components = $asset->components()
+            ->where(function($query) {
+                $query->where('condition', '!=', 'missing')
+                      ->orWhereNull('condition');
+            })
             ->get()
             ->map(fn($c) => [
                 'id'          => $c->id,
