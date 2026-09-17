@@ -608,12 +608,14 @@ class ComputerController extends Controller
             abort(403, 'Action non autorisée.');
         }
 
-        $requests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy'])
+        // Récupérer les demandes de changement pour les Computers
+        $computerRequests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy'])
             ->orderBy('status', 'asc')
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(fn($r) => [
                 'id'                => $r->id,
+                'type'              => 'computer',
                 'computer_id'       => $r->computer_id,
                 'computer_name'     => $r->computer?->name,
                 'requested_by_name' => $r->requestedBy?->name,
@@ -629,13 +631,52 @@ class ComputerController extends Controller
                 'new_dns_secondary' => $r->new_dns_secondary,
                 'status'            => $r->status,
                 'notes'             => $r->notes,
+                'reason'            => $r->reason,
                 'created_at'        => $r->created_at?->format('Y-m-d H:i'),
                 'reviewed_by_name'  => $r->reviewedBy?->name,
                 'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
+                'review_notes'      => $r->review_notes,
             ]);
 
+        // Récupérer les demandes de changement pour les IP Devices
+        $ipDeviceRequests = \App\Models\IpDeviceIpChangeRequest::with(['ipDevice', 'requestedBy', 'reviewedBy'])
+            ->orderBy('status', 'asc')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn($r) => [
+                'id'                => $r->id,
+                'type'              => 'ip_device',
+                'ip_device_id'      => $r->ip_device_id,
+                'ip_device_name'    => $r->ipDevice?->name,
+                'requested_by_name' => $r->requestedBy?->name,
+                'old_ip_address'    => $r->old_ip_address,
+                'new_ip_address'    => $r->new_ip_address,
+                'old_subnet_mask'   => $r->old_subnet_mask,
+                'new_subnet_mask'   => $r->new_subnet_mask,
+                'old_gateway'       => $r->old_gateway,
+                'new_gateway'       => $r->new_gateway,
+                'old_dns_primary'   => $r->old_dns_primary,
+                'new_dns_primary'   => $r->new_dns_primary,
+                'old_dns_secondary' => $r->old_dns_secondary,
+                'new_dns_secondary' => $r->new_dns_secondary,
+                'status'            => $r->status,
+                'reason'            => $r->reason,
+                'created_at'        => $r->created_at?->format('Y-m-d H:i'),
+                'reviewed_by_name'  => $r->reviewedBy?->name,
+                'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
+                'review_notes'      => $r->review_notes,
+            ]);
+
+        // Combiner les deux collections et trier
+        $allRequests = $computerRequests->concat($ipDeviceRequests)
+            ->sortBy([
+                ['status', 'asc'],
+                ['created_at', 'desc'],
+            ])
+            ->values();
+
         return Inertia::render('Computers/IpChangeRequests', [
-            'requests' => $requests,
+            'requests' => $allRequests,
         ]);
     }
 
