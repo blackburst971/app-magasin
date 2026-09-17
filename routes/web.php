@@ -31,6 +31,8 @@ use App\Http\Controllers\PlaceController;
 use App\Http\Controllers\AssetPlaceController;
 use App\Http\Controllers\PreparationController;
 use App\Http\Controllers\AssetReportController;
+use App\Http\Controllers\IpDeviceController;
+use App\Http\Controllers\ComputerController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -443,6 +445,7 @@ Route::middleware('auth')->group(function () {
 
     // Périphériques IP - Routes admin
     Route::middleware('role:admin')->group(function () {
+        Route::get('/ip-devices/ip-change-requests', [\App\Http\Controllers\IpDeviceController::class, 'ipChangeRequests'])->name('ip-devices.ip-change-requests');
         Route::post('/ip-devices/batch-store', [\App\Http\Controllers\IpDeviceController::class, 'batchStore'])->name('ip-devices.batch-store');
         Route::post('/ip-devices/export-ip-pdf', [\App\Http\Controllers\IpDeviceController::class, 'exportIpPdf'])->name('ip-devices.ip-pdf');
         Route::get('/ip-devices/export-ip-csv', [\App\Http\Controllers\IpDeviceController::class, 'exportIpCsv'])->name('ip-devices.ip-csv');

@@ -359,27 +359,41 @@ class IpDeviceController extends Controller
         $user = auth()->user();
 
         $data = $request->validate([
-            'new_ip_address'  => 'required|string|max:255',
-            'new_subnet_mask' => 'nullable|string|max:255',
-            'new_gateway'     => 'nullable|string|max:255',
-            'reason'          => 'nullable|string',
+            'ip_address'      => 'nullable|string|max:255',
+            'subnet_mask'     => 'nullable|string|max:255',
+            'gateway'         => 'nullable|string|max:255',
+            'dns_primary'     => 'nullable|string|max:255',
+            'dns_secondary'   => 'nullable|string|max:255',
+            'ip_change_reason'=> 'nullable|string',
         ]);
 
-        $newIpAddress = $data['new_ip_address'];
+        // Vérifier qu'au moins un champ a changé
+        $hasChanges = ($data['ip_address'] !== $ipDevice->ip_address)
+            || ($data['subnet_mask'] !== $ipDevice->subnet_mask)
+            || ($data['gateway'] !== $ipDevice->gateway)
+            || ($data['dns_primary'] !== $ipDevice->dns_primary)
+            || ($data['dns_secondary'] !== $ipDevice->dns_secondary);
 
-        if ($newIpAddress === $ipDevice->ip_address) {
-            return back()->with('info', 'Aucune modification d\'adresse IP détectée.');
+        if (!$hasChanges) {
+            return back()->with('info', 'Aucune modification réseau détectée.');
         }
 
-        // Créer une demande de changement d'IP
+        // Créer une demande de changement réseau
         \App\Models\IpDeviceIpChangeRequest::create([
-            'ip_device_id'    => $ipDevice->id,
-            'requested_by'    => auth()->id(),
-            'new_ip_address'  => $data['new_ip_address'],
-            'new_subnet_mask' => $data['new_subnet_mask'] ?? null,
-            'new_gateway'     => $data['new_gateway'] ?? null,
-            'reason'          => $data['reason'] ?? null,
-            'status'          => 'pending',
+            'ip_device_id'      => $ipDevice->id,
+            'requested_by'      => auth()->id(),
+            'old_ip_address'    => $ipDevice->ip_address,
+            'old_subnet_mask'   => $ipDevice->subnet_mask,
+            'old_gateway'       => $ipDevice->gateway,
+            'old_dns_primary'   => $ipDevice->dns_primary,
+            'old_dns_secondary' => $ipDevice->dns_secondary,
+            'new_ip_address'    => $data['ip_address'],
+            'new_subnet_mask'   => $data['subnet_mask'],
+            'new_gateway'       => $data['gateway'],
+            'new_dns_primary'   => $data['dns_primary'],
+            'new_dns_secondary' => $data['dns_secondary'],
+            'reason'            => $data['ip_change_reason'] ?? null,
+            'status'            => 'pending',
         ]);
 
         // Notifier les admins
@@ -388,7 +402,7 @@ class IpDeviceController extends Controller
             $admin->notify(new \App\Notifications\IpDeviceIpChangeRequested($ipDevice, $user));
         }
 
-        return back()->with('success', 'Demande de changement d\'adresse IP envoyée. Un administrateur la validera prochainement.');
+        return back()->with('success', 'Demande de changement réseau envoyée. Un administrateur la validera prochainement.');
     }
 
     /* ── Destroy ────────────────────────────────────────────────────────── */
@@ -412,20 +426,26 @@ class IpDeviceController extends Controller
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(fn($r) => [
-                'id'                => $r->id,
-                'ip_device_id'      => $r->ip_device_id,
-                'ip_device_name'    => $r->ipDevice?->name,
-                'current_ip'        => $r->ipDevice?->ip_address,
-                'requested_by_name' => $r->requestedBy?->name,
-                'new_ip_address'    => $r->new_ip_address,
-                'new_subnet_mask'   => $r->new_subnet_mask,
-                'new_gateway'       => $r->new_gateway,
-                'status'            => $r->status,
-                'reason'            => $r->reason,
-                'created_at'        => $r->created_at?->format('Y-m-d H:i'),
-                'reviewed_by_name'  => $r->reviewedBy?->name,
-                'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
-                'review_notes'      => $r->review_notes,
+                'id'                 => $r->id,
+                'ip_device_id'       => $r->ip_device_id,
+                'ip_device_name'     => $r->ipDevice?->name,
+                'requested_by_name'  => $r->requestedBy?->name,
+                'old_ip_address'     => $r->old_ip_address,
+                'old_subnet_mask'    => $r->old_subnet_mask,
+                'old_gateway'        => $r->old_gateway,
+                'old_dns_primary'    => $r->old_dns_primary,
+                'old_dns_secondary'  => $r->old_dns_secondary,
+                'new_ip_address'     => $r->new_ip_address,
+                'new_subnet_mask'    => $r->new_subnet_mask,
+                'new_gateway'        => $r->new_gateway,
+                'new_dns_primary'    => $r->new_dns_primary,
+                'new_dns_secondary'  => $r->new_dns_secondary,
+                'status'             => $r->status,
+                'reason'             => $r->reason,
+                'created_at'         => $r->created_at?->format('Y-m-d H:i'),
+                'reviewed_by_name'   => $r->reviewedBy?->name,
+                'reviewed_at'        => $r->reviewed_at?->format('Y-m-d H:i'),
+                'review_notes'       => $r->review_notes,
             ]);
 
         return Inertia::render('IpDevices/IpChangeRequests', [
@@ -451,18 +471,14 @@ class IpDeviceController extends Controller
 
         $ipDevice = $changeRequest->ipDevice;
 
-        // Appliquer les changements d'IP
-        $updateData = ['ip_address' => $changeRequest->new_ip_address];
-
-        if ($changeRequest->new_subnet_mask) {
-            $updateData['subnet_mask'] = $changeRequest->new_subnet_mask;
-        }
-
-        if ($changeRequest->new_gateway) {
-            $updateData['gateway'] = $changeRequest->new_gateway;
-        }
-
-        $ipDevice->update($updateData);
+        // Appliquer les changements réseau
+        $ipDevice->update([
+            'ip_address'    => $changeRequest->new_ip_address,
+            'subnet_mask'   => $changeRequest->new_subnet_mask,
+            'gateway'       => $changeRequest->new_gateway,
+            'dns_primary'   => $changeRequest->new_dns_primary,
+            'dns_secondary' => $changeRequest->new_dns_secondary,
+        ]);
 
         // Marquer la demande comme approuvée
         $changeRequest->update([
@@ -474,7 +490,7 @@ class IpDeviceController extends Controller
         // Notifier le demandeur
         $changeRequest->requestedBy->notify(new \App\Notifications\IpDeviceIpChangeReviewed($changeRequest, 'approved'));
 
-        return back()->with('success', 'Changement d\'adresse IP approuvé et appliqué.');
+        return back()->with('success', 'Changement réseau approuvé et appliqué.');
     }
 
     public function rejectIpChangeRequest(\App\Models\IpDeviceIpChangeRequest $changeRequest, Request $request)
@@ -498,6 +514,6 @@ class IpDeviceController extends Controller
         // Notifier le demandeur
         $changeRequest->requestedBy->notify(new \App\Notifications\IpDeviceIpChangeReviewed($changeRequest, 'rejected'));
 
-        return back()->with('success', 'Demande de changement d\'adresse IP rejetée.');
+        return back()->with('success', 'Demande de changement réseau rejetée.');
     }
 }

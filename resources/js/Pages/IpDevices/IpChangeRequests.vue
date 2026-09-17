@@ -48,24 +48,19 @@ const statusLabel = (status) => ({
   approved: 'Approuvée',
   rejected: 'Rejetée',
 })[status] || status
-
-const formatIpList = (ips) => {
-  if (!ips || ips.length === 0) return '—'
-  return ips.map(ip => `${ip.ip}${ip.description ? ' (' + ip.description + ')' : ''}`).join(', ')
-}
 </script>
 
 <template>
-  <AppLayout title="Demandes de changement d'IP">
+  <AppLayout title="Demandes de changement réseau">
     <div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div class="max-w-7xl mx-auto">
         <!-- En-tête -->
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-2">
             <ComputerDesktopIcon class="w-8 h-8 text-indigo-600" />
-            <h1 class="text-3xl font-bold text-gray-900">Demandes de changement d'adresse IP</h1>
+            <h1 class="text-3xl font-bold text-gray-900">Demandes de changement réseau - Périphériques IP</h1>
           </div>
-          <p class="text-gray-600">Gérez les demandes de modification d'adresses IP des utilisateurs</p>
+          <p class="text-gray-600">Gérez les demandes de modification réseau des utilisateurs</p>
         </div>
 
         <!-- Statistiques -->
@@ -108,7 +103,7 @@ const formatIpList = (ips) => {
         <!-- Liste des demandes -->
         <div v-if="requests.length === 0" class="bg-white rounded-xl shadow-sm p-12 text-center">
           <ComputerDesktopIcon class="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p class="text-gray-500 text-lg">Aucune demande de changement d'IP</p>
+          <p class="text-gray-500 text-lg">Aucune demande de changement réseau</p>
         </div>
 
         <div v-else class="space-y-4">
@@ -147,26 +142,64 @@ const formatIpList = (ips) => {
                 </div>
               </div>
 
-              <!-- Comparaison des adresses IP -->
+              <!-- Comparaison des paramètres réseau -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
                 <div>
-                  <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Adresses IP actuelles</p>
-                  <div class="bg-white rounded-md p-3 border border-gray-200">
-                    <p class="text-sm text-gray-700 font-mono">{{ formatIpList(req.old_ip_addresses) }}</p>
+                  <p class="text-xs font-semibold text-gray-500 uppercase mb-3">Configuration actuelle</p>
+                  <div class="space-y-2">
+                    <div class="bg-white rounded-md p-3 border border-gray-200">
+                      <p class="text-xs text-gray-500 mb-1">Adresse IP</p>
+                      <p class="text-sm text-gray-700 font-mono">{{ req.old_ip_address || '—' }}</p>
+                    </div>
+                    <div class="bg-white rounded-md p-3 border border-gray-200">
+                      <p class="text-xs text-gray-500 mb-1">Masque de sous-réseau</p>
+                      <p class="text-sm text-gray-700 font-mono">{{ req.old_subnet_mask || '—' }}</p>
+                    </div>
+                    <div class="bg-white rounded-md p-3 border border-gray-200">
+                      <p class="text-xs text-gray-500 mb-1">Passerelle</p>
+                      <p class="text-sm text-gray-700 font-mono">{{ req.old_gateway || '—' }}</p>
+                    </div>
+                    <div class="bg-white rounded-md p-3 border border-gray-200">
+                      <p class="text-xs text-gray-500 mb-1">DNS Primaire</p>
+                      <p class="text-sm text-gray-700 font-mono">{{ req.old_dns_primary || '—' }}</p>
+                    </div>
+                    <div class="bg-white rounded-md p-3 border border-gray-200">
+                      <p class="text-xs text-gray-500 mb-1">DNS Secondaire</p>
+                      <p class="text-sm text-gray-700 font-mono">{{ req.old_dns_secondary || '—' }}</p>
+                    </div>
                   </div>
                 </div>
                 <div>
-                  <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Nouvelles adresses IP demandées</p>
-                  <div class="bg-green-50 rounded-md p-3 border border-green-200">
-                    <p class="text-sm text-green-700 font-mono font-semibold">{{ formatIpList(req.new_ip_addresses) }}</p>
+                  <p class="text-xs font-semibold text-gray-500 uppercase mb-3">Nouvelle configuration demandée</p>
+                  <div class="space-y-2">
+                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
+                      <p class="text-xs text-green-600 mb-1">Adresse IP</p>
+                      <p class="text-sm text-green-700 font-mono font-semibold">{{ req.new_ip_address || '—' }}</p>
+                    </div>
+                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
+                      <p class="text-xs text-green-600 mb-1">Masque de sous-réseau</p>
+                      <p class="text-sm text-green-700 font-mono font-semibold">{{ req.new_subnet_mask || '—' }}</p>
+                    </div>
+                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
+                      <p class="text-xs text-green-600 mb-1">Passerelle</p>
+                      <p class="text-sm text-green-700 font-mono font-semibold">{{ req.new_gateway || '—' }}</p>
+                    </div>
+                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
+                      <p class="text-xs text-green-600 mb-1">DNS Primaire</p>
+                      <p class="text-sm text-green-700 font-mono font-semibold">{{ req.new_dns_primary || '—' }}</p>
+                    </div>
+                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
+                      <p class="text-xs text-green-600 mb-1">DNS Secondaire</p>
+                      <p class="text-sm text-green-700 font-mono font-semibold">{{ req.new_dns_secondary || '—' }}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Notes -->
-              <div v-if="req.notes" class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p class="text-xs font-semibold text-blue-700 mb-1">Notes de la demande</p>
-                <p class="text-sm text-blue-900">{{ req.notes }}</p>
+              <!-- Raison -->
+              <div v-if="req.reason" class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p class="text-xs font-semibold text-blue-700 mb-1">Raison de la demande</p>
+                <p class="text-sm text-blue-900">{{ req.reason }}</p>
               </div>
 
               <!-- Info de révision -->
@@ -175,6 +208,7 @@ const formatIpList = (ips) => {
                   {{ req.status === 'approved' ? 'Approuvée' : 'Rejetée' }} par
                   <strong>{{ req.reviewed_by_name }}</strong> le {{ req.reviewed_at }}
                 </p>
+                <p v-if="req.review_notes" class="text-sm text-gray-700 mt-2 italic">{{ req.review_notes }}</p>
               </div>
             </div>
           </div>
