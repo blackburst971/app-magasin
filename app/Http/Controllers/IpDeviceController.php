@@ -34,7 +34,7 @@ class IpDeviceController extends Controller
         // Pas de restriction d'accès - tous les utilisateurs authentifiés peuvent voir les périphériques IP
         // $this->checkSectionAccess('ip_devices');
 
-        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturerModel'])
             ->orderBy('name')
             ->get()
             ->map(function ($device) use ($isAdmin) {
@@ -44,7 +44,7 @@ class IpDeviceController extends Controller
                 $dynamicPlaceId = $asset?->place_id ?? $device->place_id;
                 $dynamicPlaceName = $asset?->place?->name ?? null;
                 $dynamicPhoto = $asset?->image ?? $device->photo;
-                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturerModel?->name ?? $device->brand;
                 $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
 
                 return [
@@ -118,7 +118,7 @@ class IpDeviceController extends Controller
         // Pas de restriction d'accès - tous les utilisateurs authentifiés peuvent voir l'adressage IP
         // $this->checkSectionAccess('ip_devices_ip');
 
-        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturerModel'])
             ->orderBy('name')
             ->get()
             ->map(function($device) {
@@ -126,7 +126,7 @@ class IpDeviceController extends Controller
                 $asset = $device->asset;
                 $dynamicLocation = $asset?->location ?? $device->location;
                 $dynamicPlaceName = $asset?->place?->name ?? null;
-                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturerModel?->name ?? $device->brand;
                 $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
 
                 return [
@@ -154,7 +154,7 @@ class IpDeviceController extends Controller
 
     public function exportIpPdf(Request $request)
     {
-        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturerModel'])
             ->orderBy('name')
             ->get()
             ->map(function($device) {
@@ -162,7 +162,7 @@ class IpDeviceController extends Controller
                 $asset = $device->asset;
                 $dynamicLocation = $asset?->location ?? $device->location;
                 $dynamicPlaceName = $asset?->place?->name ?? null;
-                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturerModel?->name ?? $device->brand;
                 $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
 
                 return [
@@ -189,7 +189,7 @@ class IpDeviceController extends Controller
 
     public function exportIpCsv(Request $request)
     {
-        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturerModel'])
             ->orderBy('name')
             ->get();
 
