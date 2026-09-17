@@ -57,6 +57,7 @@ class IpDeviceController extends Controller
                     'status'        => $device->status,
                     'asset_id'      => $device->asset_id,
                     'asset_is_reservable' => $device->asset?->is_reservable ?? false,
+                    'photo_url'     => $device->photo ? asset('storage/' . $device->photo) : null,
                     'licenses'      => [],
                     'license_assignments_count' => 0,
                 ];
