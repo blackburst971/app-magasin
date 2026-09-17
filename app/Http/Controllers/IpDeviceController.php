@@ -34,10 +34,19 @@ class IpDeviceController extends Controller
         // Pas de restriction d'accès - tous les utilisateurs authentifiés peuvent voir les périphériques IP
         // $this->checkSectionAccess('ip_devices');
 
-        $ipDevices = IpDevice::with(['place', 'asset'])
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
             ->orderBy('name')
             ->get()
             ->map(function ($device) use ($isAdmin) {
+                // Informations dynamiques provenant de l'équipement (asset) si lié
+                $asset = $device->asset;
+                $dynamicLocation = $asset?->location ?? $device->location;
+                $dynamicPlaceId = $asset?->place_id ?? $device->place_id;
+                $dynamicPlaceName = $asset?->place?->name ?? null;
+                $dynamicPhoto = $asset?->image ?? $device->photo;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
+
                 return [
                     'id'            => $device->id,
                     'name'          => $device->name,
@@ -48,16 +57,16 @@ class IpDeviceController extends Controller
                     'gateway'       => $device->gateway,
                     'dns_primary'   => $device->dns_primary,
                     'dns_secondary' => $device->dns_secondary,
-                    'place_id'      => $device->place_id,
-                    'place_name'    => $device->place?->name,
-                    'location'      => $device->location,
-                    'brand'         => $device->brand,
-                    'model'         => $device->model,
+                    'place_id'      => $dynamicPlaceId,
+                    'place_name'    => $dynamicPlaceName,
+                    'location'      => $dynamicLocation,
+                    'brand'         => $dynamicBrand,
+                    'model'         => $dynamicModel,
                     'notes'         => $isAdmin ? $device->notes : null,
                     'status'        => $device->status,
                     'asset_id'      => $device->asset_id,
                     'asset_is_reservable' => $device->asset?->is_reservable ?? false,
-                    'photo_url'     => $device->photo ? asset('storage/' . $device->photo) : null,
+                    'photo_url'     => $dynamicPhoto ? asset('storage/' . $dynamicPhoto) : null,
                     'licenses'      => [],
                     'license_assignments_count' => 0,
                 ];
@@ -109,22 +118,31 @@ class IpDeviceController extends Controller
         // Pas de restriction d'accès - tous les utilisateurs authentifiés peuvent voir l'adressage IP
         // $this->checkSectionAccess('ip_devices_ip');
 
-        $ipDevices = IpDevice::with('place')
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
             ->orderBy('name')
             ->get()
-            ->map(fn($device) => [
-                'id'            => $device->id,
-                'name'          => $device->name,
-                'device_type'   => $device->device_type,
-                'mac_address'   => $device->mac_address,
-                'ip_address'    => $device->ip_address,
-                'subnet_mask'   => $device->subnet_mask,
-                'gateway'       => $device->gateway,
-                'location'      => $device->location,
-                'place_name'    => $device->place?->name,
-                'brand'         => $device->brand,
-                'model'         => $device->model,
-            ]);
+            ->map(function($device) {
+                // Informations dynamiques provenant de l'équipement (asset) si lié
+                $asset = $device->asset;
+                $dynamicLocation = $asset?->location ?? $device->location;
+                $dynamicPlaceName = $asset?->place?->name ?? null;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
+
+                return [
+                    'id'            => $device->id,
+                    'name'          => $device->name,
+                    'device_type'   => $device->device_type,
+                    'mac_address'   => $device->mac_address,
+                    'ip_address'    => $device->ip_address,
+                    'subnet_mask'   => $device->subnet_mask,
+                    'gateway'       => $device->gateway,
+                    'location'      => $dynamicLocation,
+                    'place_name'    => $dynamicPlaceName,
+                    'brand'         => $dynamicBrand,
+                    'model'         => $dynamicModel,
+                ];
+            });
 
         return Inertia::render('IpDevices/IpAddressing', [
             'ipDevices' => $ipDevices,
@@ -136,21 +154,30 @@ class IpDeviceController extends Controller
 
     public function exportIpPdf(Request $request)
     {
-        $ipDevices = IpDevice::with('place')
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
             ->orderBy('name')
             ->get()
-            ->map(fn($device) => [
-                'name'          => $device->name,
-                'device_type'   => $device->device_type,
-                'mac_address'   => $device->mac_address,
-                'ip_address'    => $device->ip_address,
-                'subnet_mask'   => $device->subnet_mask,
-                'gateway'       => $device->gateway,
-                'location'      => $device->location,
-                'place_name'    => $device->place?->name,
-                'brand'         => $device->brand,
-                'model'         => $device->model,
-            ]);
+            ->map(function($device) {
+                // Informations dynamiques provenant de l'équipement (asset) si lié
+                $asset = $device->asset;
+                $dynamicLocation = $asset?->location ?? $device->location;
+                $dynamicPlaceName = $asset?->place?->name ?? null;
+                $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+                $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
+
+                return [
+                    'name'          => $device->name,
+                    'device_type'   => $device->device_type,
+                    'mac_address'   => $device->mac_address,
+                    'ip_address'    => $device->ip_address,
+                    'subnet_mask'   => $device->subnet_mask,
+                    'gateway'       => $device->gateway,
+                    'location'      => $dynamicLocation,
+                    'place_name'    => $dynamicPlaceName,
+                    'brand'         => $dynamicBrand,
+                    'model'         => $dynamicModel,
+                ];
+            });
 
         $pdf = Pdf::loadView('pdf.ip-addressing-export', compact('ipDevices'))
             ->setPaper('a4', 'landscape');
@@ -162,7 +189,7 @@ class IpDeviceController extends Controller
 
     public function exportIpCsv(Request $request)
     {
-        $ipDevices = IpDevice::with('place')
+        $ipDevices = IpDevice::with(['asset.place', 'asset.equipmentModel.manufacturer'])
             ->orderBy('name')
             ->get();
 
@@ -173,19 +200,26 @@ class IpDeviceController extends Controller
         $csv->insertOne(['Nom', 'Type', 'Marque', 'Modèle', 'Adresse MAC', 'Adresse IP', 'Masque', 'Passerelle', 'DNS Primaire', 'DNS Secondaire', 'Lieu', 'Emplacement']);
 
         foreach ($ipDevices as $device) {
+            // Informations dynamiques provenant de l'équipement (asset) si lié
+            $asset = $device->asset;
+            $dynamicLocation = $asset?->location ?? $device->location;
+            $dynamicPlaceName = $asset?->place?->name ?? null;
+            $dynamicBrand = $asset?->equipmentModel?->manufacturer?->name ?? $device->brand;
+            $dynamicModel = $asset?->equipmentModel?->name ?? $device->model;
+
             $csv->insertOne([
                 $device->name ?? '',
                 $device->device_type ?? '',
-                $device->brand ?? '',
-                $device->model ?? '',
+                $dynamicBrand ?? '',
+                $dynamicModel ?? '',
                 $device->mac_address ?? '',
                 $device->ip_address ?? '',
                 $device->subnet_mask ?? '',
                 $device->gateway ?? '',
                 $device->dns_primary ?? '',
                 $device->dns_secondary ?? '',
-                $device->place?->name ?? '',
-                $device->location ?? '',
+                $dynamicPlaceName ?? '',
+                $dynamicLocation ?? '',
             ]);
         }
 
