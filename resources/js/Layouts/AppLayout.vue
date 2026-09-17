@@ -36,6 +36,7 @@ const tabSettings  = computed(() => page.props.tabSettings)
 const unreadCount      = computed(() => page.props.unreadNotifications ?? 0)
 const localUnreadCount = ref(unreadCount.value)
 const pendingIpRequests = computed(() => page.props.pendingIpChangeRequests ?? 0)
+const pendingIpDeviceRequests = computed(() => page.props.pendingIpDeviceChangeRequests ?? 0)
 const appLogos     = computed(() => page.props.appLogos)
 
 const sidebarOpen = ref(false)
@@ -229,7 +230,8 @@ const navItems = computed(() => {
       { name: 'Sauvegardes',  href: route('backups.index'),           icon: ShieldCheckIcon,         current: route().current('backups.*') },
       { name: 'Licences',     href: route('licenses.index'),          icon: KeyIcon,                current: route().current('licenses.*') },
       { name: 'Postes',       href: route('computers.index'),         icon: ComputerDesktopIcon,    current: route().current('computers.*') },
-      { name: 'Périphériques IP', href: route('ip-devices.index'),    icon: WifiIcon,               current: route().current('ip-devices.*') },
+      { name: 'Périphériques IP', href: route('ip-devices.index'),    icon: WifiIcon,               current: route().current('ip-devices.index') },
+      { name: 'Demandes IP (Périph.)', href: route('ip-devices.ip-change-requests'), icon: WifiIcon, current: route().current('ip-devices.ip-change-requests'), badge: pendingIpDeviceRequests.value },
       { name: 'Fournisseurs', href: route('suppliers.index'),         icon: BuildingStorefrontIcon, current: route().current('suppliers.*') },
     )
     // ── Rapports ──────────────────────────────────────────────

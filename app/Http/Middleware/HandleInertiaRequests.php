@@ -51,6 +51,9 @@ class HandleInertiaRequests extends Middleware
             'pendingIpChangeRequests' => fn () => $request->user() && $request->user()->hasRole('admin')
                 ? \App\Models\ComputerIpChangeRequest::where('status', 'pending')->count()
                 : 0,
+            'pendingIpDeviceChangeRequests' => fn () => $request->user() && $request->user()->hasRole('admin')
+                ? \App\Models\IpDeviceIpChangeRequest::where('status', 'pending')->count()
+                : 0,
             'flash' => [
                 'success'        => fn () => $request->session()->get('success'),
                 'error'          => fn () => $request->session()->get('error'),
