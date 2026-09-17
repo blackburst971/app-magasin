@@ -608,8 +608,9 @@ class ComputerController extends Controller
             abort(403, 'Action non autorisée.');
         }
 
-        // Récupérer les demandes de changement pour les Computers
+        // Récupérer les demandes de changement pour les Computers (non archivées)
         $computerRequests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy'])
+            ->where('archived', false)
             ->orderBy('status', 'asc')
             ->orderBy('created_at', 'desc')
             ->get()
@@ -638,8 +639,9 @@ class ComputerController extends Controller
                 'review_notes'      => $r->review_notes,
             ]);
 
-        // Récupérer les demandes de changement pour les IP Devices
+        // Récupérer les demandes de changement pour les IP Devices (non archivées)
         $ipDeviceRequests = \App\Models\IpDeviceIpChangeRequest::with(['ipDevice', 'requestedBy', 'reviewedBy'])
+            ->where('archived', false)
             ->orderBy('status', 'asc')
             ->orderBy('created_at', 'desc')
             ->get()
@@ -677,6 +679,87 @@ class ComputerController extends Controller
 
         return Inertia::render('Computers/IpChangeRequests', [
             'requests' => $allRequests,
+            'view' => 'active',
+        ]);
+    }
+
+    public function ipChangeRequestsHistory()
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        // Récupérer les demandes de changement archivées pour les Computers
+        $computerRequests = \App\Models\ComputerIpChangeRequest::with(['computer', 'requestedBy', 'reviewedBy', 'archivedBy'])
+            ->where('archived', true)
+            ->orderBy('archived_at', 'desc')
+            ->get()
+            ->map(fn($r) => [
+                'id'                => $r->id,
+                'type'              => 'computer',
+                'computer_id'       => $r->computer_id,
+                'computer_name'     => $r->computer?->name,
+                'requested_by_name' => $r->requestedBy?->name,
+                'old_ip_addresses'  => $r->old_ip_addresses,
+                'new_ip_addresses'  => $r->new_ip_addresses,
+                'old_subnet_mask'   => $r->old_subnet_mask,
+                'new_subnet_mask'   => $r->new_subnet_mask,
+                'old_gateway'       => $r->old_gateway,
+                'new_gateway'       => $r->new_gateway,
+                'old_dns_primary'   => $r->old_dns_primary,
+                'new_dns_primary'   => $r->new_dns_primary,
+                'old_dns_secondary' => $r->old_dns_secondary,
+                'new_dns_secondary' => $r->new_dns_secondary,
+                'status'            => $r->status,
+                'notes'             => $r->notes,
+                'reason'            => $r->reason,
+                'created_at'        => $r->created_at?->format('Y-m-d H:i'),
+                'reviewed_by_name'  => $r->reviewedBy?->name,
+                'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
+                'review_notes'      => $r->review_notes,
+                'archived_at'       => $r->archived_at?->format('Y-m-d H:i'),
+                'archived_by_name'  => $r->archivedBy?->name,
+            ]);
+
+        // Récupérer les demandes de changement archivées pour les IP Devices
+        $ipDeviceRequests = \App\Models\IpDeviceIpChangeRequest::with(['ipDevice', 'requestedBy', 'reviewedBy', 'archivedBy'])
+            ->where('archived', true)
+            ->orderBy('archived_at', 'desc')
+            ->get()
+            ->map(fn($r) => [
+                'id'                => $r->id,
+                'type'              => 'ip_device',
+                'ip_device_id'      => $r->ip_device_id,
+                'ip_device_name'    => $r->ipDevice?->name,
+                'requested_by_name' => $r->requestedBy?->name,
+                'old_ip_address'    => $r->old_ip_address,
+                'new_ip_address'    => $r->new_ip_address,
+                'old_subnet_mask'   => $r->old_subnet_mask,
+                'new_subnet_mask'   => $r->new_subnet_mask,
+                'old_gateway'       => $r->old_gateway,
+                'new_gateway'       => $r->new_gateway,
+                'old_dns_primary'   => $r->old_dns_primary,
+                'new_dns_primary'   => $r->new_dns_primary,
+                'old_dns_secondary' => $r->old_dns_secondary,
+                'new_dns_secondary' => $r->new_dns_secondary,
+                'status'            => $r->status,
+                'reason'            => $r->reason,
+                'created_at'        => $r->created_at?->format('Y-m-d H:i'),
+                'reviewed_by_name'  => $r->reviewedBy?->name,
+                'reviewed_at'       => $r->reviewed_at?->format('Y-m-d H:i'),
+                'review_notes'      => $r->review_notes,
+                'archived_at'       => $r->archived_at?->format('Y-m-d H:i'),
+                'archived_by_name'  => $r->archivedBy?->name,
+            ]);
+
+        // Combiner les deux collections et trier par date d'archivage
+        $allRequests = $computerRequests->concat($ipDeviceRequests)
+            ->sortByDesc('archived_at')
+            ->values();
+
+        return Inertia::render('Computers/IpChangeRequests', [
+            'requests' => $allRequests,
+            'view' => 'history',
         ]);
     }
 
@@ -707,17 +790,20 @@ class ComputerController extends Controller
             'dns_secondary' => $request->new_dns_secondary,
         ]);
 
-        // Marquer la demande comme approuvée
+        // Marquer la demande comme approuvée et archivée automatiquement
         $request->update([
             'status' => 'approved',
             'reviewed_by' => auth()->id(),
             'reviewed_at' => now(),
+            'archived' => true,
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
         ]);
 
         // Notifier le demandeur
         $request->requestedBy->notify(new \App\Notifications\ComputerIpChangeReviewed($request, 'approved'));
 
-        return back()->with('success', 'Changement réseau approuvé et appliqué.');
+        return back()->with('success', 'Changement réseau approuvé, appliqué et archivé.');
     }
 
     public function rejectIpChangeRequest(\App\Models\ComputerIpChangeRequest $request)
@@ -726,16 +812,74 @@ class ComputerController extends Controller
             abort(403, 'Action non autorisée.');
         }
 
-        // Marquer la demande comme rejetée
+        // Marquer la demande comme rejetée et archivée automatiquement
         $request->update([
             'status' => 'rejected',
             'reviewed_by' => auth()->id(),
             'reviewed_at' => now(),
+            'archived' => true,
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
         ]);
 
         // Notifier le demandeur
         $request->requestedBy->notify(new \App\Notifications\ComputerIpChangeReviewed($request, 'rejected'));
 
-        return back()->with('success', 'Demande de changement d\'adresse IP rejetée.');
+        return back()->with('success', 'Demande de changement d\'adresse IP rejetée et archivée.');
+    }
+
+    /* ── Gestion de l'archivage manuel ───────────────────────────────────── */
+
+    public function archiveIpChangeRequest($type, $id)
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        $model = $type === 'computer'
+            ? \App\Models\ComputerIpChangeRequest::findOrFail($id)
+            : \App\Models\IpDeviceIpChangeRequest::findOrFail($id);
+
+        $model->update([
+            'archived' => true,
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        return back()->with('success', 'Demande archivée avec succès.');
+    }
+
+    public function unarchiveIpChangeRequest($type, $id)
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        $model = $type === 'computer'
+            ? \App\Models\ComputerIpChangeRequest::findOrFail($id)
+            : \App\Models\IpDeviceIpChangeRequest::findOrFail($id);
+
+        $model->update([
+            'archived' => false,
+            'archived_at' => null,
+            'archived_by' => null,
+        ]);
+
+        return back()->with('success', 'Demande désarchivée avec succès.');
+    }
+
+    public function deleteIpChangeRequest($type, $id)
+    {
+        if (!auth()->user()->hasRole('admin')) {
+            abort(403, 'Action non autorisée.');
+        }
+
+        $model = $type === 'computer'
+            ? \App\Models\ComputerIpChangeRequest::findOrFail($id)
+            : \App\Models\IpDeviceIpChangeRequest::findOrFail($id);
+
+        $model->delete();
+
+        return back()->with('success', 'Demande supprimée définitivement.');
     }
 }

@@ -1,24 +1,32 @@
 <script setup>
-import { ref } from 'vue'
-import { router } from '@inertiajs/vue3'
+import { ref, computed } from 'vue'
+import { router, Link } from '@inertiajs/vue3'
 import AppLayout from '@/Layouts/AppLayout.vue'
 import {
   CheckCircleIcon, XCircleIcon, ClockIcon,
-  ArrowPathIcon, ComputerDesktopIcon, WifiIcon
+  ArrowPathIcon, ComputerDesktopIcon, WifiIcon,
+  ArchiveBoxIcon, ArchiveBoxArrowDownIcon, TrashIcon
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   requests: Array,
+  view: {
+    type: String,
+    default: 'active'
+  }
 })
 
 const processing = ref(null)
+const currentView = ref(props.view)
+
+const isActiveView = computed(() => currentView.value === 'active')
+const isHistoryView = computed(() => currentView.value === 'history')
 
 function approveRequest(request) {
   if (!confirm('Êtes-vous sûr de vouloir approuver cette demande ?')) return
 
   processing.value = request.id
 
-  // Utiliser la route appropriée selon le type
   const routeName = request.type === 'computer'
     ? 'computers.approve-ip-change'
     : 'ip-devices.approve-ip-change'
@@ -36,12 +44,47 @@ function rejectRequest(request) {
 
   processing.value = request.id
 
-  // Utiliser la route appropriée selon le type
   const routeName = request.type === 'computer'
     ? 'computers.reject-ip-change'
     : 'ip-devices.reject-ip-change'
 
   router.post(route(routeName, request.id), {}, {
+    preserveScroll: true,
+    onFinish: () => {
+      processing.value = null
+    }
+  })
+}
+
+function archiveRequest(request) {
+  if (!confirm('Archiver cette demande ?')) return
+
+  processing.value = request.id
+  router.post(route('computers.archive-ip-change', { type: request.type, id: request.id }), {}, {
+    preserveScroll: true,
+    onFinish: () => {
+      processing.value = null
+    }
+  })
+}
+
+function unarchiveRequest(request) {
+  if (!confirm('Désarchiver cette demande ?')) return
+
+  processing.value = request.id
+  router.post(route('computers.unarchive-ip-change', { type: request.type, id: request.id }), {}, {
+    preserveScroll: true,
+    onFinish: () => {
+      processing.value = null
+    }
+  })
+}
+
+function deleteRequest(request) {
+  if (!confirm('Supprimer définitivement cette demande ? Cette action est irréversible.')) return
+
+  processing.value = request.id
+  router.delete(route('computers.delete-ip-change', { type: request.type, id: request.id }), {
     preserveScroll: true,
     onFinish: () => {
       processing.value = null
@@ -88,8 +131,36 @@ const getDeviceType = (req) => {
           <p class="text-gray-600">Gérez les demandes de modification d'adresses IP des utilisateurs</p>
         </div>
 
+        <!-- Onglets -->
+        <div class="border-b border-gray-200 mb-6">
+          <nav class="-mb-px flex space-x-8">
+            <Link
+              :href="route('computers.ip-change-requests')"
+              :class="[
+                'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm',
+                isActiveView
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ]"
+            >
+              Demandes actives
+            </Link>
+            <Link
+              :href="route('computers.ip-change-requests-history')"
+              :class="[
+                'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm',
+                isHistoryView
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ]"
+            >
+              Historique
+            </Link>
+          </nav>
+        </div>
+
         <!-- Statistiques -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div v-if="isActiveView" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
             <div class="flex items-center gap-3">
               <div class="p-3 bg-yellow-100 rounded-lg">
@@ -128,7 +199,9 @@ const getDeviceType = (req) => {
         <!-- Liste des demandes -->
         <div v-if="requests.length === 0" class="bg-white rounded-xl shadow-sm p-12 text-center">
           <ComputerDesktopIcon class="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p class="text-gray-500 text-lg">Aucune demande de changement d'IP</p>
+          <p class="text-gray-500 text-lg">
+            {{ isActiveView ? 'Aucune demande de changement d\'IP active' : 'Aucune demande archivée' }}
+          </p>
         </div>
 
         <div v-else class="space-y-4">
@@ -150,22 +223,48 @@ const getDeviceType = (req) => {
                   </p>
                 </div>
 
-                <div v-if="req.status === 'pending'" class="flex gap-2">
-                  <button @click="approveRequest(req)"
-                    :disabled="processing === req.id"
-                    class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition disabled:opacity-50">
-                    <CheckCircleIcon class="w-4 h-4" />
-                    <span v-if="processing === req.id">
-                      <ArrowPathIcon class="w-4 h-4 animate-spin" />
-                    </span>
-                    <span v-else>Approuver</span>
-                  </button>
-                  <button @click="rejectRequest(req)"
-                    :disabled="processing === req.id"
-                    class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition disabled:opacity-50">
-                    <XCircleIcon class="w-4 h-4" />
-                    Rejeter
-                  </button>
+                <!-- Boutons d'action -->
+                <div class="flex gap-2">
+                  <!-- Boutons pour demandes actives -->
+                  <template v-if="isActiveView">
+                    <button v-if="req.status === 'pending'" @click="approveRequest(req)"
+                      :disabled="processing === req.id"
+                      class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition disabled:opacity-50">
+                      <CheckCircleIcon class="w-4 h-4" />
+                      <span v-if="processing === req.id">
+                        <ArrowPathIcon class="w-4 h-4 animate-spin" />
+                      </span>
+                      <span v-else>Approuver</span>
+                    </button>
+                    <button v-if="req.status === 'pending'" @click="rejectRequest(req)"
+                      :disabled="processing === req.id"
+                      class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition disabled:opacity-50">
+                      <XCircleIcon class="w-4 h-4" />
+                      Rejeter
+                    </button>
+                    <button v-if="req.status !== 'pending'" @click="archiveRequest(req)"
+                      :disabled="processing === req.id"
+                      class="flex items-center gap-2 px-3 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition disabled:opacity-50">
+                      <ArchiveBoxIcon class="w-4 h-4" />
+                      Archiver
+                    </button>
+                  </template>
+
+                  <!-- Boutons pour historique -->
+                  <template v-if="isHistoryView">
+                    <button @click="unarchiveRequest(req)"
+                      :disabled="processing === req.id"
+                      class="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+                      <ArchiveBoxArrowDownIcon class="w-4 h-4" />
+                      Désarchiver
+                    </button>
+                    <button @click="deleteRequest(req)"
+                      :disabled="processing === req.id"
+                      class="flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition disabled:opacity-50">
+                      <TrashIcon class="w-4 h-4" />
+                      Supprimer
+                    </button>
+                  </template>
                 </div>
               </div>
 
@@ -300,6 +399,13 @@ const getDeviceType = (req) => {
                   <strong>{{ req.reviewed_by_name }}</strong> le {{ req.reviewed_at }}
                 </p>
                 <p v-if="req.review_notes" class="text-sm text-gray-700 mt-2 italic">{{ req.review_notes }}</p>
+              </div>
+
+              <!-- Info d'archivage (historique uniquement) -->
+              <div v-if="isHistoryView && req.archived_by_name" class="mt-4 pt-4 border-t border-gray-200">
+                <p class="text-xs text-gray-500">
+                  Archivée par <strong>{{ req.archived_by_name }}</strong> le {{ req.archived_at }}
+                </p>
               </div>
             </div>
           </div>

@@ -27,12 +27,17 @@ class ComputerIpChangeRequest extends Model
         'notes',
         'reviewed_by',
         'reviewed_at',
+        'archived',
+        'archived_at',
+        'archived_by',
     ];
 
     protected $casts = [
         'old_ip_addresses' => 'array',
         'new_ip_addresses' => 'array',
         'reviewed_at' => 'datetime',
+        'archived' => 'boolean',
+        'archived_at' => 'datetime',
     ];
 
     public function computer(): BelongsTo
@@ -48,5 +53,10 @@ class ComputerIpChangeRequest extends Model
     public function reviewedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by');
     }
 }

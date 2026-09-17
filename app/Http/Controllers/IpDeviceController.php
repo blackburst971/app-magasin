@@ -448,17 +448,20 @@ class IpDeviceController extends Controller
             'dns_secondary' => $changeRequest->new_dns_secondary,
         ]);
 
-        // Marquer la demande comme approuvée
+        // Marquer la demande comme approuvée et archivée automatiquement
         $changeRequest->update([
             'status' => 'approved',
             'reviewed_by' => auth()->id(),
             'reviewed_at' => now(),
+            'archived' => true,
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
         ]);
 
         // Notifier le demandeur
         $changeRequest->requestedBy->notify(new \App\Notifications\IpDeviceIpChangeReviewed($changeRequest, 'approved'));
 
-        return back()->with('success', 'Changement réseau approuvé et appliqué.');
+        return back()->with('success', 'Changement réseau approuvé, appliqué et archivé.');
     }
 
     public function rejectIpChangeRequest(\App\Models\IpDeviceIpChangeRequest $changeRequest, Request $request)
@@ -471,17 +474,20 @@ class IpDeviceController extends Controller
             'review_notes' => 'nullable|string',
         ]);
 
-        // Marquer la demande comme rejetée
+        // Marquer la demande comme rejetée et archivée automatiquement
         $changeRequest->update([
             'status' => 'rejected',
             'reviewed_by' => auth()->id(),
             'reviewed_at' => now(),
             'review_notes' => $data['review_notes'] ?? null,
+            'archived' => true,
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
         ]);
 
         // Notifier le demandeur
         $changeRequest->requestedBy->notify(new \App\Notifications\IpDeviceIpChangeReviewed($changeRequest, 'rejected'));
 
-        return back()->with('success', 'Demande de changement réseau rejetée.');
+        return back()->with('success', 'Demande de changement réseau rejetée et archivée.');
     }
 }

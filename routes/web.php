@@ -415,6 +415,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/computers', [\App\Http\Controllers\ComputerController::class, 'index'])->name('computers.index');
     Route::get('/computers/ip-addressing', [\App\Http\Controllers\ComputerController::class, 'ipAddressing'])->name('computers.ip-addressing');
     Route::get('/computers/ip-change-requests', [\App\Http\Controllers\ComputerController::class, 'ipChangeRequests'])->name('computers.ip-change-requests');
+    Route::get('/computers/ip-change-requests-history', [\App\Http\Controllers\ComputerController::class, 'ipChangeRequestsHistory'])->name('computers.ip-change-requests-history');
 
     // Périphériques IP - consultation pour tous
     Route::get('/ip-devices', [\App\Http\Controllers\IpDeviceController::class, 'index'])->name('ip-devices.index');
@@ -431,6 +432,10 @@ Route::middleware('auth')->group(function () {
         Route::post('/computers/batch-store', [\App\Http\Controllers\ComputerController::class, 'batchStore'])->name('computers.batch-store');
         Route::post('/computers/ip-change-requests/{request}/approve', [\App\Http\Controllers\ComputerController::class, 'approveIpChangeRequest'])->name('computers.approve-ip-change');
         Route::post('/computers/ip-change-requests/{request}/reject', [\App\Http\Controllers\ComputerController::class, 'rejectIpChangeRequest'])->name('computers.reject-ip-change');
+        // Gestion archivage demandes IP
+        Route::post('/computers/ip-change-requests/{type}/{id}/archive', [\App\Http\Controllers\ComputerController::class, 'archiveIpChangeRequest'])->name('computers.archive-ip-change');
+        Route::post('/computers/ip-change-requests/{type}/{id}/unarchive', [\App\Http\Controllers\ComputerController::class, 'unarchiveIpChangeRequest'])->name('computers.unarchive-ip-change');
+        Route::delete('/computers/ip-change-requests/{type}/{id}', [\App\Http\Controllers\ComputerController::class, 'deleteIpChangeRequest'])->name('computers.delete-ip-change');
     });
 
     // Route pour demandes IP (utilisateurs non-admin) - DOIT être AVANT /computers/{computer}

@@ -27,10 +27,15 @@ class IpDeviceIpChangeRequest extends Model
         'reviewed_by',
         'reviewed_at',
         'review_notes',
+        'archived',
+        'archived_at',
+        'archived_by',
     ];
 
     protected $casts = [
         'reviewed_at' => 'datetime',
+        'archived' => 'boolean',
+        'archived_at' => 'datetime',
     ];
 
     public function ipDevice()
@@ -46,5 +51,10 @@ class IpDeviceIpChangeRequest extends Model
     public function reviewedBy()
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function archivedBy()
+    {
+        return $this->belongsTo(User::class, 'archived_by');
     }
 }
