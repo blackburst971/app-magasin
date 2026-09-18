@@ -5,12 +5,13 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import {
   KeyIcon, PlusIcon, PencilIcon, TrashIcon, XMarkIcon,
   ComputerDesktopIcon, EyeIcon, EyeSlashIcon, MagnifyingGlassIcon,
-  CloudIcon, CpuChipIcon, CheckCircleIcon, ExclamationTriangleIcon,
+  CloudIcon, CpuChipIcon, CheckCircleIcon, ExclamationTriangleIcon, UserIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   licenses: Array,
   computers: Array,
+  users: Array,
   suppliers: Array,
   stats: Object,
 })
@@ -143,12 +144,24 @@ function confirmDelete(license) {
 /* ── Modal Attributions ─────────────────────────────────────────────────── */
 const showAssignModal = ref(false)
 const selectedLicense = ref(null)
-const assignForm = ref({ computer_id: '', assigned_at: new Date().toISOString().slice(0,10), notes: '' })
+const assignForm = ref({
+  assignment_type: 'computer',
+  computer_id: '',
+  user_id: '',
+  assigned_at: new Date().toISOString().slice(0,10),
+  notes: ''
+})
 const assignProcessing = ref(false)
 
 function openAssign(license) {
   selectedLicense.value = license
-  assignForm.value = { computer_id: '', assigned_at: new Date().toISOString().slice(0,10), notes: '' }
+  assignForm.value = {
+    assignment_type: 'computer',
+    computer_id: '',
+    user_id: '',
+    assigned_at: new Date().toISOString().slice(0,10),
+    notes: ''
+  }
   showAssignModal.value = true
 }
 function closeAssignModal() { showAssignModal.value = false; selectedLicense.value = null }
@@ -161,12 +174,31 @@ const availableComputers = computed(() => {
   return props.computers.filter(c => !assignedIds.includes(c.id))
 })
 
+const availableUsers = computed(() => {
+  if (!selectedLicense.value) return props.users
+  const assignedIds = selectedLicense.value.assignments
+    .filter(a => a.user)
+    .map(a => a.user.id)
+  return props.users.filter(u => !assignedIds.includes(u.id))
+})
+
 function submitAssign() {
   assignProcessing.value = true
-  router.post(route('licenses.assign', selectedLicense.value.id), assignForm.value, {
+  const payload = {
+    computer_id: assignForm.value.assignment_type === 'computer' ? assignForm.value.computer_id : '',
+    user_id: assignForm.value.assignment_type === 'user' ? assignForm.value.user_id : '',
+    assigned_at: assignForm.value.assigned_at,
+    notes: assignForm.value.notes
+  }
+  router.post(route('licenses.assign', selectedLicense.value.id), payload, {
     onSuccess: () => {
-      assignForm.value = { computer_id: '', assigned_at: new Date().toISOString().slice(0,10), notes: '' }
-      // Rafraîchir les données de la licence dans la liste (Inertia le fait automatiquement)
+      assignForm.value = {
+        assignment_type: 'computer',
+        computer_id: '',
+        user_id: '',
+        assigned_at: new Date().toISOString().slice(0,10),
+        notes: ''
+      }
     },
     onFinish: () => { assignProcessing.value = false },
   })
@@ -351,13 +383,16 @@ const osLabel = (os) => ({
                   </div>
                   <span v-else class="text-xs text-gray-400">—</span>
                 </td>
-                <!-- Postes attribués -->
+                <!-- Postes/Utilisateurs attribués -->
                 <td class="px-4 py-3 hidden xl:table-cell">
                   <div class="flex flex-wrap gap-1 max-w-xs">
                     <span v-for="a in license.assignments.slice(0, 3)" :key="a.id"
                       class="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                      <span>{{ typeIcons[a.computer?.type] ?? '💻' }}</span>
-                      {{ a.computer?.name ?? '—' }}
+                      <ComputerDesktopIcon v-if="a.computer" class="w-3 h-3" />
+                      <UserIcon v-else-if="a.user" class="w-3 h-3" />
+                      <span v-if="a.computer">{{ a.computer.name }}</span>
+                      <span v-else-if="a.user">{{ a.user.name }}</span>
+                      <span v-else>—</span>
                     </span>
                     <span v-if="license.assignments.length > 3"
                       class="text-xs text-gray-400">+{{ license.assignments.length - 3 }}</span>
@@ -564,19 +599,35 @@ const osLabel = (os) => ({
           <div class="p-6 space-y-5">
             <!-- Liste des attributions actuelles -->
             <div>
-              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Postes attribués</h3>
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Attributions actuelles</h3>
               <div v-if="selectedLicense.assignments.length === 0"
                 class="text-sm text-gray-400 italic py-2">Aucune attribution</div>
               <div v-else class="space-y-2">
                 <div v-for="a in selectedLicense.assignments" :key="a.id"
                   class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                   <div class="flex items-center gap-2">
-                    <span class="text-base">{{ typeIcons[a.computer?.type] ?? '💻' }}</span>
+                    <div v-if="a.computer" class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <ComputerDesktopIcon class="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div v-else-if="a.user" class="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                      <UserIcon class="w-4 h-4 text-purple-600" />
+                    </div>
                     <div>
-                      <p class="text-sm font-medium text-gray-900">{{ a.computer?.name ?? 'Poste supprimé' }}</p>
-                      <p class="text-xs text-gray-500">
-                        {{ osLabel(a.computer?.os) }} · Attribué le {{ a.assigned_at }}
-                      </p>
+                      <div v-if="a.computer">
+                        <p class="text-sm font-medium text-gray-900">{{ a.computer.name }}</p>
+                        <p class="text-xs text-gray-500">
+                          {{ osLabel(a.computer.os) }} · Attribué le {{ a.assigned_at }}
+                        </p>
+                      </div>
+                      <div v-else-if="a.user">
+                        <p class="text-sm font-medium text-gray-900">{{ a.user.name }}</p>
+                        <p class="text-xs text-gray-500">
+                          {{ a.user.email }} · Attribué le {{ a.assigned_at }}
+                        </p>
+                      </div>
+                      <div v-else>
+                        <p class="text-sm font-medium text-gray-400">Attribution supprimée</p>
+                      </div>
                     </div>
                   </div>
                   <button @click="removeAssignment(selectedLicense, a)"
@@ -590,10 +641,34 @@ const osLabel = (os) => ({
             <!-- Ajouter une attribution -->
             <div v-if="!selectedLicense.seats || selectedLicense.seats_used < selectedLicense.seats"
               class="border-t pt-5">
-              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Attribuer à un poste</h3>
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Nouvelle attribution</h3>
               <form @submit.prevent="submitAssign" class="space-y-3">
+                <!-- Type d'attribution -->
                 <div>
-                  <label class="block text-xs font-medium text-gray-600 mb-1">Poste *</label>
+                  <label class="block text-xs font-medium text-gray-600 mb-2">Type d'attribution *</label>
+                  <div class="flex gap-3">
+                    <label class="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg cursor-pointer transition"
+                      :class="assignForm.assignment_type === 'computer' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+                      <input type="radio" v-model="assignForm.assignment_type" value="computer" class="sr-only" />
+                      <ComputerDesktopIcon class="w-5 h-5" :class="assignForm.assignment_type === 'computer' ? 'text-blue-600' : 'text-gray-400'" />
+                      <span class="text-sm font-medium" :class="assignForm.assignment_type === 'computer' ? 'text-blue-900' : 'text-gray-700'">
+                        Poste informatique
+                      </span>
+                    </label>
+                    <label class="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg cursor-pointer transition"
+                      :class="assignForm.assignment_type === 'user' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'">
+                      <input type="radio" v-model="assignForm.assignment_type" value="user" class="sr-only" />
+                      <UserIcon class="w-5 h-5" :class="assignForm.assignment_type === 'user' ? 'text-purple-600' : 'text-gray-400'" />
+                      <span class="text-sm font-medium" :class="assignForm.assignment_type === 'user' ? 'text-purple-900' : 'text-gray-700'">
+                        Utilisateur
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Select poste informatique -->
+                <div v-if="assignForm.assignment_type === 'computer'">
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Poste informatique *</label>
                   <select v-model="assignForm.computer_id" required
                     class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                     <option value="">— Sélectionner un poste —</option>
@@ -602,9 +677,25 @@ const osLabel = (os) => ({
                     </option>
                   </select>
                   <p v-if="availableComputers.length === 0" class="text-xs text-gray-400 mt-1">
-                    Tous les postes disponibles ont déjà cette licence. Créez d'abord un nouveau poste.
+                    Tous les postes disponibles ont déjà cette licence.
                   </p>
                 </div>
+
+                <!-- Select utilisateur -->
+                <div v-if="assignForm.assignment_type === 'user'">
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Utilisateur *</label>
+                  <select v-model="assignForm.user_id" required
+                    class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none">
+                    <option value="">— Sélectionner un utilisateur —</option>
+                    <option v-for="u in availableUsers" :key="u.id" :value="u.id">
+                      {{ u.name }} ({{ u.email }})
+                    </option>
+                  </select>
+                  <p v-if="availableUsers.length === 0" class="text-xs text-gray-400 mt-1">
+                    Tous les utilisateurs disponibles ont déjà cette licence.
+                  </p>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Date d'attribution *</label>
@@ -617,7 +708,8 @@ const osLabel = (os) => ({
                       class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                 </div>
-                <button type="submit" :disabled="assignProcessing || !assignForm.computer_id"
+                <button type="submit"
+                  :disabled="assignProcessing || (assignForm.assignment_type === 'computer' && !assignForm.computer_id) || (assignForm.assignment_type === 'user' && !assignForm.user_id)"
                   class="w-full py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
                   Attribuer la licence
                 </button>
