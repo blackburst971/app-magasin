@@ -15,17 +15,19 @@ class LicenseController extends Controller
 {
     public function index()
     {
-        $licenses = License::with(['assignments.computer', 'supplier', 'keys.assignedToComputer'])
+        $isAdmin = auth()->user()->hasRole('admin');
+
+        $licenses = License::with(['assignments.computer', 'assignments.user', 'supplier', 'keys.assignedToComputer'])
             ->withCount('assignments')
             ->orderBy('name')
             ->get()
-            ->map(function ($l) {
+            ->map(function ($l) use ($isAdmin) {
                 return [
                     'id'               => $l->id,
                     'name'             => $l->name,
                     'version'          => $l->version,
                     'manufacturer'     => $l->manufacturer,
-                    'license_key'      => $l->license_key,
+                    'license_key'      => $isAdmin ? $l->license_key : null,
                     'seats'            => $l->seats,
                     'seats_used'       => $l->assignments_count,
                     'type'             => $l->type,
@@ -40,7 +42,7 @@ class LicenseController extends Controller
                     'notes'            => $l->notes,
                     'keys'             => $l->keys->map(fn($k) => [
                         'id'            => $k->id,
-                        'key_code'      => $k->key_code,
+                        'key_code'      => $isAdmin ? $k->key_code : null,
                         'status'        => $k->status,
                         'assigned_to'   => $k->assignedToComputer ? [
                             'id'   => $k->assignedToComputer->id,
@@ -58,6 +60,11 @@ class LicenseController extends Controller
                             'os'       => $a->computer->os,
                             'photo_url'=> $a->computer->photo ? Storage::url($a->computer->photo) : null,
                         ] : null,
+                        'user'        => $a->user ? [
+                            'id'       => $a->user->id,
+                            'name'     => $a->user->name,
+                            'email'    => $a->user->email,
+                        ] : null,
                         'notes'       => $a->notes,
                         'assigned_at' => $a->assigned_at?->format('Y-m-d'),
                     ]),
@@ -65,7 +72,8 @@ class LicenseController extends Controller
             });
 
         $computers = Computer::orderBy('name')->get(['id', 'name', 'type', 'os']);
-        $suppliers  = Supplier::orderBy('name')->get(['id', 'name']);
+        $users     = \App\Models\User::orderBy('name')->get(['id', 'name', 'email']);
+        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
 
         $stats = [
             'total'         => $licenses->count(),
@@ -76,7 +84,7 @@ class LicenseController extends Controller
             'cloud'         => $licenses->where('is_cloud', true)->count(),
         ];
 
-        return Inertia::render('Licenses/Index', compact('licenses', 'computers', 'suppliers', 'stats'));
+        return Inertia::render('Licenses/Index', compact('licenses', 'computers', 'users', 'suppliers', 'stats'));
     }
 
     public function store(Request $request)
@@ -203,9 +211,18 @@ class LicenseController extends Controller
     {
         $data = $request->validate([
             'computer_id' => 'nullable|exists:computers,id',
+            'user_id'     => 'nullable|exists:users,id',
             'assigned_at' => 'required|date',
             'notes'       => 'nullable|string',
         ]);
+
+        // Validation : une licence doit être attribuée soit à un poste, soit à un utilisateur (mais pas les deux)
+        if (empty($data['computer_id']) && empty($data['user_id'])) {
+            return back()->withErrors(['assignment' => 'Vous devez sélectionner un poste informatique OU un utilisateur.']);
+        }
+        if (!empty($data['computer_id']) && !empty($data['user_id'])) {
+            return back()->withErrors(['assignment' => 'Vous ne pouvez pas attribuer une licence à la fois à un poste et à un utilisateur.']);
+        }
 
         // Vérifier les sièges disponibles
         if ($license->seats !== null) {
@@ -219,15 +236,17 @@ class LicenseController extends Controller
             LicenseAssignment::create([
                 'license_id'  => $license->id,
                 'computer_id' => $data['computer_id'] ?? null,
+                'user_id'     => $data['user_id'] ?? null,
                 'assigned_by' => auth()->id(),
                 'assigned_at' => $data['assigned_at'],
                 'notes'       => $data['notes'] ?? null,
             ]);
         } catch (\Exception $e) {
-            return back()->withErrors(['computer_id' => 'Cette licence est déjà attribuée à ce poste.']);
+            return back()->withErrors(['assignment' => 'Cette licence est déjà attribuée.']);
         }
 
-        return back()->with('success', 'Licence attribuée avec succès.');
+        $assignedTo = !empty($data['computer_id']) ? 'poste informatique' : 'utilisateur';
+        return back()->with('success', "Licence attribuée au $assignedTo avec succès.");
     }
 
     public function unassign(License $license, LicenseAssignment $assignment)

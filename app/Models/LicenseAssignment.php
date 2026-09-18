@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class LicenseAssignment extends Model
 {
     protected $fillable = [
-        'license_id', 'computer_id', 'assigned_by', 'assigned_at', 'notes',
+        'license_id', 'computer_id', 'user_id', 'assigned_by', 'assigned_at', 'notes',
     ];
 
     protected $casts = [
@@ -25,6 +25,11 @@ class LicenseAssignment extends Model
     public function computer(): BelongsTo
     {
         return $this->belongsTo(Computer::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function assignedBy(): BelongsTo

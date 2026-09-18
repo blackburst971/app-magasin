@@ -42,6 +42,13 @@ class License extends Model
             ->withTimestamps();
     }
 
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'license_assignments')
+            ->withPivot(['id', 'notes', 'assigned_at', 'assigned_by'])
+            ->withTimestamps();
+    }
+
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
