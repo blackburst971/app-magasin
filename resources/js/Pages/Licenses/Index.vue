@@ -6,6 +6,7 @@ import {
   KeyIcon, PlusIcon, PencilIcon, TrashIcon, XMarkIcon,
   ComputerDesktopIcon, EyeIcon, EyeSlashIcon, MagnifyingGlassIcon,
   CloudIcon, CpuChipIcon, CheckCircleIcon, ExclamationTriangleIcon, UserIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -139,6 +140,19 @@ function confirmDelete(license) {
   if (confirm(`Supprimer la licence « ${license.name} » et toutes ses attributions ?`)) {
     router.delete(route('licenses.destroy', license.id))
   }
+}
+
+/* ── Modal Détails ──────────────────────────────────────────────────────── */
+const showDetailModal = ref(false)
+const detailLicense = ref(null)
+
+function openDetail(license) {
+  detailLicense.value = license
+  showDetailModal.value = true
+}
+function closeDetail() {
+  showDetailModal.value = false
+  detailLicense.value = null
 }
 
 /* ── Modal Attributions ─────────────────────────────────────────────────── */
@@ -406,6 +420,10 @@ const osLabel = (os) => ({
                       class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
                       <ComputerDesktopIcon class="w-4 h-4" />
                     </button>
+                    <button v-if="$page.props.auth.user.roles.includes('admin')" @click="openDetail(license)" title="Voir détails"
+                      class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                      <InformationCircleIcon class="w-4 h-4" />
+                    </button>
                     <button @click="openEdit(license)" title="Modifier"
                       class="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition">
                       <PencilIcon class="w-4 h-4" />
@@ -580,6 +598,204 @@ const osLabel = (os) => ({
       </div>
     </Transition>
 
+    <!-- ── Modal Détails (Lecture seule) ──────────────────────────────────────── -->
+    <Transition name="modal">
+      <div v-if="showDetailModal && detailLicense" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeDetail" />
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between p-6 border-b">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                :class="detailLicense.is_cloud ? 'bg-sky-100' : 'bg-blue-100'">
+                <CloudIcon v-if="detailLicense.is_cloud" class="w-5 h-5 text-sky-600" />
+                <KeyIcon v-else class="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 class="text-lg font-bold text-gray-900">Détails de la licence</h2>
+                <p class="text-sm text-gray-500">{{ detailLicense.name }}</p>
+              </div>
+            </div>
+            <button @click="closeDetail" class="text-gray-400 hover:text-gray-600">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+          <div class="p-6 space-y-6">
+            <!-- Informations principales -->
+            <div class="grid grid-cols-2 gap-6">
+              <div>
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Informations générales</h3>
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Nom du logiciel</label>
+                    <p class="text-sm font-medium text-gray-900">{{ detailLicense.name }}</p>
+                  </div>
+                  <div v-if="detailLicense.version">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Version</label>
+                    <p class="text-sm text-gray-900">{{ detailLicense.version }}</p>
+                  </div>
+                  <div v-if="detailLicense.manufacturer">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Éditeur / Fabricant</label>
+                    <p class="text-sm text-gray-900">{{ detailLicense.manufacturer }}</p>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Type de licence</label>
+                    <span :class="['inline-block text-xs font-medium px-2.5 py-1 rounded-full', typeBadge(detailLicense.type)]">
+                      {{ typeLabel(detailLicense.type) }}
+                    </span>
+                  </div>
+                  <div v-if="detailLicense.is_cloud" class="flex items-center gap-2 text-sm text-sky-600">
+                    <CloudIcon class="w-4 h-4" />
+                    <span>Licence cloud / SaaS</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Licences et sièges</h3>
+                <div class="space-y-3">
+                  <div v-if="detailLicense.license_key">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Clé de licence principale</label>
+                    <p class="text-sm font-mono text-gray-900 bg-gray-50 px-3 py-2 rounded-lg">{{ detailLicense.license_key }}</p>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Sièges</label>
+                    <div class="flex items-center gap-3">
+                      <div v-if="detailLicense.seats" class="flex-1 bg-gray-200 rounded-full h-2">
+                        <div class="h-2 rounded-full transition-all" :class="seatsColor(detailLicense)"
+                          :style="`width:${seatsPercent(detailLicense)}%`"></div>
+                      </div>
+                      <span class="text-sm font-medium text-gray-900">
+                        {{ detailLicense.seats_used }} / {{ detailLicense.seats ?? '∞' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div v-if="detailLicense.seats && detailLicense.seats_used >= detailLicense.seats"
+                    class="flex items-center gap-2 text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                    <ExclamationTriangleIcon class="w-4 h-4" />
+                    <span>Tous les sièges sont utilisés</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dates et informations d'achat -->
+            <div class="border-t pt-6">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Dates et achat</h3>
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div v-if="detailLicense.purchase_date">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">Date d'achat</label>
+                  <p class="text-sm text-gray-900">{{ detailLicense.purchase_date }}</p>
+                </div>
+                <div v-if="detailLicense.expiry_date">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">Date d'expiration</label>
+                  <div>
+                    <p class="text-sm text-gray-900">{{ detailLicense.expiry_date }}</p>
+                    <span v-if="detailLicense.is_expired"
+                      class="inline-flex items-center gap-1 text-xs text-red-600 font-medium mt-1">
+                      <ExclamationTriangleIcon class="w-3.5 h-3.5" /> Expirée
+                    </span>
+                    <span v-else-if="detailLicense.is_expiring_soon"
+                      class="inline-flex items-center gap-1 text-xs text-orange-600 font-medium mt-1">
+                      <ExclamationTriangleIcon class="w-3.5 h-3.5" /> Expire bientôt
+                    </span>
+                    <span v-else class="inline-flex items-center gap-1 text-xs text-green-600 font-medium mt-1">
+                      <CheckCircleIcon class="w-3.5 h-3.5" /> Valide
+                    </span>
+                  </div>
+                </div>
+                <div v-if="detailLicense.purchase_cost">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">Coût d'achat</label>
+                  <p class="text-sm font-medium text-gray-900">{{ detailLicense.purchase_cost }} €</p>
+                </div>
+                <div v-if="detailLicense.order_number">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">N° de commande</label>
+                  <p class="text-sm text-gray-900">{{ detailLicense.order_number }}</p>
+                </div>
+              </div>
+              <div v-if="detailLicense.supplier" class="mt-4">
+                <label class="block text-xs font-medium text-gray-500 mb-1">Fournisseur</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.supplier.name }}</p>
+              </div>
+            </div>
+
+            <!-- Clés de licence -->
+            <div v-if="detailLicense.keys && detailLicense.keys.length > 0" class="border-t pt-6">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                🔑 Clés de licence ({{ detailLicense.keys.length }})
+              </h3>
+              <div class="grid gap-2">
+                <div v-for="key in detailLicense.keys" :key="key.id"
+                  class="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
+                  <div class="flex-1">
+                    <p class="text-sm font-mono text-gray-900 break-all">{{ key.key_code }}</p>
+                    <p v-if="key.notes" class="text-xs text-gray-500 mt-1">{{ key.notes }}</p>
+                  </div>
+                  <span v-if="key.is_used"
+                    class="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 text-blue-700 whitespace-nowrap">
+                    Utilisée
+                  </span>
+                  <span v-else
+                    class="text-xs font-medium px-2 py-1 rounded-full bg-green-100 text-green-700 whitespace-nowrap">
+                    Disponible
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Attributions actuelles -->
+            <div v-if="detailLicense.assignments && detailLicense.assignments.length > 0" class="border-t pt-6">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Attributions actuelles ({{ detailLicense.assignments.length }})
+              </h3>
+              <div class="grid gap-2">
+                <div v-for="a in detailLicense.assignments" :key="a.id"
+                  class="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+                  <div v-if="a.computer" class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <ComputerDesktopIcon class="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div v-else-if="a.user" class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                    <UserIcon class="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div class="flex-1">
+                    <div v-if="a.computer">
+                      <p class="text-sm font-medium text-gray-900">{{ a.computer.name }}</p>
+                      <p class="text-xs text-gray-500">
+                        {{ typeIcons[a.computer.type] ?? '💻' }} {{ osLabel(a.computer.os) }} · Attribué le {{ a.assigned_at }}
+                      </p>
+                      <p v-if="a.notes" class="text-xs text-gray-600 mt-1">{{ a.notes }}</p>
+                    </div>
+                    <div v-else-if="a.user">
+                      <p class="text-sm font-medium text-gray-900">{{ a.user.name }}</p>
+                      <p class="text-xs text-gray-500">{{ a.user.email }} · Attribué le {{ a.assigned_at }}</p>
+                      <p v-if="a.notes" class="text-xs text-gray-600 mt-1">{{ a.notes }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="border-t pt-6">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Attributions actuelles</h3>
+              <p class="text-sm text-gray-400 italic text-center py-4 bg-gray-50 rounded-lg">Aucune attribution</p>
+            </div>
+
+            <!-- Notes -->
+            <div v-if="detailLicense.notes" class="border-t pt-6">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
+              <p class="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{{ detailLicense.notes }}</p>
+            </div>
+
+            <!-- Bouton fermer -->
+            <div class="border-t pt-4">
+              <button @click="closeDetail"
+                class="w-full px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ── Modal Attributions ──────────────────────────────────────────────── -->
     <Transition name="modal">
       <div v-if="showAssignModal && selectedLicense" class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -720,6 +936,197 @@ const osLabel = (os) => ({
                 Tous les sièges sont utilisés. Augmentez le nombre de sièges pour attribuer davantage.
               </p>
             </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ── Modal Détails (Consultation rapide) ──────────────────────────────── -->
+    <Transition name="modal">
+      <div v-if="showDetailModal && detailLicense" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="closeDetail" />
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+          <!-- Header -->
+          <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900">Détails de la licence</h2>
+              <p class="text-sm text-gray-500">{{ detailLicense.name }}</p>
+            </div>
+            <button @click="closeDetail" class="p-2 hover:bg-white/50 rounded-lg transition">
+              <XMarkIcon class="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          <!-- Contenu scrollable -->
+          <div class="overflow-y-auto max-h-[calc(90vh-180px)] p-6 space-y-6">
+            <!-- Informations générales -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Logiciel</label>
+                <p class="text-sm text-gray-900 font-medium">{{ detailLicense.name }}</p>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Version</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.version || '—' }}</p>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Fabricant</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.manufacturer || '—' }}</p>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Type</label>
+                <span :class="['inline-flex text-xs font-medium px-2.5 py-1 rounded-full', typeBadge(detailLicense.type)]">
+                  {{ typeLabel(detailLicense.type) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Clé de licence principale -->
+            <div v-if="detailLicense.license_key">
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Clé de licence</label>
+              <div class="bg-gray-50 border rounded-lg p-3">
+                <code class="text-sm text-gray-900 font-mono">{{ detailLicense.license_key }}</code>
+              </div>
+            </div>
+
+            <!-- Sièges -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Sièges disponibles</label>
+                <p class="text-sm text-gray-900">
+                  <span v-if="detailLicense.seats">{{ detailLicense.seats_used }} / {{ detailLicense.seats }}</span>
+                  <span v-else>{{ detailLicense.seats_used }} (Illimité)</span>
+                </p>
+                <div v-if="detailLicense.seats" class="mt-2 bg-gray-200 rounded-full h-2 w-full">
+                  <div class="h-2 rounded-full transition-all" :class="seatsColor(detailLicense)"
+                    :style="`width:${seatsPercent(detailLicense)}%`"></div>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Cloud / SaaS</label>
+                <span :class="['inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full', detailLicense.is_cloud ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600']">
+                  <CloudIcon v-if="detailLicense.is_cloud" class="w-3.5 h-3.5" />
+                  {{ detailLicense.is_cloud ? 'Oui' : 'Non' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Dates -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Date d'achat</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.purchase_date || '—' }}</p>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Date d'expiration</label>
+                <div v-if="detailLicense.expiry_date">
+                  <p class="text-sm text-gray-900">{{ detailLicense.expiry_date }}</p>
+                  <span v-if="detailLicense.is_expired"
+                    class="inline-flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
+                    <ExclamationTriangleIcon class="w-3.5 h-3.5" /> Expirée
+                  </span>
+                  <span v-else-if="detailLicense.is_expiring_soon"
+                    class="inline-flex items-center gap-1 mt-1 text-xs text-orange-600 font-medium">
+                    <ExclamationTriangleIcon class="w-3.5 h-3.5" /> Expire bientôt
+                  </span>
+                  <span v-else class="inline-flex items-center gap-1 mt-1 text-xs text-green-600 font-medium">
+                    <CheckCircleIcon class="w-3.5 h-3.5" /> Valide
+                  </span>
+                </div>
+                <p v-else class="text-sm text-gray-400">—</p>
+              </div>
+            </div>
+
+            <!-- Informations commerciales -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Coût d'achat</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.purchase_cost ? detailLicense.purchase_cost + ' €' : '—' }}</p>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">N° de commande</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.order_number || '—' }}</p>
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Fournisseur</label>
+                <p class="text-sm text-gray-900">{{ detailLicense.supplier?.name || '—' }}</p>
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div v-if="detailLicense.notes">
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</label>
+              <div class="bg-gray-50 border rounded-lg p-3">
+                <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ detailLicense.notes }}</p>
+              </div>
+            </div>
+
+            <!-- Clés de licence multiples -->
+            <div v-if="detailLicense.keys && detailLicense.keys.length > 0">
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Clés de licence ({{ detailLicense.keys.length }})</label>
+              <div class="space-y-2">
+                <div v-for="key in detailLicense.keys" :key="key.id"
+                  class="bg-gray-50 border rounded-lg p-3 flex items-start gap-3">
+                  <div class="flex-1">
+                    <code class="text-sm text-gray-900 font-mono">{{ key.key_code }}</code>
+                    <p v-if="key.notes" class="text-xs text-gray-500 mt-1">{{ key.notes }}</p>
+                  </div>
+                  <span :class="['text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap', key.status === 'available' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700']">
+                    {{ key.status === 'available' ? 'Disponible' : 'Utilisée' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Attributions -->
+            <div v-if="detailLicense.assignments && detailLicense.assignments.length > 0">
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Attributions actuelles ({{ detailLicense.assignments.length }})
+              </label>
+              <div class="space-y-2">
+                <div v-for="assignment in detailLicense.assignments" :key="assignment.id"
+                  class="bg-gray-50 border rounded-lg p-3">
+                  <div class="flex items-start gap-3">
+                    <!-- Ordinateur -->
+                    <div v-if="assignment.computer" class="flex items-center gap-2 flex-1">
+                      <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <ComputerDesktopIcon class="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p class="text-sm font-medium text-gray-900">{{ assignment.computer.name }}</p>
+                        <p class="text-xs text-gray-500">{{ assignment.computer.os }}</p>
+                      </div>
+                    </div>
+                    <!-- Utilisateur -->
+                    <div v-else-if="assignment.user" class="flex items-center gap-2 flex-1">
+                      <div class="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                        <UserIcon class="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div>
+                        <p class="text-sm font-medium text-gray-900">{{ assignment.user.name }}</p>
+                        <p class="text-xs text-gray-500">{{ assignment.user.email }}</p>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <p class="text-xs text-gray-500">{{ assignment.assigned_at }}</p>
+                    </div>
+                  </div>
+                  <p v-if="assignment.notes" class="text-xs text-gray-600 mt-2 pl-10">{{ assignment.notes }}</p>
+                </div>
+              </div>
+            </div>
+            <div v-else>
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attributions</label>
+              <p class="text-sm text-gray-400">Aucune attribution</p>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="px-6 py-4 border-t bg-gray-50 flex justify-end">
+            <button @click="closeDetail"
+              class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition">
+              Fermer
+            </button>
           </div>
         </div>
       </div>
