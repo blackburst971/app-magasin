@@ -391,9 +391,11 @@ class AssetController extends Controller
     {
         $categories = Category::orderBy('name')->get(['id', 'name']);
         $places = \App\Models\Place::orderBy('is_storage', 'desc')->orderBy('name')->get(['id', 'name', 'color', 'is_storage']);
+        $manufacturers = Manufacturer::orderBy('name')->get(['id', 'name']);
         return Inertia::render('Assets/Form', [
-            'categories' => $categories,
-            'places'     => $places,
+            'categories'    => $categories,
+            'places'        => $places,
+            'manufacturers' => $manufacturers,
         ]);
     }
 
@@ -406,19 +408,20 @@ class AssetController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name'          => 'required|string|max:255',
-            'asset_tag'     => 'required|string|max:100|unique:assets',
-            'serial'        => 'nullable|string|max:255',
-            'model'         => 'nullable|string|max:255',
-            'manufacturer'  => 'nullable|string|max:255',
-            'category_id'   => 'nullable|exists:categories,id',
-            'place_id'      => 'nullable|exists:places,id',
-            'status'        => 'required|in:' . $this->validStatusKeys(),
-            'is_reservable' => 'boolean',
-            'purchase_date' => 'nullable|date',
-            'purchase_cost' => 'nullable|numeric|min:0',
-            'notes'         => 'nullable|string',
-            'image'         => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
+            'name'            => 'required|string|max:255',
+            'asset_tag'       => 'required|string|max:100|unique:assets',
+            'serial'          => 'nullable|string|max:255',
+            'model'           => 'nullable|string|max:255',
+            'manufacturer'    => 'nullable|string|max:255',
+            'manufacturer_id' => 'nullable|exists:manufacturers,id',
+            'category_id'     => 'nullable|exists:categories,id',
+            'place_id'        => 'nullable|exists:places,id',
+            'status'          => 'required|in:' . $this->validStatusKeys(),
+            'is_reservable'   => 'boolean',
+            'purchase_date'   => 'nullable|date',
+            'purchase_cost'   => 'nullable|numeric|min:0',
+            'notes'           => 'nullable|string',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         $data['is_reservable'] = $request->boolean('is_reservable', true);
@@ -431,8 +434,14 @@ class AssetController extends Controller
             $data['location'] = null;
         }
 
+        // Synchroniser manufacturer (texte) depuis manufacturer_id si sélectionné
+        if (!empty($data['manufacturer_id'])) {
+            $manufacturer = Manufacturer::find($data['manufacturer_id']);
+            $data['manufacturer'] = $manufacturer?->name;
+        }
+
         // Normaliser les chaînes vides en null pour les champs nullable
-        foreach (['category_id', 'manufacturer', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
+        foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
                 $data[$field] = null;
             }
@@ -459,6 +468,7 @@ class AssetController extends Controller
     {
         $categories = Category::orderBy('name')->get(['id', 'name']);
         $places = \App\Models\Place::orderBy('is_storage', 'desc')->orderBy('name')->get(['id', 'name', 'color', 'is_storage']);
+        $manufacturers = Manufacturer::orderBy('name')->get(['id', 'name']);
 
         $asset->load('equipmentModel.category');
 
@@ -473,27 +483,29 @@ class AssetController extends Controller
                     'category_name' => $asset->equipmentModel->category?->name,
                 ] : null,
             ]),
-            'categories' => $categories,
-            'places'     => $places,
+            'categories'    => $categories,
+            'places'        => $places,
+            'manufacturers' => $manufacturers,
         ]);
     }
 
     public function update(Request $request, Asset $asset)
     {
         $data = $request->validate([
-            'name'          => 'required|string|max:255',
-            'asset_tag'     => "required|string|max:100|unique:assets,asset_tag,{$asset->id}",
-            'serial'        => 'nullable|string|max:255',
-            'model'         => 'nullable|string|max:255',
-            'manufacturer'  => 'nullable|string|max:255',
-            'category_id'   => 'nullable|exists:categories,id',
-            'place_id'      => 'nullable|exists:places,id',
-            'status'        => 'required|in:' . $this->validStatusKeys(),
-            'is_reservable' => 'boolean',
-            'purchase_date' => 'nullable|date',
-            'purchase_cost' => 'nullable|numeric|min:0',
-            'notes'         => 'nullable|string',
-            'image'         => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
+            'name'            => 'required|string|max:255',
+            'asset_tag'       => "required|string|max:100|unique:assets,asset_tag,{$asset->id}",
+            'serial'          => 'nullable|string|max:255',
+            'model'           => 'nullable|string|max:255',
+            'manufacturer'    => 'nullable|string|max:255',
+            'manufacturer_id' => 'nullable|exists:manufacturers,id',
+            'category_id'     => 'nullable|exists:categories,id',
+            'place_id'        => 'nullable|exists:places,id',
+            'status'          => 'required|in:' . $this->validStatusKeys(),
+            'is_reservable'   => 'boolean',
+            'purchase_date'   => 'nullable|date',
+            'purchase_cost'   => 'nullable|numeric|min:0',
+            'notes'           => 'nullable|string',
+            'image'           => 'nullable|mimes:jpeg,jpg,png,gif,webp,avif|max:2048',
         ]);
 
         $data['is_reservable'] = $request->boolean('is_reservable', $asset->is_reservable);
@@ -506,8 +518,14 @@ class AssetController extends Controller
             $data['location'] = null;
         }
 
+        // Synchroniser manufacturer (texte) depuis manufacturer_id si sélectionné
+        if (!empty($data['manufacturer_id'])) {
+            $manufacturer = Manufacturer::find($data['manufacturer_id']);
+            $data['manufacturer'] = $manufacturer?->name;
+        }
+
         // Normaliser les chaînes vides en null pour les champs nullable
-        foreach (['category_id', 'manufacturer', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
+        foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
                 $data[$field] = null;
             }
@@ -529,7 +547,7 @@ class AssetController extends Controller
 
         // Si l'asset est lié à un modèle, les champs hérités ne doivent pas être modifiés ici
         if ($asset->equipment_model_id) {
-            unset($data['manufacturer'], $data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
+            unset($data['manufacturer'], $data['manufacturer_id'], $data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
         }
 
         $oldStatus = $asset->status;
