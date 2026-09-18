@@ -476,11 +476,12 @@ class AssetController extends Controller
             'asset' => array_merge($asset->toArray(), [
                 'image_url'       => $this->getImageUrl($asset->image),
                 'equipment_model' => $asset->equipmentModel ? [
-                    'id'            => $asset->equipmentModel->id,
-                    'name'          => $asset->equipmentModel->name,
-                    'manufacturer'  => $asset->equipmentModel->manufacturer,
-                    'category_id'   => $asset->equipmentModel->category_id,
-                    'category_name' => $asset->equipmentModel->category?->name,
+                    'id'              => $asset->equipmentModel->id,
+                    'name'            => $asset->equipmentModel->name,
+                    'manufacturer'    => $asset->equipmentModel->manufacturer,
+                    'manufacturer_id' => $asset->equipmentModel->manufacturer_id,
+                    'category_id'     => $asset->equipmentModel->category_id,
+                    'category_name'   => $asset->equipmentModel->category?->name,
                 ] : null,
             ]),
             'categories'    => $categories,
@@ -545,8 +546,27 @@ class AssetController extends Controller
             unset($data['image']); // conserver l'image existante
         }
 
-        // Si l'asset est lié à un modèle, les champs hérités ne doivent pas être modifiés ici
+        // Si l'asset est lié à un modèle, propager les changements au modèle plutôt qu'à l'asset
         if ($asset->equipment_model_id) {
+            $modelUpdates = [];
+
+            // Si le fabricant a été modifié, le propager au modèle (et donc à tous les assets du même modèle)
+            if (array_key_exists('manufacturer_id', $data) && $data['manufacturer_id'] !== $asset->equipmentModel->manufacturer_id) {
+                $modelUpdates['manufacturer_id'] = $data['manufacturer_id'];
+                $modelUpdates['manufacturer']    = $data['manufacturer'];
+            }
+
+            // Si la catégorie a été modifiée, la propager au modèle
+            if (array_key_exists('category_id', $data) && $data['category_id'] !== $asset->equipmentModel->category_id) {
+                $modelUpdates['category_id'] = $data['category_id'];
+            }
+
+            // Propager les modifications au modèle d'équipement
+            if (!empty($modelUpdates)) {
+                $asset->equipmentModel->update($modelUpdates);
+            }
+
+            // Supprimer les champs hérités du modèle pour ne pas les écraser sur l'asset individuel
             unset($data['manufacturer'], $data['manufacturer_id'], $data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
         }
 
