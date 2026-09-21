@@ -247,23 +247,19 @@ const submit = () => {
               <p v-if="form.errors.status" class="mt-1 text-xs text-red-600">{{ form.errors.status }}</p>
             </div>
 
-            <!-- Marque : modifiable depuis la liste (propagé au modèle si lié) -->
+            <!-- Marque : héritée du modèle si lié, sinon champ texte simple -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                <span>Marque / Fabricant</span>
-                <span v-if="hasModel" class="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded">
-                  Modifie le modèle
-                </span>
-              </label>
-              <select v-model="form.manufacturer_id"
-                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 outline-none"
-                      :class="hasModel ? 'border-indigo-300 bg-indigo-50/30 focus:ring-indigo-500' : 'border-gray-300 bg-white focus:ring-blue-500'">
-                <option value="">Aucun fabricant</option>
-                <option v-for="m in manufacturers" :key="m.id" :value="m.id">{{ m.name }}</option>
-              </select>
-              <p v-if="hasModel" class="mt-1 text-xs text-indigo-600">
-                ⚠️ Ce changement affectera tous les équipements du modèle "{{ linkedModel.name }}"
-              </p>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Marque / Fabricant</label>
+              <template v-if="hasModel">
+                <div class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-indigo-50 text-indigo-700 flex items-center gap-2">
+                  <span class="text-xs font-medium text-indigo-400 uppercase tracking-wider">Hérité</span>
+                  <span>{{ linkedModel.manufacturer ?? '—' }}</span>
+                </div>
+              </template>
+              <template v-else>
+                <input v-model="form.manufacturer"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </template>
             </div>
 
             <!-- Modèle texte : hérité du modèle si lié, sinon éditable -->

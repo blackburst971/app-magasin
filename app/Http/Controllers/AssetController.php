@@ -434,12 +434,6 @@ class AssetController extends Controller
             $data['location'] = null;
         }
 
-        // Synchroniser manufacturer (texte) depuis manufacturer_id si sélectionné
-        if (!empty($data['manufacturer_id'])) {
-            $manufacturer = Manufacturer::find($data['manufacturer_id']);
-            $data['manufacturer'] = $manufacturer?->name;
-        }
-
         // Normaliser les chaînes vides en null pour les champs nullable
         foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
@@ -519,12 +513,6 @@ class AssetController extends Controller
             $data['location'] = null;
         }
 
-        // Synchroniser manufacturer (texte) depuis manufacturer_id si sélectionné
-        if (!empty($data['manufacturer_id'])) {
-            $manufacturer = Manufacturer::find($data['manufacturer_id']);
-            $data['manufacturer'] = $manufacturer?->name;
-        }
-
         // Normaliser les chaînes vides en null pour les champs nullable
         foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
@@ -546,17 +534,11 @@ class AssetController extends Controller
             unset($data['image']); // conserver l'image existante
         }
 
-        // Si l'asset est lié à un modèle, propager les changements au modèle plutôt qu'à l'asset
+        // Si l'asset est lié à un modèle, propager la catégorie au modèle si modifiée
         if ($asset->equipment_model_id) {
             $modelUpdates = [];
 
-            // Si le fabricant a été modifié, le propager au modèle (et donc à tous les assets du même modèle)
-            if (array_key_exists('manufacturer_id', $data) && $data['manufacturer_id'] !== $asset->equipmentModel->manufacturer_id) {
-                $modelUpdates['manufacturer_id'] = $data['manufacturer_id'];
-                $modelUpdates['manufacturer']    = $data['manufacturer'];
-            }
-
-            // Si la catégorie a été modifiée, la propager au modèle
+            // Si la catégorie a été modifiée, la propager au modèle (et donc à tous les assets du même modèle)
             if (array_key_exists('category_id', $data) && $data['category_id'] !== $asset->equipmentModel->category_id) {
                 $modelUpdates['category_id'] = $data['category_id'];
             }
