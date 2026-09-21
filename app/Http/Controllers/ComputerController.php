@@ -535,23 +535,17 @@ class ComputerController extends Controller
     {
         $user = auth()->user();
 
-        // Vérifier si l'utilisateur tente de modifier les paramètres réseau
+        // Parser les nouvelles configurations réseau complètes
         $newIpAddresses = $this->parseIpAddresses($request);
-        $newSubnetMask = $request->input('subnet_mask');
-        $newGateway = $request->input('gateway');
-        $newDnsPrimary = $request->input('dns_primary');
-        $newDnsSecondary = $request->input('dns_secondary');
 
-        // Vérifier qu'au moins un champ réseau a changé
-        $hasChanges = ($newIpAddresses !== $computer->ip_addresses)
-            || ($newSubnetMask !== $computer->subnet_mask)
-            || ($newGateway !== $computer->gateway)
-            || ($newDnsPrimary !== $computer->dns_primary)
-            || ($newDnsSecondary !== $computer->dns_secondary);
-
-        if (!$hasChanges) {
+        // Vérifier qu'au moins une modification a été effectuée
+        if ($newIpAddresses === $computer->ip_addresses) {
             return back()->with('info', 'Aucune modification réseau détectée.');
         }
+
+        // Extraire les champs réseau de la première configuration pour compatibilité avec les colonnes individuelles
+        $firstConfig = !empty($newIpAddresses) ? $newIpAddresses[0] : null;
+        $oldFirstConfig = !empty($computer->ip_addresses) ? $computer->ip_addresses[0] : null;
 
         // Créer une demande de changement réseau
         \App\Models\ComputerIpChangeRequest::create([
@@ -559,14 +553,15 @@ class ComputerController extends Controller
             'requested_by' => auth()->id(),
             'old_ip_addresses' => $computer->ip_addresses ?? [],
             'new_ip_addresses' => $newIpAddresses ?? [],
-            'old_subnet_mask' => $computer->subnet_mask,
-            'new_subnet_mask' => $newSubnetMask,
-            'old_gateway' => $computer->gateway,
-            'new_gateway' => $newGateway,
-            'old_dns_primary' => $computer->dns_primary,
-            'new_dns_primary' => $newDnsPrimary,
-            'old_dns_secondary' => $computer->dns_secondary,
-            'new_dns_secondary' => $newDnsSecondary,
+            // Remplir les colonnes individuelles avec les valeurs de la première config pour compatibilité
+            'old_subnet_mask' => $oldFirstConfig['subnet_mask'] ?? null,
+            'new_subnet_mask' => $firstConfig['subnet_mask'] ?? null,
+            'old_gateway' => $oldFirstConfig['gateway'] ?? null,
+            'new_gateway' => $firstConfig['gateway'] ?? null,
+            'old_dns_primary' => $oldFirstConfig['dns_primary'] ?? null,
+            'new_dns_primary' => $firstConfig['dns_primary'] ?? null,
+            'old_dns_secondary' => $oldFirstConfig['dns_secondary'] ?? null,
+            'new_dns_secondary' => $firstConfig['dns_secondary'] ?? null,
             'status' => 'pending',
             'notes' => $request->input('ip_change_notes'),
         ]);

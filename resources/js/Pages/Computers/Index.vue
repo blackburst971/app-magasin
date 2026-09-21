@@ -140,13 +140,19 @@ function clearSelectedAssets() {
 const emptyForm = () => ({
   name: '', place_id: null, asset_tag: '', type: 'desktop', os: 'windows_11',
   os_version: '', serial_number: '', ip_addresses: [],
-  mac_address: '', subnet_mask: '255.255.255.0', gateway: '',
-  dns_primary: '', dns_secondary: '',
   processor: '', ram: '', notes: '',
 })
 
 function addIp() {
-  form.value.ip_addresses.push({ ip: '', description: '' })
+  form.value.ip_addresses.push({
+    ip: '',
+    description: '',
+    mac_address: '',
+    subnet_mask: '255.255.255.0',
+    gateway: '',
+    dns_primary: '',
+    dns_secondary: ''
+  })
 }
 function removeIp(index) {
   form.value.ip_addresses.splice(index, 1)
@@ -174,12 +180,15 @@ function openEdit(c) {
     os:            c.os,
     os_version:    c.os_version ?? '',
     serial_number: c.serial_number ?? '',
-    ip_addresses:  (c.ip_addresses ?? []).map(e => ({ ip: e.ip ?? '', description: e.description ?? '' })),
-    mac_address:   c.mac_address ?? '',
-    subnet_mask:   c.subnet_mask ?? '255.255.255.0',
-    gateway:       c.gateway ?? '',
-    dns_primary:   c.dns_primary ?? '',
-    dns_secondary: c.dns_secondary ?? '',
+    ip_addresses:  (c.ip_addresses ?? []).map(e => ({
+      ip: e.ip ?? '',
+      description: e.description ?? '',
+      mac_address: e.mac_address ?? '',
+      subnet_mask: e.subnet_mask ?? '255.255.255.0',
+      gateway: e.gateway ?? '',
+      dns_primary: e.dns_primary ?? '',
+      dns_secondary: e.dns_secondary ?? ''
+    })),
     processor:     c.processor ?? '',
     ram:           c.ram ?? '',
     notes:         c.notes ?? '',
@@ -211,15 +220,12 @@ function clearPhoto() {
 }
 
 function submitForm() {
-  // ── Modification non-admin (demande de changement IP) ─────────────────
+  // ── Modification non-admin (demande de changement réseau) ─────────────
   if (editing.value && !props.isAdmin) {
     processing.value = true
+    // Envoyer toutes les configurations réseau complètes
     const payload = {
       ip_addresses: JSON.stringify(form.value.ip_addresses.filter(e => e.ip.trim())),
-      subnet_mask: form.value.subnet_mask || '',
-      gateway: form.value.gateway || '',
-      dns_primary: form.value.dns_primary || '',
-      dns_secondary: form.value.dns_secondary || '',
       ip_change_notes: form.value.notes || ''
     }
     router.post(route('computers.request-ip-change', editing.value.id), payload, {
@@ -1020,55 +1026,88 @@ function confirmBulkDelete() {
                 <div v-if="form.ip_addresses.length === 0" class="text-xs text-gray-400 italic py-2 px-3 bg-gray-50 rounded-lg border border-dashed border-gray-200">
                   Aucune adresse IP renseignée — cliquez sur "Ajouter une IP" pour en ajouter une.
                 </div>
-                <div class="space-y-2">
+                <div class="space-y-4">
                   <div v-for="(entry, i) in form.ip_addresses" :key="i"
-                    class="flex gap-2 items-center p-2 bg-indigo-50/50 border border-indigo-100 rounded-lg">
-                    <WifiIcon class="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                    <input v-model="entry.ip" type="text" placeholder="ex : 192.168.1.50"
-                      class="w-36 px-2.5 py-1.5 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
-                    <input v-model="entry.description" type="text" placeholder="Description (ex : Ethernet, WiFi, VPN…)"
-                      class="flex-1 px-2.5 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
-                    <button type="button" @click="removeIp(i)"
-                      class="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition flex-shrink-0">
-                      <MinusCircleIcon class="w-4 h-4" />
-                    </button>
+                    class="p-4 bg-gradient-to-br from-indigo-50/80 to-blue-50/50 border border-indigo-200 rounded-xl">
+                    <!-- Header de la configuration -->
+                    <div class="flex items-center justify-between mb-3">
+                      <div class="flex items-center gap-2">
+                        <WifiIcon class="w-5 h-5 text-indigo-500" />
+                        <h4 class="text-sm font-semibold text-gray-700">Configuration réseau #{{ i + 1 }}</h4>
+                      </div>
+                      <button type="button" @click="removeIp(i)"
+                        class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
+                        <MinusCircleIcon class="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <!-- Grille de champs -->
+                    <div class="grid grid-cols-2 gap-3">
+                      <!-- Adresse IP -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Adresse IP *</label>
+                        <input v-model="entry.ip" type="text" placeholder="ex : 192.168.1.50"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+
+                      <!-- Description -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                        <input v-model="entry.description" type="text" placeholder="ex : Ethernet, WiFi…"
+                          class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+
+                      <!-- Adresse MAC (admin only pour modification) -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">
+                          Adresse MAC
+                          <span v-if="!isAdmin" class="text-xs text-amber-600">(lecture seule)</span>
+                        </label>
+                        <input v-model="entry.mac_address" type="text" placeholder="ex : 00:1A:2B:3C:4D:5E"
+                          :disabled="!isAdmin"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                      </div>
+
+                      <!-- Masque de sous-réseau -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Masque de sous-réseau</label>
+                        <input v-model="entry.subnet_mask" type="text" placeholder="ex : 255.255.255.0"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+
+                      <!-- Passerelle -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Passerelle</label>
+                        <input v-model="entry.gateway" type="text" placeholder="ex : 192.168.1.1"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+
+                      <!-- DNS Primaire -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">DNS Primaire</label>
+                        <input v-model="entry.dns_primary" type="text" placeholder="ex : 8.8.8.8"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+
+                      <!-- DNS Secondaire -->
+                      <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">DNS Secondaire</label>
+                        <input v-model="entry.dns_secondary" type="text" placeholder="ex : 8.8.4.4"
+                          class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none bg-white" />
+                      </div>
+                    </div>
+
+                    <!-- Avertissement pour non-admin -->
+                    <div v-if="!isAdmin" class="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p class="text-xs text-amber-700">
+                        ⚠️ En tant qu'utilisateur, vous ne pouvez pas modifier directement ces champs.
+                        Vos modifications seront soumises comme demande de changement (sauf pour l'adresse MAC).
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Adresse MAC (admin : éditable, non-admin : lecture seule) -->
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)" class="col-span-2">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">
-                  Adresse MAC
-                  <span v-if="!isAdmin" class="font-normal text-amber-600">(lecture seule)</span>
-                </label>
-                <input v-model="form.mac_address" type="text" placeholder="ex : 00:1A:2B:3C:4D:5E"
-                  :disabled="!isAdmin"
-                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
-                <p v-if="!isAdmin" class="text-xs text-gray-400 mt-1">⚠️ L'adresse MAC ne peut être modifiée que par un administrateur</p>
-              </div>
-
-              <!-- Configuration réseau (admin : éditable, non-admin : demande de changement) -->
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Masque de sous-réseau</label>
-                <input v-model="form.subnet_mask" type="text" placeholder="ex : 255.255.255.0"
-                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Passerelle</label>
-                <input v-model="form.gateway" type="text" placeholder="ex : 192.168.1.1"
-                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">DNS Primaire</label>
-                <input v-model="form.dns_primary" type="text" placeholder="ex : 8.8.8.8"
-                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              <div v-if="(isAdmin && (editing || createMode !== 'from_asset')) || (!isAdmin && editing)">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">DNS Secondaire</label>
-                <input v-model="form.dns_secondary" type="text" placeholder="ex : 8.8.4.4"
-                  class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
               <!-- CPU + RAM -->
               <div v-if="isAdmin || editableFields.includes('processor')">
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Processeur</label>
