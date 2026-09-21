@@ -104,7 +104,8 @@ const statusLabel = (status) => ({
   rejected: 'Rejetée',
 })[status] || status
 
-const formatIpList = (ips) => {
+// Fonction simplifiée pour affichage rapide (si nécessaire)
+const formatIpListSimple = (ips) => {
   if (!ips || ips.length === 0) return '—'
   return ips.map(ip => `${ip.ip}${ip.description ? ' (' + ip.description + ')' : ''}`).join(', ')
 }
@@ -268,58 +269,96 @@ const getDeviceType = (req) => {
                 </div>
               </div>
 
-              <!-- Comparaison des paramètres réseau (Computers) -->
+              <!-- Comparaison détaillée des configurations réseau (Computers) -->
               <div v-if="req.type === 'computer'" class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
+                <!-- Affichage détaillé de chaque configuration réseau -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- Configurations actuelles -->
                   <div>
-                    <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Adresses IP actuelles</p>
-                    <div class="bg-white rounded-md p-3 border border-gray-200">
-                      <p class="text-sm text-gray-700 font-mono">{{ formatIpList(req.old_ip_addresses) }}</p>
+                    <p class="text-xs font-semibold text-gray-500 uppercase mb-3">Configurations actuelles</p>
+                    <div class="space-y-3">
+                      <div v-if="!req.old_ip_addresses || req.old_ip_addresses.length === 0"
+                        class="bg-white rounded-lg p-4 border border-gray-200">
+                        <p class="text-sm text-gray-500 italic">Aucune configuration</p>
+                      </div>
+                      <div v-else v-for="(config, i) in req.old_ip_addresses" :key="`old-${i}`"
+                        class="bg-white rounded-lg p-4 border border-gray-200 space-y-2">
+                        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                          <WifiIcon class="w-4 h-4 text-gray-500" />
+                          <span class="text-xs font-semibold text-gray-700">Configuration #{{ i + 1 }}</span>
+                          <span v-if="config.description" class="text-xs text-gray-500">({{ config.description }})</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p class="text-gray-500 mb-0.5">Adresse IP</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.ip || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-gray-500 mb-0.5">Adresse MAC</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.mac_address || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-gray-500 mb-0.5">Masque de sous-réseau</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.subnet_mask || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-gray-500 mb-0.5">Passerelle</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.gateway || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-gray-500 mb-0.5">DNS Primaire</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.dns_primary || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-gray-500 mb-0.5">DNS Secondaire</p>
+                            <p class="text-gray-900 font-mono font-medium">{{ config.dns_secondary || '—' }}</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Nouvelles adresses IP demandées</p>
-                    <div class="bg-green-50 rounded-md p-3 border border-green-200">
-                      <p class="text-sm text-green-700 font-mono font-semibold">{{ formatIpList(req.new_ip_addresses) }}</p>
-                    </div>
-                  </div>
-                </div>
 
-                <!-- Autres paramètres réseau pour computers -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
-                  <div class="space-y-3">
-                    <div v-if="req.old_subnet_mask || req.new_subnet_mask">
-                      <p class="text-xs font-semibold text-gray-500 uppercase mb-1">Masque de sous-réseau</p>
-                      <div class="flex gap-2 items-center">
-                        <span class="text-sm text-gray-700 font-mono">{{ req.old_subnet_mask || '—' }}</span>
-                        <span class="text-gray-400">→</span>
-                        <span class="text-sm text-green-700 font-mono font-semibold">{{ req.new_subnet_mask || '—' }}</span>
+                  <!-- Nouvelles configurations demandées -->
+                  <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase mb-3">Nouvelles configurations demandées</p>
+                    <div class="space-y-3">
+                      <div v-if="!req.new_ip_addresses || req.new_ip_addresses.length === 0"
+                        class="bg-green-50 rounded-lg p-4 border border-green-200">
+                        <p class="text-sm text-green-700 italic">Aucune configuration</p>
                       </div>
-                    </div>
-                    <div v-if="req.old_gateway || req.new_gateway">
-                      <p class="text-xs font-semibold text-gray-500 uppercase mb-1">Passerelle</p>
-                      <div class="flex gap-2 items-center">
-                        <span class="text-sm text-gray-700 font-mono">{{ req.old_gateway || '—' }}</span>
-                        <span class="text-gray-400">→</span>
-                        <span class="text-sm text-green-700 font-mono font-semibold">{{ req.new_gateway || '—' }}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="space-y-3">
-                    <div v-if="req.old_dns_primary || req.new_dns_primary">
-                      <p class="text-xs font-semibold text-gray-500 uppercase mb-1">DNS Primaire</p>
-                      <div class="flex gap-2 items-center">
-                        <span class="text-sm text-gray-700 font-mono">{{ req.old_dns_primary || '—' }}</span>
-                        <span class="text-gray-400">→</span>
-                        <span class="text-sm text-green-700 font-mono font-semibold">{{ req.new_dns_primary || '—' }}</span>
-                      </div>
-                    </div>
-                    <div v-if="req.old_dns_secondary || req.new_dns_secondary">
-                      <p class="text-xs font-semibold text-gray-500 uppercase mb-1">DNS Secondaire</p>
-                      <div class="flex gap-2 items-center">
-                        <span class="text-sm text-gray-700 font-mono">{{ req.old_dns_secondary || '—' }}</span>
-                        <span class="text-gray-400">→</span>
-                        <span class="text-sm text-green-700 font-mono font-semibold">{{ req.new_dns_secondary || '—' }}</span>
+                      <div v-else v-for="(config, i) in req.new_ip_addresses" :key="`new-${i}`"
+                        class="bg-green-50 rounded-lg p-4 border border-green-200 space-y-2">
+                        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-green-100">
+                          <WifiIcon class="w-4 h-4 text-green-600" />
+                          <span class="text-xs font-semibold text-green-700">Configuration #{{ i + 1 }}</span>
+                          <span v-if="config.description" class="text-xs text-green-600">({{ config.description }})</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p class="text-green-600 mb-0.5">Adresse IP</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.ip || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-green-600 mb-0.5">Adresse MAC</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.mac_address || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-green-600 mb-0.5">Masque de sous-réseau</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.subnet_mask || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-green-600 mb-0.5">Passerelle</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.gateway || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-green-600 mb-0.5">DNS Primaire</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.dns_primary || '—' }}</p>
+                          </div>
+                          <div>
+                            <p class="text-green-600 mb-0.5">DNS Secondaire</p>
+                            <p class="text-green-900 font-mono font-semibold">{{ config.dns_secondary || '—' }}</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
