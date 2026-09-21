@@ -1325,18 +1325,9 @@ function getStatusClasses(statusKey) {
                         </button>
                         <span v-else class="text-gray-300 text-xs">—</span>
                       </td>
-                      <!-- Fabricant -->
+                      <!-- Fabricant : lecture seule, hérité du modèle d'équipement -->
                       <td v-else-if="col.key==='manufacturer'" class="px-4 py-3">
-                        <select v-if="isAdmin"
-                                :value="asset.manufacturer_id || ''"
-                                @change="quickUpdateField(asset.id, 'manufacturer_id', $event.target.value || null)"
-                                class="text-sm border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer">
-                          <option value="">— Aucun —</option>
-                          <option v-for="mfr in manufacturers" :key="mfr.id" :value="mfr.id">
-                            {{ mfr.name }}
-                          </option>
-                        </select>
-                        <span v-else class="text-sm text-gray-600 whitespace-nowrap">
+                        <span class="text-sm text-gray-600 whitespace-nowrap">
                           {{ asset.manufacturer || '—' }}
                         </span>
                       </td>

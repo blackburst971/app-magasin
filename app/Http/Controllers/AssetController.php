@@ -574,12 +574,13 @@ class AssetController extends Controller
 
     /**
      * Mise à jour rapide d'un champ depuis la liste (admin only).
-     * Permet de modifier status, category_id, place_id, manufacturer_id, equipment_model_id
+     * Permet de modifier status, category_id, location, equipment_model_id
+     * Note: manufacturer_id est EXCLU car il est hérité du modèle d'équipement
      */
     public function quickUpdate(Request $request, Asset $asset)
     {
         $data = $request->validate([
-            'field'    => 'required|in:status,category_id,location,manufacturer_id,equipment_model_id',
+            'field'    => 'required|in:status,category_id,location,equipment_model_id',
             'value'    => 'nullable|string|max:255',
         ]);
 
@@ -611,15 +612,6 @@ class AssetController extends Controller
         } elseif ($field === 'location') {
             // Mise à jour directe du champ location (texte libre)
             $asset->update(['location' => $value ?: null]);
-        } elseif ($field === 'manufacturer_id') {
-            if ($value && !Manufacturer::find($value)) {
-                return response()->json(['error' => 'Fabricant invalide'], 422);
-            }
-            $manufacturer = $value ? Manufacturer::find($value) : null;
-            $asset->update([
-                'manufacturer_id' => $value ?: null,
-                'manufacturer'    => $manufacturer?->name,
-            ]);
         } elseif ($field === 'equipment_model_id') {
             if ($value && !EquipmentModel::find($value)) {
                 return response()->json(['error' => 'Modèle invalide'], 422);
