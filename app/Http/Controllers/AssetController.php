@@ -412,8 +412,6 @@ class AssetController extends Controller
             'asset_tag'       => 'required|string|max:100|unique:assets',
             'serial'          => 'nullable|string|max:255',
             'model'           => 'nullable|string|max:255',
-            'manufacturer'    => 'nullable|string|max:255',
-            'manufacturer_id' => 'nullable|exists:manufacturers,id',
             'category_id'     => 'nullable|exists:categories,id',
             'place_id'        => 'nullable|exists:places,id',
             'status'          => 'required|in:' . $this->validStatusKeys(),
@@ -435,7 +433,7 @@ class AssetController extends Controller
         }
 
         // Normaliser les chaînes vides en null pour les champs nullable
-        foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
+        foreach (['category_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost', 'image'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
                 $data[$field] = null;
             }
@@ -444,6 +442,11 @@ class AssetController extends Controller
         if ($request->hasFile('image')) {
             $data['image'] = $request->file('image')->store('assets', 'public');
         }
+
+        // Fabricant et manufacturer_id ne doivent JAMAIS être définis directement sur un asset
+        // Ils sont hérités depuis le modèle d'équipement
+        $data['manufacturer'] = null;
+        $data['manufacturer_id'] = null;
 
         $asset = Asset::create($data);
         $this->generateQrCode($asset);
@@ -491,8 +494,6 @@ class AssetController extends Controller
             'asset_tag'       => "required|string|max:100|unique:assets,asset_tag,{$asset->id}",
             'serial'          => 'nullable|string|max:255',
             'model'           => 'nullable|string|max:255',
-            'manufacturer'    => 'nullable|string|max:255',
-            'manufacturer_id' => 'nullable|exists:manufacturers,id',
             'category_id'     => 'nullable|exists:categories,id',
             'place_id'        => 'nullable|exists:places,id',
             'status'          => 'required|in:' . $this->validStatusKeys(),
@@ -514,7 +515,7 @@ class AssetController extends Controller
         }
 
         // Normaliser les chaînes vides en null pour les champs nullable
-        foreach (['category_id', 'manufacturer', 'manufacturer_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
+        foreach (['category_id', 'serial', 'model', 'location', 'notes', 'purchase_date', 'purchase_cost'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {
                 $data[$field] = null;
             }
@@ -549,8 +550,12 @@ class AssetController extends Controller
             }
 
             // Supprimer les champs hérités du modèle pour ne pas les écraser sur l'asset individuel
-            unset($data['manufacturer'], $data['manufacturer_id'], $data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
+            unset($data['category_id'], $data['model'], $data['purchase_date'], $data['purchase_cost']);
         }
+
+        // Fabricant et manufacturer_id ne doivent JAMAIS être modifiés directement sur un asset
+        // Ils sont toujours hérités depuis le modèle d'équipement
+        unset($data['manufacturer'], $data['manufacturer_id']);
 
         $oldStatus = $asset->status;
         $asset->update($data);
