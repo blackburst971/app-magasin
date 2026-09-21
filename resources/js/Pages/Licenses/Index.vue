@@ -174,6 +174,7 @@ const assignForm = ref({
   assignment_type: 'computer',
   computer_id: '',
   user_id: '',
+  license_key_id: '',
   assigned_at: new Date().toISOString().slice(0,10),
   notes: ''
 })
@@ -185,6 +186,7 @@ function openAssign(license) {
     assignment_type: 'computer',
     computer_id: '',
     user_id: '',
+    license_key_id: '',
     assigned_at: new Date().toISOString().slice(0,10),
     notes: ''
   }
@@ -208,11 +210,18 @@ const availableUsers = computed(() => {
   return props.users.filter(u => !assignedIds.includes(u.id))
 })
 
+// Clés de licence disponibles pour attribution
+const availableLicenseKeys = computed(() => {
+  if (!selectedLicense.value) return []
+  return selectedLicense.value.keys.filter(k => k.status === 'available')
+})
+
 function submitAssign() {
   assignProcessing.value = true
   const payload = {
     computer_id: assignForm.value.assignment_type === 'computer' ? assignForm.value.computer_id : '',
     user_id: assignForm.value.assignment_type === 'user' ? assignForm.value.user_id : '',
+    license_key_id: assignForm.value.license_key_id || '',
     assigned_at: assignForm.value.assigned_at,
     notes: assignForm.value.notes
   }
@@ -222,6 +231,7 @@ function submitAssign() {
         assignment_type: 'computer',
         computer_id: '',
         user_id: '',
+        license_key_id: '',
         assigned_at: new Date().toISOString().slice(0,10),
         notes: ''
       }
@@ -937,6 +947,31 @@ const osLabel = (os) => ({
                   <p v-if="availableUsers.length === 0" class="text-xs text-gray-400 mt-1">
                     Tous les utilisateurs disponibles ont déjà cette licence.
                   </p>
+                </div>
+
+                <!-- Sélection clé de licence -->
+                <div v-if="availableLicenseKeys.length > 0">
+                  <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Clé de licence
+                    <span class="text-gray-400 font-normal">(optionnel)</span>
+                  </label>
+                  <select v-model="assignForm.license_key_id"
+                    class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 outline-none">
+                    <option value="">— Attribution automatique —</option>
+                    <option v-for="key in availableLicenseKeys" :key="key.id" :value="key.id">
+                      {{ key.key_code }}
+                    </option>
+                  </select>
+                  <p class="text-xs text-gray-500 mt-1">
+                    {{ availableLicenseKeys.length }} clé(s) disponible(s). Laissez vide pour attribution automatique.
+                  </p>
+                </div>
+                <div v-else>
+                  <div class="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <p class="text-xs text-orange-700">
+                      ⚠️ Aucune clé de licence disponible. L'attribution créera une entrée sans clé associée.
+                    </p>
+                  </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">

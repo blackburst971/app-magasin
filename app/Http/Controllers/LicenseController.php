@@ -227,10 +227,11 @@ class LicenseController extends Controller
     public function assign(Request $request, License $license)
     {
         $data = $request->validate([
-            'computer_id' => 'nullable|exists:computers,id',
-            'user_id'     => 'nullable|exists:users,id',
-            'assigned_at' => 'required|date',
-            'notes'       => 'nullable|string',
+            'computer_id'    => 'nullable|exists:computers,id',
+            'user_id'        => 'nullable|exists:users,id',
+            'license_key_id' => 'nullable|exists:license_keys,id',
+            'assigned_at'    => 'required|date',
+            'notes'          => 'nullable|string',
         ]);
 
         // Validation : une licence doit être attribuée soit à un poste, soit à un utilisateur (mais pas les deux)
@@ -249,8 +250,18 @@ class LicenseController extends Controller
             }
         }
 
-        // Chercher une clé de licence disponible
-        $availableKey = $license->keys()->where('status', 'available')->first();
+        // Déterminer quelle clé utiliser
+        $keyToAssign = null;
+        if (!empty($data['license_key_id'])) {
+            // Clé spécifique sélectionnée par l'admin
+            $keyToAssign = $license->keys()->where('id', $data['license_key_id'])->where('status', 'available')->first();
+            if (!$keyToAssign) {
+                return back()->withErrors(['license_key_id' => 'La clé de licence sélectionnée n\'est pas disponible.']);
+            }
+        } else {
+            // Attribution automatique : chercher une clé disponible
+            $keyToAssign = $license->keys()->where('status', 'available')->first();
+        }
 
         try {
             $assignment = LicenseAssignment::create([
@@ -262,9 +273,9 @@ class LicenseController extends Controller
                 'notes'       => $data['notes'] ?? null,
             ]);
 
-            // Si une clé est disponible, l'attribuer automatiquement
-            if ($availableKey) {
-                $availableKey->update([
+            // Attribuer la clé si disponible
+            if ($keyToAssign) {
+                $keyToAssign->update([
                     'status'                  => 'assigned',
                     'assigned_to_computer_id' => $data['computer_id'] ?? null,
                     'assigned_to_user_id'     => $data['user_id'] ?? null,
@@ -276,7 +287,9 @@ class LicenseController extends Controller
         }
 
         $assignedTo = !empty($data['computer_id']) ? 'poste informatique' : 'utilisateur';
-        $keyMessage = $availableKey ? ' (clé attribuée automatiquement)' : '';
+        $keyMessage = $keyToAssign
+            ? (!empty($data['license_key_id']) ? ' (clé sélectionnée attribuée)' : ' (clé attribuée automatiquement)')
+            : '';
         return back()->with('success', "Licence attribuée au $assignedTo avec succès.$keyMessage");
     }
 
