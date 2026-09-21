@@ -63,6 +63,18 @@ const filtered = computed(() => {
   return list
 })
 
+// Grouper les licences filtrées par type
+const groupedByType = computed(() => {
+  const groups = {}
+  filtered.value.forEach(license => {
+    if (!groups[license.type]) {
+      groups[license.type] = []
+    }
+    groups[license.type].push(license)
+  })
+  return groups
+})
+
 /* ── Modal Création / Édition ───────────────────────────────────────────── */
 const showFormModal = ref(false)
 const editing       = ref(null)
@@ -323,25 +335,44 @@ const osLabel = (os) => ({
         </select>
       </div>
 
-      <!-- Tableau -->
-      <div class="bg-white rounded-xl border overflow-hidden">
-        <div v-if="filtered.length === 0" class="py-16 text-center text-gray-400">
-          <KeyIcon class="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p class="text-sm">Aucune licence trouvée</p>
-        </div>
-        <table v-else class="w-full text-sm">
-          <thead class="bg-gray-50 border-b">
-            <tr>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Logiciel</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Type</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sièges</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Expiration</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden xl:table-cell">Postes attribués</th>
-              <th class="text-right px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <template v-for="license in filtered" :key="license.id">
+      <!-- Tableau groupé par type -->
+      <div v-if="filtered.length === 0" class="bg-white rounded-xl border py-16 text-center text-gray-400">
+        <KeyIcon class="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p class="text-sm">Aucune licence trouvée</p>
+      </div>
+
+      <!-- Sections par type de licence -->
+      <div v-else class="space-y-6">
+        <template v-for="(licenses, type) in groupedByType" :key="type">
+          <div class="bg-white rounded-xl border overflow-hidden">
+            <!-- En-tête du groupe -->
+            <div class="px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <span :class="['text-xs font-bold px-3 py-1.5 rounded-full', typeBadge(type)]">
+                  {{ typeLabel(type) }}
+                </span>
+                <span class="text-sm text-gray-600">
+                  {{ licenses.length }} licence{{ licenses.length > 1 ? 's' : '' }}
+                  <template v-if="props.stats.by_type && props.stats.by_type[type]">
+                    · {{ props.stats.by_type[type].seats_used || 0 }} / {{ props.stats.by_type[type].seats_total || '∞' }} sièges
+                  </template>
+                </span>
+              </div>
+            </div>
+
+            <!-- Tableau pour ce type -->
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b">
+                <tr>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Logiciel</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sièges</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Expiration</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden xl:table-cell">Postes attribués</th>
+                  <th class="text-right px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template v-for="license in licenses" :key="license.id">
               <tr class="hover:bg-gray-50 transition">
                 <!-- Logiciel -->
                 <td class="px-4 py-3">
@@ -359,12 +390,6 @@ const osLabel = (os) => ({
                       <p v-if="license.manufacturer" class="text-xs text-gray-500">{{ license.manufacturer }}</p>
                     </div>
                   </div>
-                </td>
-                <!-- Type -->
-                <td class="px-4 py-3 hidden md:table-cell">
-                  <span :class="['text-xs font-medium px-2 py-1 rounded-full', typeBadge(license.type)]">
-                    {{ typeLabel(license.type) }}
-                  </span>
                 </td>
                 <!-- Sièges -->
                 <td class="px-4 py-3">
@@ -435,9 +460,11 @@ const osLabel = (os) => ({
                   </div>
                 </td>
               </tr>
-            </template>
-          </tbody>
-        </table>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -1066,14 +1093,25 @@ const osLabel = (os) => ({
               <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Clés de licence ({{ detailLicense.keys.length }})</label>
               <div class="space-y-2">
                 <div v-for="key in detailLicense.keys" :key="key.id"
-                  class="bg-gray-50 border rounded-lg p-3 flex items-start gap-3">
-                  <div class="flex-1">
-                    <code class="text-sm text-gray-900 font-mono">{{ key.key_code }}</code>
-                    <p v-if="key.notes" class="text-xs text-gray-500 mt-1">{{ key.notes }}</p>
+                  class="bg-gray-50 border rounded-lg p-3">
+                  <div class="flex items-start gap-3">
+                    <div class="flex-1">
+                      <code class="text-sm text-gray-900 font-mono">{{ key.key_code }}</code>
+                      <p v-if="key.notes" class="text-xs text-gray-500 mt-1">{{ key.notes }}</p>
+                      <!-- Afficher à qui la clé est attribuée -->
+                      <div v-if="key.assigned_to_computer" class="flex items-center gap-1.5 mt-2 text-xs text-blue-600">
+                        <ComputerDesktopIcon class="w-3 h-3" />
+                        <span>{{ key.assigned_to_computer.name }}</span>
+                      </div>
+                      <div v-else-if="key.assigned_to_user" class="flex items-center gap-1.5 mt-2 text-xs text-purple-600">
+                        <UserIcon class="w-3 h-3" />
+                        <span>{{ key.assigned_to_user.name }}</span>
+                      </div>
+                    </div>
+                    <span :class="['text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap', key.status === 'available' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700']">
+                      {{ key.status === 'available' ? 'Disponible' : 'Attribuée' }}
+                    </span>
                   </div>
-                  <span :class="['text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap', key.status === 'available' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700']">
-                    {{ key.status === 'available' ? 'Disponible' : 'Utilisée' }}
-                  </span>
                 </div>
               </div>
             </div>

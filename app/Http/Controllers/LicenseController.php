@@ -17,8 +17,9 @@ class LicenseController extends Controller
     {
         $isAdmin = auth()->user()->hasRole('admin');
 
-        $licenses = License::with(['assignments.computer', 'assignments.user', 'supplier', 'keys.assignedToComputer'])
+        $licenses = License::with(['assignments.computer', 'assignments.user', 'supplier', 'keys.assignedToComputer', 'keys.assignedToUser'])
             ->withCount('assignments')
+            ->orderBy('type')
             ->orderBy('name')
             ->get()
             ->map(function ($l) use ($isAdmin) {
@@ -44,9 +45,14 @@ class LicenseController extends Controller
                         'id'            => $k->id,
                         'key_code'      => $isAdmin ? $k->key_code : null,
                         'status'        => $k->status,
-                        'assigned_to'   => $k->assignedToComputer ? [
+                        'assigned_to_computer'   => $k->assignedToComputer ? [
                             'id'   => $k->assignedToComputer->id,
                             'name' => $k->assignedToComputer->name,
+                        ] : null,
+                        'assigned_to_user'   => $k->assignedToUser ? [
+                            'id'    => $k->assignedToUser->id,
+                            'name'  => $k->assignedToUser->name,
+                            'email' => $k->assignedToUser->email,
                         ] : null,
                         'assigned_at'   => $k->assigned_at?->format('Y-m-d H:i'),
                         'notes'         => $k->notes,
@@ -75,6 +81,16 @@ class LicenseController extends Controller
         $users     = \App\Models\User::orderBy('name')->get(['id', 'name', 'email']);
         $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
 
+        // Regrouper les licences par type
+        $licensesByType = $licenses->groupBy('type')->map(function ($group) {
+            return [
+                'licenses' => $group->values(),
+                'count'    => $group->count(),
+                'seats_total' => $group->whereNotNull('seats')->sum('seats'),
+                'seats_used'  => $group->sum('seats_used'),
+            ];
+        });
+
         $stats = [
             'total'         => $licenses->count(),
             'seats_total'   => $licenses->whereNotNull('seats')->sum('seats'),
@@ -82,6 +98,7 @@ class LicenseController extends Controller
             'expiring_soon' => $licenses->where('is_expiring_soon', true)->count(),
             'expired'       => $licenses->where('is_expired', true)->count(),
             'cloud'         => $licenses->where('is_cloud', true)->count(),
+            'by_type'       => $licensesByType,
         ];
 
         return Inertia::render('Licenses/Index', compact('licenses', 'computers', 'users', 'suppliers', 'stats'));
@@ -232,8 +249,11 @@ class LicenseController extends Controller
             }
         }
 
+        // Chercher une clé de licence disponible
+        $availableKey = $license->keys()->where('status', 'available')->first();
+
         try {
-            LicenseAssignment::create([
+            $assignment = LicenseAssignment::create([
                 'license_id'  => $license->id,
                 'computer_id' => $data['computer_id'] ?? null,
                 'user_id'     => $data['user_id'] ?? null,
@@ -241,17 +261,47 @@ class LicenseController extends Controller
                 'assigned_at' => $data['assigned_at'],
                 'notes'       => $data['notes'] ?? null,
             ]);
+
+            // Si une clé est disponible, l'attribuer automatiquement
+            if ($availableKey) {
+                $availableKey->update([
+                    'status'                  => 'assigned',
+                    'assigned_to_computer_id' => $data['computer_id'] ?? null,
+                    'assigned_to_user_id'     => $data['user_id'] ?? null,
+                    'assigned_at'             => now(),
+                ]);
+            }
         } catch (\Exception $e) {
             return back()->withErrors(['assignment' => 'Cette licence est déjà attribuée.']);
         }
 
         $assignedTo = !empty($data['computer_id']) ? 'poste informatique' : 'utilisateur';
-        return back()->with('success', "Licence attribuée au $assignedTo avec succès.");
+        $keyMessage = $availableKey ? ' (clé attribuée automatiquement)' : '';
+        return back()->with('success', "Licence attribuée au $assignedTo avec succès.$keyMessage");
     }
 
     public function unassign(License $license, LicenseAssignment $assignment)
     {
         abort_if($assignment->license_id !== $license->id, 403);
+
+        // Libérer la clé de licence si elle était attribuée à ce computer/user
+        $assignedKey = $license->keys()
+            ->where(function($q) use ($assignment) {
+                $q->where('assigned_to_computer_id', $assignment->computer_id)
+                  ->orWhere('assigned_to_user_id', $assignment->user_id);
+            })
+            ->where('status', 'assigned')
+            ->first();
+
+        if ($assignedKey) {
+            $assignedKey->update([
+                'status'                  => 'available',
+                'assigned_to_computer_id' => null,
+                'assigned_to_user_id'     => null,
+                'assigned_at'             => null,
+            ]);
+        }
+
         $assignment->delete();
         return back()->with('success', 'Attribution supprimée.');
     }

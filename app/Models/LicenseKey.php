@@ -15,6 +15,7 @@ class LicenseKey extends Model
         'key_code',
         'status',
         'assigned_to_computer_id',
+        'assigned_to_user_id',
         'assigned_at',
         'notes',
     ];
@@ -33,6 +34,11 @@ class LicenseKey extends Model
     public function assignedToComputer(): BelongsTo
     {
         return $this->belongsTo(Computer::class, 'assigned_to_computer_id');
+    }
+
+    public function assignedToUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
     }
 
     /* ── Méthodes ─────────────────────────────────────────────────────── */
