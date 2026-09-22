@@ -40,6 +40,32 @@ class ReturnController extends Controller
                 ];
             }
 
+            // Collecter les réservations enfants si c'est une réservation parente
+            $childReservations = [];
+            if ($r->childReservations && $r->childReservations->isNotEmpty()) {
+                $childReservations = $r->childReservations->map(function($child) use ($now) {
+                    $childEndDate = \Carbon\Carbon::parse($child->end_date);
+                    $childIsOverdue = $childEndDate->lt($now);
+
+                    return [
+                        'id'             => $child->id,
+                        'title'          => $child->title,
+                        'start_date'     => $child->start_date,
+                        'end_date'       => $child->end_date,
+                        'days_overdue'   => $childIsOverdue ? (int) $now->diffInDays($childEndDate) : 0,
+                        'days_remaining' => !$childIsOverdue ? (int) $now->diffInDays($childEndDate) : 0,
+                    ];
+                })->toArray();
+            }
+
+            // Collecter tous les équipements (parent + enfants)
+            $allAssets = collect($r->assets);
+            if ($r->childReservations && $r->childReservations->isNotEmpty()) {
+                foreach ($r->childReservations as $child) {
+                    $allAssets = $allAssets->merge($child->assets);
+                }
+            }
+
             return [
                 'id'                => $r->id,
                 'title'             => $r->title,
@@ -55,7 +81,8 @@ class ReturnController extends Controller
                 'end_date'          => $r->end_date,
                 'days_overdue'      => $isOverdue ? (int) $now->diffInDays($endDate) : 0,
                 'days_remaining'    => !$isOverdue ? (int) $now->diffInDays($endDate) : 0,
-                'assets'            => $r->assets->map(fn($a) => [
+                'child_reservations' => $childReservations,
+                'assets'            => $allAssets->map(fn($a) => [
                     'id'                    => $a->id,
                     'name'                  => $a->name,
                     'asset_tag'             => $a->asset_tag,
@@ -73,18 +100,20 @@ class ReturnController extends Controller
             ];
         };
 
-        // Réservations en retard
-        $overdueReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy'])
+        // Réservations en retard (exclure les enfants, inclure les relations)
+        $overdueReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy', 'childReservations.assets'])
             ->where('status', 'active')
             ->where('end_date', '<', $now)
+            ->whereNull('parent_reservation_id') // Ne récupérer que les parentes et les réservations non associées
             ->orderBy('end_date')
             ->get()
             ->map($mapReservation);
 
-        // Réservations actives dans les délais
-        $activeReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy'])
+        // Réservations actives dans les délais (exclure les enfants, inclure les relations)
+        $activeReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy', 'childReservations.assets'])
             ->where('status', 'active')
             ->where('end_date', '>=', $now)
+            ->whereNull('parent_reservation_id') // Ne récupérer que les parentes et les réservations non associées
             ->orderBy('end_date')
             ->get()
             ->map($mapReservation);

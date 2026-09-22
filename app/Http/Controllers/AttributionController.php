@@ -18,30 +18,55 @@ class AttributionController extends Controller
 {
     public function index()
     {
-        $reservations = Reservation::with(['user', 'assets'])
+        $reservations = Reservation::with(['user', 'assets', 'childReservations.assets'])
             ->where('status', 'approved')
+            ->whereNull('parent_reservation_id') // Ne récupérer que les parentes et les réservations non associées
             ->orderBy('start_date')
             ->get()
-            ->map(fn($r) => [
-                'id' => $r->id,
-                'title' => $r->title,
-                'user' => [
-                    'id' => $r->user->id,
-                    'name' => $r->user->name,
-                    'email' => $r->user->email,
-                ],
-                'start_date' => $r->start_date,
-                'end_date' => $r->end_date,
-                'assets' => $r->assets->map(fn($a) => [
-                    'id' => $a->id,
-                    'name' => $a->name,
-                    'asset_tag' => $a->asset_tag,
-                    'status' => $a->status,
-                    'qr_code' => $a->qr_code,
-                    'checkout_at' => $a->pivot->checkout_at,
-                ]),
-                'all_checked_out' => $r->assets->every(fn($a) => $a->pivot->checkout_at !== null),
-            ]);
+            ->map(function($r) {
+                // Collecter les réservations enfants si c'est une réservation parente
+                $childReservations = [];
+                if ($r->childReservations && $r->childReservations->isNotEmpty()) {
+                    $childReservations = $r->childReservations->map(function($child) {
+                        return [
+                            'id'         => $child->id,
+                            'title'      => $child->title,
+                            'start_date' => $child->start_date,
+                            'end_date'   => $child->end_date,
+                        ];
+                    })->toArray();
+                }
+
+                // Collecter tous les équipements (parent + enfants)
+                $allAssets = collect($r->assets);
+                if ($r->childReservations && $r->childReservations->isNotEmpty()) {
+                    foreach ($r->childReservations as $child) {
+                        $allAssets = $allAssets->merge($child->assets);
+                    }
+                }
+
+                return [
+                    'id' => $r->id,
+                    'title' => $r->title,
+                    'user' => [
+                        'id' => $r->user->id,
+                        'name' => $r->user->name,
+                        'email' => $r->user->email,
+                    ],
+                    'start_date' => $r->start_date,
+                    'end_date' => $r->end_date,
+                    'child_reservations' => $childReservations,
+                    'assets' => $allAssets->map(fn($a) => [
+                        'id' => $a->id,
+                        'name' => $a->name,
+                        'asset_tag' => $a->asset_tag,
+                        'status' => $a->status,
+                        'qr_code' => $a->qr_code,
+                        'checkout_at' => $a->pivot->checkout_at,
+                    ]),
+                    'all_checked_out' => $allAssets->every(fn($a) => $a->pivot->checkout_at !== null),
+                ];
+            });
 
         return Inertia::render('Attribution/Index', [
             'reservations' => $reservations,
