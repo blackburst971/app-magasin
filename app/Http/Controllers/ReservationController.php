@@ -331,7 +331,7 @@ class ReservationController extends Controller
             // Pas de superviseur ou bypass : aller directement vers les admins
             $admins = User::role('admin')->get();
             foreach ($admins as $admin) {
-                try { Mail::to($admin->email)->send(new ReservationPending($reservation, $admin)); } catch (\Exception $e) {}
+                // Envoyer uniquement la notification (qui gère email + database selon les paramètres)
                 $admin->notify(new \App\Notifications\ReservationPendingNotification($reservation));
             }
         }
@@ -573,9 +573,7 @@ class ReservationController extends Controller
         // Notifier les admins
         $admins = User::role('admin')->get();
         foreach ($admins as $admin) {
-            try {
-                Mail::to($admin->email)->send(new ReservationPending($reservation, $admin));
-            } catch (\Exception $e) {}
+            // Envoyer uniquement la notification (qui gère email + database selon les paramètres)
             $admin->notify(new \App\Notifications\ReservationPendingNotification($reservation));
         }
 

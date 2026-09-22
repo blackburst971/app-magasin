@@ -106,15 +106,24 @@ class DashboardController extends Controller
                     ];
                 });
 
+            // Optimisation : regrouper les requêtes COUNT en une seule requête par table
+            $assetCounts = Asset::select('status', DB::raw('count(*) as total'))
+                ->groupBy('status')
+                ->pluck('total', 'status');
+
+            $reservationCounts = Reservation::select('status', DB::raw('count(*) as total'))
+                ->groupBy('status')
+                ->pluck('total', 'status');
+
             $stats = [
-                'total_assets'              => Asset::count(),
-                'available_assets'          => Asset::where('status', 'available')->count(),
-                'checked_out_assets'        => Asset::where('status', 'checked_out')->count(),
-                'maintenance_assets'        => Asset::where('status', 'maintenance')->count(),
-                'pending_reservations'      => Reservation::pending()->count(),
-                'approved_reservations'     => Reservation::approved()->count(),
-                'active_reservations'       => Reservation::active()->count(),
-                'awaiting_supervisor'       => Reservation::awaitingSupervisor()->count(),
+                'total_assets'              => $assetCounts->sum(),
+                'available_assets'          => $assetCounts->get('available', 0),
+                'checked_out_assets'        => $assetCounts->get('checked_out', 0),
+                'maintenance_assets'        => $assetCounts->get('maintenance', 0),
+                'pending_reservations'      => $reservationCounts->get('pending', 0),
+                'approved_reservations'     => $reservationCounts->get('approved', 0),
+                'active_reservations'       => $reservationCounts->get('active', 0),
+                'awaiting_supervisor'       => $reservationCounts->get('awaiting_supervisor', 0),
                 'total_users'               => User::count(),
                 'total_categories'          => Category::count(),
                 'upcoming_returns'          => $upcomingReturns->count(),
