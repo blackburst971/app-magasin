@@ -45,12 +45,41 @@ class Kit extends Model
      */
     public function getCurrentStatusAttribute(): string
     {
-        // 1. Vérifier s'il y a une réservation active (matériel sorti)
+        // Charger les équipements du kit
+        $kitAssetIds = $this->assets->pluck('id');
+
+        if ($kitAssetIds->isEmpty()) {
+            return $this->status ?? 'available';
+        }
+
+        // 1. Vérifier s'il y a une réservation active via kit_id OU via les équipements du kit
         $activeReservation = $this->reservations()
             ->where('status', 'active')
             ->whereNotNull('checkout_at')
             ->whereNull('return_at')
             ->first();
+
+        // Si pas de réservation directe par kit_id, chercher via les équipements
+        if (!$activeReservation) {
+            // Chercher une réservation active qui contient TOUS les équipements du kit scannés
+            $activeReservation = \App\Models\Reservation::where('status', 'active')
+                ->whereNull('return_at')
+                ->whereHas('assets', function($q) use ($kitAssetIds) {
+                    // Au moins un équipement du kit scanné
+                    $q->whereIn('assets.id', $kitAssetIds)
+                      ->wherePivotNotNull('checkout_at');
+                })
+                ->withCount(['assets' => function($q) use ($kitAssetIds) {
+                    // Compter combien d'équipements du kit sont scannés
+                    $q->whereIn('assets.id', $kitAssetIds)
+                      ->wherePivotNotNull('checkout_at');
+                }])
+                ->get()
+                ->first(function($reservation) use ($kitAssetIds) {
+                    // Vérifier si TOUS les équipements du kit sont scannés
+                    return $reservation->assets_count >= $kitAssetIds->count();
+                });
+        }
 
         if ($activeReservation) {
             // Vérifier si c'est en retard
@@ -65,6 +94,22 @@ class Kit extends Model
             ->where('status', 'approved')
             ->where('start_date', '<=', now()->addDays(7))
             ->first();
+
+        // Si pas de réservation directe par kit_id, chercher via les équipements
+        if (!$approvedReservation) {
+            $approvedReservation = \App\Models\Reservation::where('status', 'approved')
+                ->where('start_date', '<=', now()->addDays(7))
+                ->whereHas('assets', function($q) use ($kitAssetIds) {
+                    $q->whereIn('assets.id', $kitAssetIds);
+                })
+                ->withCount(['assets' => function($q) use ($kitAssetIds) {
+                    $q->whereIn('assets.id', $kitAssetIds);
+                }])
+                ->get()
+                ->first(function($reservation) use ($kitAssetIds) {
+                    return $reservation->assets_count >= $kitAssetIds->count();
+                });
+        }
 
         if ($approvedReservation) {
             return 'reserved'; // Réservé
