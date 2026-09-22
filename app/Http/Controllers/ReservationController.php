@@ -67,15 +67,16 @@ class ReservationController extends Controller
 
         $reservations = $query->paginate(15)->withQueryString()
             ->through(fn($r) => [
-                'id'           => $r->id,
-                'title'        => $r->title,
-                'user'         => $r->user->name,
-                'start_date'   => $r->start_date->format('d/m/Y H:i'),
-                'end_date'     => $r->end_date->format('d/m/Y H:i'),
-                'status'       => $r->status,
-                'status_label' => $r->status_label,
-                'status_color' => $r->status_color,
-                'assets_count' => $r->assets->count(),
+                'id'                    => $r->id,
+                'title'                 => $r->title,
+                'user'                  => $r->user->name,
+                'start_date'            => $r->start_date->format('d/m/Y H:i'),
+                'end_date'              => $r->end_date->format('d/m/Y H:i'),
+                'status'                => $r->status,
+                'status_label'          => $r->status_label,
+                'status_color'          => $r->status_color,
+                'assets_count'          => $r->assets->count(),
+                'parent_reservation_id' => $r->parent_reservation_id,
             ]);
 
         return Inertia::render('Reservations/Index', [

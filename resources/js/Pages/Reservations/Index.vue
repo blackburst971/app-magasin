@@ -4,7 +4,7 @@ import StatusBadge from '@/Components/StatusBadge.vue'
 import { Link, router, useForm } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import axios from 'axios'
-import { PlusIcon, ShoppingCartIcon, TrashIcon, CheckIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, ShoppingCartIcon, TrashIcon, CheckIcon, LinkIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   reservations: Object,
@@ -54,6 +54,45 @@ function executeBulkDelete() {
   router.post(route('reservations.bulk-delete'), { ids: [...selected.value] }, {
     onSuccess: () => { selected.value = []; selectAll.value = false },
     onFinish:  () => { bulkDeleting.value = false },
+  })
+}
+
+// ─── Bulk association ─────────────────────────────────────────────────────────
+const showAssociateModal = ref(false)
+const associateParentId = ref('')
+const associating = ref(false)
+
+function openAssociateModal() {
+  if (selected.value.length < 2) {
+    alert('Sélectionnez au moins 2 réservations à associer.')
+    return
+  }
+  associateParentId.value = ''
+  showAssociateModal.value = true
+}
+
+function executeAssociate() {
+  if (!associateParentId.value) {
+    alert('Veuillez choisir une réservation parente.')
+    return
+  }
+  const childIds = selected.value.filter(id => id !== parseInt(associateParentId.value))
+  if (childIds.length === 0) {
+    alert('Aucune réservation enfant sélectionnée.')
+    return
+  }
+
+  associating.value = true
+  router.post(route('reservations.associate'), {
+    parent_id: associateParentId.value,
+    child_ids: childIds
+  }, {
+    onSuccess: () => {
+      showAssociateModal.value = false
+      selected.value = []
+      selectAll.value = false
+    },
+    onFinish: () => { associating.value = false }
   })
 }
 
@@ -230,6 +269,12 @@ const filterBtns = [
               <TrashIcon class="w-4 h-4" />
               {{ bulkDeleting ? 'Suppression…' : 'Supprimer' }}
             </button>
+            <button @click="openAssociateModal"
+                    :disabled="selected.length < 2"
+                    class="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition disabled:opacity-50 font-medium">
+              <LinkIcon class="w-4 h-4" />
+              Associer
+            </button>
             <button @click="selected = []; selectAll = false"
                     class="text-xs text-gray-500 hover:text-gray-700 underline">
               Désélectionner
@@ -267,8 +312,18 @@ const filterBtns = [
               </td>
 
               <td class="px-4 py-3">
-                <p class="font-medium text-gray-900">{{ r.title }}</p>
-                <p class="text-xs text-gray-500">{{ r.assets_count }} équipement(s)</p>
+                <div class="flex items-center gap-2">
+                  <div class="flex-1">
+                    <p class="font-medium text-gray-900">{{ r.title }}</p>
+                    <p class="text-xs text-gray-500">{{ r.assets_count }} équipement(s)</p>
+                  </div>
+                  <span v-if="r.parent_reservation_id"
+                        class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full flex items-center gap-1"
+                        title="Cette réservation est associée à une réservation parente">
+                    <LinkIcon class="w-3 h-3" />
+                    Associée
+                  </span>
+                </div>
               </td>
               <td v-if="isAdmin" class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ r.user }}</td>
               <td class="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell">
@@ -294,6 +349,15 @@ const filterBtns = [
                     @click="openAdminCancelModal(r)"
                     class="text-xs text-orange-500 hover:text-orange-700 hover:underline">
                     Annuler
+                  </button>
+                  <!-- Admin: dissociate -->
+                  <button v-if="isAdmin && r.parent_reservation_id"
+                    @click="() => {
+                      if (confirm('Dissocier cette réservation de sa parente ?'))
+                        router.post(route('reservations.dissociate', r.id))
+                    }"
+                    class="text-xs text-purple-500 hover:text-purple-700 hover:underline flex items-center gap-0.5">
+                    <LinkIcon class="w-3 h-3" /> Dissocier
                   </button>
                   <!-- Admin: delete -->
                   <button v-if="isAdmin"
@@ -516,6 +580,62 @@ const filterBtns = [
             <button @click="submitAdminCancel" :disabled="adminCancelling"
               class="flex-1 bg-orange-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
               {{ adminCancelling ? 'Annulation…' : '🚫 Confirmer' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ═══ Modal : associer des réservations ═══ -->
+    <Teleport to="body">
+      <div v-if="showAssociateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="text-2xl">🔗</span>
+            <h3 class="font-bold text-lg text-gray-900">Associer des réservations</h3>
+          </div>
+
+          <div class="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-800">
+            <strong>ℹ️ Groupement visuel :</strong> Les réservations associées seront affichées ensemble
+            dans les pages Retours et Attribution pour faciliter la gestion.
+          </div>
+
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-3">
+              <strong>{{ selected.length }} réservation(s) sélectionnée(s)</strong>
+            </p>
+            <div class="bg-gray-50 rounded-lg p-3 max-h-32 overflow-y-auto text-sm space-y-1">
+              <div v-for="id in selected" :key="id" class="text-gray-700">
+                • {{ reservations.data.find(r => r.id === id)?.title }}
+                <span class="text-gray-400 text-xs">(#{{ id }})</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-5">
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              Choisir la réservation parente <span class="text-red-500">*</span>
+            </label>
+            <p class="text-xs text-gray-500 mb-2">
+              La réservation parente sera celle affichée en premier. Les autres seront regroupées sous celle-ci.
+            </p>
+            <select v-model="associateParentId" required
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none">
+              <option value="">— Sélectionner une réservation parente —</option>
+              <option v-for="id in selected" :key="id" :value="id">
+                {{ reservations.data.find(r => r.id === id)?.title }} (#{{ id }})
+              </option>
+            </select>
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="showAssociateModal = false"
+              class="flex-1 border border-gray-300 py-2 rounded-lg text-sm hover:bg-gray-50">
+              Annuler
+            </button>
+            <button @click="executeAssociate" :disabled="!associateParentId || associating"
+              class="flex-1 bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+              {{ associating ? 'Association…' : '🔗 Associer' }}
             </button>
           </div>
         </div>
