@@ -27,6 +27,32 @@ class KitController extends Controller
         return Storage::url($image);
     }
 
+    private function getKitStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'available'   => 'Disponible',
+            'reserved'    => 'Réservé',
+            'checked_out' => 'Sorti',
+            'overdue'     => 'En retard',
+            'partial'     => 'Incomplet',
+            'unavailable' => 'Indisponible',
+            default       => 'Disponible',
+        };
+    }
+
+    private function getKitStatusColor(string $status): string
+    {
+        return match ($status) {
+            'available'   => 'green',
+            'reserved'    => 'blue',
+            'checked_out' => 'purple',
+            'overdue'     => 'red',
+            'partial'     => 'yellow',
+            'unavailable' => 'gray',
+            default       => 'gray',
+        };
+    }
+
     /** Liste des kits — page admin */
     public function index()
     {
@@ -51,9 +77,9 @@ class KitController extends Controller
                 'notes'          => $k->notes,
                 'condition_note' => $k->condition_note,
                 'image'          => $this->getImageUrl($k->image),
-                'status'         => $k->current_status, // Statut dynamique
-                'status_label'   => $k->status_label,   // Label dynamique
-                'status_color'   => $k->status_color,   // Couleur dynamique
+                'status'         => $k->status ?? 'available', // Statut statique (géré par updateKitStatuses)
+                'status_label'   => $this->getKitStatusLabel($k->status ?? 'available'),
+                'status_color'   => $this->getKitStatusColor($k->status ?? 'available'),
                 'is_reservable'  => $k->is_reservable,
                 'assets_count'   => $k->assets_count,
                 'assets'         => $k->assets->map(fn($a) => [
