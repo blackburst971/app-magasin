@@ -2,7 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import AssetThumbnail from '@/Components/AssetThumbnail.vue'
 import { useForm, Head, router } from '@inertiajs/vue3'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({
@@ -100,6 +100,30 @@ const canSubmit = computed(() =>
   form.asset_ids.length > 0 && requiredFormValid.value
 )
 
+// ─── Affichage de l'heure actuelle pour aider l'utilisateur ───────────────────
+const currentTime = ref('')
+let timeInterval = null
+
+function updateCurrentTime() {
+  const now = new Date()
+  // Convertir en heure de La Paz (GMT-4)
+  const laPazTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+  currentTime.value = laPazTime.toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+onMounted(() => {
+  updateCurrentTime()
+  timeInterval = setInterval(updateCurrentTime, 1000)
+})
+
+onBeforeUnmount(() => {
+  if (timeInterval) clearInterval(timeInterval)
+})
+
 // ─── Mode examen ─────────────────────────────────────────────────────────────
 const examMinDate = computed(() => {
   if (!props.examMode) return null
@@ -145,15 +169,25 @@ const submit = () => form.post(route('reservations.store'))
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Date de début *</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Date de début *
+                  <span class="text-xs text-gray-500 font-normal ml-1">({{ currentTime }})</span>
+                </label>
                 <input v-model="form.start_date" @change="loadAvailableAssets" type="datetime-local" required
                   :min="examMinDate ?? undefined"
+                  step="60"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                <p class="text-xs text-gray-500 mt-1">Heure de La Paz (GMT-4)</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Date de fin *</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Date de fin *
+                  <span class="text-xs text-gray-500 font-normal ml-1">(retour prévu)</span>
+                </label>
                 <input v-model="form.end_date" @change="loadAvailableAssets" type="datetime-local" required
+                  step="60"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                <p class="text-xs text-gray-500 mt-1">Heure de La Paz (GMT-4)</p>
               </div>
             </div>
             <div>
