@@ -37,8 +37,8 @@ class KitController extends Controller
                 'pendingMissingItems.responsibleUser',
                 'reservations' => function($query) {
                     // Charger les réservations actives et approuvées pour calculer le statut
-                    $query->whereIn('reservations.status', ['active', 'approved'])
-                          ->orderByDesc('reservations.created_at');
+                    $query->whereIn('status', ['active', 'approved'])
+                          ->orderByDesc('created_at');
                 }
             ])
             ->withCount('assets')

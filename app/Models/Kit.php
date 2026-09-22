@@ -24,9 +24,7 @@ class Kit extends Model
     /** Réservations liées à ce kit */
     public function reservations()
     {
-        return $this->belongsToMany(Reservation::class, 'reservation_kit')
-            ->withPivot('returned_at', 'checkout_at')
-            ->withTimestamps();
+        return $this->hasMany(Reservation::class, 'kit_id');
     }
 
     /** Tous les éléments manquants (régularisés et non régularisés) */
@@ -49,9 +47,9 @@ class Kit extends Model
     {
         // 1. Vérifier s'il y a une réservation active (matériel sorti)
         $activeReservation = $this->reservations()
-            ->where('reservations.status', 'active')
-            ->wherePivotNotNull('checkout_at')
-            ->wherePivotNull('returned_at')
+            ->where('status', 'active')
+            ->whereNotNull('checkout_at')
+            ->whereNull('return_at')
             ->first();
 
         if ($activeReservation) {
@@ -64,8 +62,8 @@ class Kit extends Model
 
         // 2. Vérifier s'il y a une réservation approuvée (prête à être retirée)
         $approvedReservation = $this->reservations()
-            ->where('reservations.status', 'approved')
-            ->where('reservations.start_date', '<=', now()->addDays(7))
+            ->where('status', 'approved')
+            ->where('start_date', '<=', now()->addDays(7))
             ->first();
 
         if ($approvedReservation) {

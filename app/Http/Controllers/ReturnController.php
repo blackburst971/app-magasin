@@ -74,12 +74,7 @@ class ReturnController extends Controller
         };
 
         // Réservations en retard
-        $overdueReservations = Reservation::with([
-                'user',
-                'assets',
-                'kit.reservations' => fn($q) => $q->whereIn('reservations.status', ['active', 'approved']),
-                'returnedBy'
-            ])
+        $overdueReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy'])
             ->where('status', 'active')
             ->where('end_date', '<', $now)
             ->orderBy('end_date')
@@ -87,12 +82,7 @@ class ReturnController extends Controller
             ->map($mapReservation);
 
         // Réservations actives dans les délais
-        $activeReservations = Reservation::with([
-                'user',
-                'assets',
-                'kit.reservations' => fn($q) => $q->whereIn('reservations.status', ['active', 'approved']),
-                'returnedBy'
-            ])
+        $activeReservations = Reservation::with(['user', 'assets', 'kit', 'returnedBy'])
             ->where('status', 'active')
             ->where('end_date', '>=', $now)
             ->orderBy('end_date')
@@ -100,11 +90,7 @@ class ReturnController extends Controller
             ->map($mapReservation);
 
         // Kits en attente de régularisation (retournés mais avec éléments manquants)
-        $kitsAwaitingRegularization = Reservation::with([
-                'user',
-                'kit.reservations' => fn($q) => $q->whereIn('reservations.status', ['active', 'approved']),
-                'assets'
-            ])
+        $kitsAwaitingRegularization = Reservation::with(['user', 'kit', 'assets'])
             ->where('status', 'returned')
             ->where('has_missing_items', true)
             ->whereNotNull('kit_id')
