@@ -154,12 +154,18 @@ class AttributionController extends Controller
             // Libérer automatiquement les équipements réservés non sortis (substitution)
             $reservation->releaseUnusedReservedAssets();
 
+            // Mettre à jour le statut des kits complets à 'checked_out'
+            $reservation->fresh()->updateKitStatuses('checked_out');
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
                     $checkoutEmailSent = true;
                 } catch (\Exception $e) {}
             }
+        } else {
+            // Même si tous ne sont pas scannés, vérifier si un kit complet l'est
+            $reservation->fresh()->updateKitStatuses('checked_out');
         }
 
         return response()->json([
@@ -218,12 +224,18 @@ class AttributionController extends Controller
             // Libérer automatiquement les équipements réservés non sortis (substitution)
             $reservation->releaseUnusedReservedAssets();
 
+            // Mettre à jour le statut des kits complets à 'checked_out'
+            $reservation->fresh()->updateKitStatuses('checked_out');
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
                     $checkoutEmailSent = true;
                 } catch (\Exception $e) {}
             }
+        } else {
+            // Même si tous ne sont pas scannés, vérifier si un kit complet l'est
+            $reservation->fresh()->updateKitStatuses('checked_out');
         }
 
         return response()->json([
@@ -301,12 +313,18 @@ class AttributionController extends Controller
             // Libérer automatiquement les équipements réservés non sortis (substitution)
             $reservation->releaseUnusedReservedAssets();
 
+            // Mettre à jour le statut des kits complets à 'checked_out'
+            $reservation->fresh()->updateKitStatuses('checked_out');
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
                     $checkoutEmailSent = true;
                 } catch (\Exception $e) {}
             }
+        } else {
+            // Même si tous ne sont pas scannés, vérifier si un kit complet l'est
+            $reservation->fresh()->updateKitStatuses('checked_out');
         }
 
         return response()->json([
@@ -364,12 +382,18 @@ class AttributionController extends Controller
             // Libérer automatiquement les équipements réservés non sortis (substitution)
             $reservation->releaseUnusedReservedAssets();
 
+            // Mettre à jour le statut des kits complets à 'checked_out'
+            $reservation->fresh()->updateKitStatuses('checked_out');
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new \App\Mail\CheckoutSummary($reservation->fresh()));
                     $checkoutEmailSent = true;
                 } catch (\Exception $e) {}
             }
+        } else {
+            // Même si tous ne sont pas scannés, vérifier si un kit complet l'est
+            $reservation->fresh()->updateKitStatuses('checked_out');
         }
 
         return response()->json([
@@ -730,12 +754,18 @@ class AttributionController extends Controller
             // Libérer automatiquement les équipements réservés non sortis (substitution)
             $reservation->releaseUnusedReservedAssets();
 
+            // Mettre à jour le statut des kits complets à 'checked_out'
+            $reservation->fresh()->updateKitStatuses('checked_out');
+
             if ($request->boolean('send_checkout_email')) {
                 try {
                     Mail::to($reservation->user->email)->send(new CheckoutSummary($reservation->fresh()));
                     $checkoutEmailSent = true;
                 } catch (\Exception $e) {}
             }
+        } else {
+            // Même si tous ne sont pas scannés, vérifier si un kit complet l'est
+            $reservation->fresh()->updateKitStatuses('checked_out');
         }
 
         return response()->json([

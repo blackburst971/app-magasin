@@ -598,30 +598,12 @@ class ReturnController extends Controller
 
     /**
      * Recalcule le statut de tous les kits liés à une réservation après un retour.
-     * Un kit redevient 'available' quand aucun de ses équipements n'est encore sorti
-     * ou en préparation.
+     * Un kit redevient 'available' quand tous ses équipements sont retournés.
      */
     private function resetKitStatusOnReturn(Reservation $reservation): void
     {
-        $kitIds = collect();
-
-        // Legacy : kit_id direct sur la réservation
-        if ($reservation->kit_id) {
-            $kitIds->push($reservation->kit_id);
-        }
-        // Nouveau : pivot reservation_kits (panier unifié)
-        foreach ($reservation->kits as $kit) {
-            $kitIds->push($kit->id);
-        }
-
-        foreach ($kitIds->unique() as $kitId) {
-            $kit = Kit::with('assets')->find($kitId);
-            if (!$kit) continue;
-
-            $hasBlocking = $kit->assets->contains(
-                fn($a) => in_array($a->status, ['checked_out', 'en_preparation'])
-            );
-            $kit->update(['status' => $hasBlocking ? 'unavailable' : 'available']);
-        }
+        // Utiliser la méthode updateKitStatuses() pour cohérence avec le reste du workflow
+        // Quand la réservation est retournée, les kits complets redeviennent 'available'
+        $reservation->updateKitStatuses('available');
     }
 }

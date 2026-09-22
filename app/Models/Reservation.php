@@ -209,4 +209,59 @@ class Reservation extends Model
             }
         }
     }
+
+    /**
+     * Met à jour le statut statique d'un kit si tous ses équipements sont dans cette réservation.
+     * Utilisé lors de l'approbation, du scan checkout et du retour.
+     */
+    public function updateKitStatuses(string $targetStatus)
+    {
+        // Récupérer tous les équipements de la réservation
+        $assetIds = $this->assets->pluck('id');
+
+        if ($assetIds->isEmpty()) {
+            return;
+        }
+
+        // Trouver tous les kits qui contiennent des équipements de cette réservation
+        $kits = Kit::whereHas('assets', function($q) use ($assetIds) {
+            $q->whereIn('assets.id', $assetIds);
+        })->with('assets')->get();
+
+        foreach ($kits as $kit) {
+            $kitAssetIds = $kit->assets->pluck('id');
+
+            // Vérifier si TOUS les équipements du kit sont dans cette réservation
+            $allInReservation = $kitAssetIds->every(fn($id) => $assetIds->contains($id));
+
+            if ($allInReservation) {
+                $oldStatus = $kit->status;
+
+                // Pour le checkout, vérifier que tous sont scannés
+                if ($targetStatus === 'checked_out') {
+                    $allScanned = $this->assets()
+                        ->whereIn('assets.id', $kitAssetIds)
+                        ->wherePivotNotNull('checkout_at')
+                        ->count() === $kitAssetIds->count();
+
+                    if (!$allScanned) {
+                        continue; // Ne pas mettre à jour si pas tous scannés
+                    }
+                }
+
+                // Mettre à jour le statut du kit
+                if ($oldStatus !== $targetStatus) {
+                    $kit->update(['status' => $targetStatus]);
+
+                    AssetMovement::create([
+                        'asset_id'       => null,
+                        'reservation_id' => $this->id,
+                        'user_id'        => \Illuminate\Support\Facades\Auth::id(),
+                        'action'         => 'status_change',
+                        'notes'          => "Kit #{$kit->id} ({$kit->name}): {$oldStatus} → {$targetStatus} — Réservation #{$this->id}",
+                    ]);
+                }
+            }
+        }
+    }
 }

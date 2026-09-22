@@ -463,12 +463,16 @@ class ReservationController extends Controller
                     $asset->update(['status' => 'reserved']);
                 }
             }
+            // Mettre à jour le statut des kits complets dans cette réservation
+            $reservation->fresh()->updateKitStatuses('reserved');
         } elseif (in_array($data['status'], ['cancelled', 'rejected']) && $previousStatus === 'approved') {
             foreach ($reservation->assets as $asset) {
                 if ($asset->status === 'reserved') {
                     $asset->update(['status' => 'available']);
                 }
             }
+            // Remettre les kits à disponible
+            $reservation->fresh()->updateKitStatuses('available');
         }
 
         return back()->with('success', 'Réservation mise à jour.');
