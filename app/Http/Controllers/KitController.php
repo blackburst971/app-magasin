@@ -30,7 +30,17 @@ class KitController extends Controller
     /** Liste des kits — page admin */
     public function index()
     {
-        $kits = Kit::with(['assets.category', 'category', 'pendingMissingItems.asset', 'pendingMissingItems.responsibleUser'])
+        $kits = Kit::with([
+                'assets.category',
+                'category',
+                'pendingMissingItems.asset',
+                'pendingMissingItems.responsibleUser',
+                'reservations' => function($query) {
+                    // Charger les réservations actives et approuvées pour calculer le statut
+                    $query->whereIn('reservations.status', ['active', 'approved'])
+                          ->orderByDesc('reservations.created_at');
+                }
+            ])
             ->withCount('assets')
             ->orderBy('name')
             ->get()
@@ -41,12 +51,12 @@ class KitController extends Controller
                 'notes'          => $k->notes,
                 'condition_note' => $k->condition_note,
                 'image'          => $this->getImageUrl($k->image),
-                'status'         => $k->status,
-                'status_label' => $k->status_label,
-                'status_color' => $k->status_color,
-                'is_reservable'=> $k->is_reservable,
-                'assets_count' => $k->assets_count,
-                'assets'       => $k->assets->map(fn($a) => [
+                'status'         => $k->current_status, // Statut dynamique
+                'status_label'   => $k->status_label,   // Label dynamique
+                'status_color'   => $k->status_color,   // Couleur dynamique
+                'is_reservable'  => $k->is_reservable,
+                'assets_count'   => $k->assets_count,
+                'assets'         => $k->assets->map(fn($a) => [
                     'id'        => $a->id,
                     'name'      => $a->name,
                     'asset_tag' => $a->asset_tag,
