@@ -253,13 +253,10 @@ class Reservation extends Model
                 if ($oldStatus !== $targetStatus) {
                     $kit->update(['status' => $targetStatus]);
 
-                    AssetMovement::create([
-                        'asset_id'       => null,
-                        'reservation_id' => $this->id,
-                        'user_id'        => \Illuminate\Support\Facades\Auth::id(),
-                        'action'         => 'status_change',
-                        'notes'          => "Kit #{$kit->id} ({$kit->name}): {$oldStatus} → {$targetStatus} — Réservation #{$this->id}",
-                    ]);
+                    // Note: Pas besoin de créer un AssetMovement pour le kit lui-même,
+                    // car les mouvements sont déjà tracés pour chaque équipement individuel du kit.
+                    // Le changement de statut du kit est visible via l'historique des équipements.
+                    \Log::info("Kit #{$kit->id} ({$kit->name}): {$oldStatus} → {$targetStatus} — Réservation #{$this->id}");
                 }
             }
         }
