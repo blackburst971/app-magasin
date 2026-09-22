@@ -7,8 +7,8 @@ OPcache est un système de cache de bytecode PHP qui améliore considérablement
 ## 📋 Prérequis
 
 - Accès administrateur Windows Server
-- IIS installé et configuré
-- PHP 8.3 installé
+- Nginx installé et configuré
+- PHP 8.2+ installé (avec PHP-FPM ou php-cgi)
 
 ## 🔧 Méthode automatique (RECOMMANDÉE)
 
@@ -31,11 +31,11 @@ OPcache est un système de cache de bytecode PHP qui améliore considérablement
 4. **Suivre les instructions** :
    - Le script créera une sauvegarde de php.ini
    - Il activera OPcache et configurera les paramètres optimaux
-   - Il vous proposera de redémarrer IIS automatiquement
+   - Il vous proposera de redémarrer Nginx et PHP-FPM automatiquement
 
 ### Étape 2 : Vérifier l'activation
 
-Après le redémarrage d'IIS, vérifiez que OPcache est bien activé :
+Après le redémarrage de Nginx et PHP-FPM, vérifiez que OPcache est bien activé :
 
 ```bash
 php check-opcache.php
@@ -94,10 +94,16 @@ opcache.save_comments=1
 opcache.enable_file_override=1
 ```
 
-### 3. Redémarrer IIS
+### 3. Redémarrer Nginx et PHP-FPM
 
 ```powershell
-iisreset
+# Recharger la configuration Nginx
+nginx -s reload
+
+# Redémarrer PHP-FPM
+Restart-Service php-cgi
+# OU si vous utilisez php-fpm
+Restart-Service php-fpm
 ```
 
 ### 4. Vérifier
@@ -149,9 +155,10 @@ Si vous déployez une nouvelle version de l'application :
 php -r "opcache_reset();"
 ```
 
-**Via IIS** :
+**Via Nginx/PHP-FPM** :
 ```powershell
-iisreset
+nginx -s reload
+Restart-Service php-cgi
 ```
 
 **Via Laravel** :
@@ -169,8 +176,8 @@ php artisan optimize:clear
    ```
 
 2. **Vérifier les logs d'erreur PHP** :
-   - Regarder dans les logs IIS
-   - Vérifier `C:\inetpub\logs\LogFiles\`
+   - Regarder dans les logs Nginx (`C:\nginx\logs\error.log`)
+   - Vérifier les logs PHP-FPM
 
 3. **Vérifier les permissions** :
    - Le dossier `C:\Program Files\PHP\` doit être accessible en lecture
@@ -192,7 +199,7 @@ php artisan optimize:clear
    ```ini
    opcache.validate_timestamps=0
    ```
-   ⚠️ Attention : nécessite un `iisreset` après chaque déploiement
+   ⚠️ Attention : nécessite un redémarrage de PHP-FPM après chaque déploiement
 
 ## 📈 Résultats attendus
 
@@ -205,7 +212,7 @@ Avec OPcache activé, vous devriez observer :
 
 ## 📝 Notes
 
-- OPcache est déjà inclus dans PHP 8.3, pas besoin de l'installer séparément
+- OPcache est déjà inclus dans PHP 8.2+, pas besoin de l'installer séparément
 - Les paramètres actuels sont optimisés pour un environnement de production
 - Pour un environnement de développement, réduire `revalidate_freq` à 2 secondes
 

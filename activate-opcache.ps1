@@ -77,27 +77,50 @@ Write-Host "  - opcache.enable_file_override=1 : Optimisation file_exists" -Fore
 Write-Host ""
 Write-Host "Sauvegarde créée: $backupPath" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "IMPORTANT: Vous devez REDÉMARRER IIS pour que les changements prennent effet!" -ForegroundColor Red
-Write-Host "Commande: iisreset" -ForegroundColor Yellow
+Write-Host "IMPORTANT: Vous devez REDÉMARRER Nginx et PHP-FPM pour que les changements prennent effet!" -ForegroundColor Red
+Write-Host "Commandes:" -ForegroundColor Yellow
+Write-Host "  nginx -s reload" -ForegroundColor White
+Write-Host "  Restart-Service php-cgi" -ForegroundColor White
 Write-Host ""
 Write-Host "Après le redémarrage, vérifiez l'activation avec:" -ForegroundColor Cyan
 Write-Host "  php -r `"echo 'OPcache: ' . (function_exists('opcache_get_status') ? 'ACTIVÉ' : 'DÉSACTIVÉ');`"" -ForegroundColor White
 Write-Host ""
 
-# Demander si l'utilisateur veut redémarrer IIS maintenant
-$restart = Read-Host "Voulez-vous redémarrer IIS maintenant? (O/N)"
+# Demander si l'utilisateur veut redémarrer Nginx maintenant
+$restart = Read-Host "Voulez-vous redémarrer Nginx et PHP-FPM maintenant? (O/N)"
 if ($restart -eq "O" -or $restart -eq "o") {
-    Write-Host "Redémarrage d'IIS..." -ForegroundColor Yellow
-    iisreset
-    Write-Host ""
-    Write-Host "IIS redémarré!" -ForegroundColor Green
+    Write-Host "Redémarrage de Nginx et PHP-FPM..." -ForegroundColor Yellow
+
+    # Recharger la configuration Nginx
+    try {
+        nginx -s reload
+        Write-Host "Nginx rechargé!" -ForegroundColor Green
+    } catch {
+        Write-Host "Erreur lors du rechargement de Nginx: $_" -ForegroundColor Red
+    }
+
+    # Redémarrer PHP-FPM (ou php-cgi selon l'installation)
+    try {
+        Restart-Service php-cgi -ErrorAction SilentlyContinue
+        if ($?) {
+            Write-Host "PHP-FPM redémarré!" -ForegroundColor Green
+        } else {
+            # Si php-cgi n'existe pas, essayer avec php-fpm
+            Restart-Service php-fpm -ErrorAction Stop
+            Write-Host "PHP-FPM redémarré!" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Note: Impossible de redémarrer automatiquement PHP-FPM." -ForegroundColor Yellow
+        Write-Host "Redémarrez manuellement le service PHP si nécessaire." -ForegroundColor Yellow
+    }
+
     Write-Host ""
     Write-Host "Vérification de l'activation d'OPcache..." -ForegroundColor Yellow
     php -r "echo 'OPcache: ' . (function_exists('opcache_get_status') ? 'ACTIVÉ ✓' : 'DÉSACTIVÉ ✗') . PHP_EOL;"
     Write-Host ""
     Write-Host "Gain de performance attendu: 30-50% d'amélioration!" -ForegroundColor Green
 } else {
-    Write-Host "N'oubliez pas de redémarrer IIS avec: iisreset" -ForegroundColor Yellow
+    Write-Host "N'oubliez pas de redémarrer Nginx et PHP-FPM manuellement!" -ForegroundColor Yellow
 }
 
 Write-Host ""
