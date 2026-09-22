@@ -80,6 +80,8 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::post('/reservations/bulk-update', [ReservationController::class, 'bulkUpdate'])->name('reservations.bulk-update');
         Route::post('/reservations/bulk-delete', [ReservationController::class, 'bulkDelete'])->name('reservations.bulk-delete');
+        Route::post('/reservations/associate', [ReservationController::class, 'associateReservations'])->name('reservations.associate');
+        Route::post('/reservations/{reservation}/dissociate', [ReservationController::class, 'dissociateReservation'])->name('reservations.dissociate');
     });
 
     // Routes avec paramètre {asset}

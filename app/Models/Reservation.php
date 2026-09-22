@@ -30,6 +30,7 @@ class Reservation extends Model
         'supervisor_chosen_id',
         'return_reminder_sent_at',
         'google_event_id',
+        'parent_reservation_id',
     ];
 
     protected $casts = [
@@ -122,6 +123,51 @@ class Reservation extends Model
     {
         $extras = $this->additionalUsers->pluck('id')->toArray();
         return User::whereIn('id', array_merge([$this->user_id], $extras))->get();
+    }
+
+    /** Réservation parente (pour les réservations groupées). */
+    public function parentReservation()
+    {
+        return $this->belongsTo(Reservation::class, 'parent_reservation_id');
+    }
+
+    /** Réservations enfants (réservations associées à celle-ci). */
+    public function childReservations()
+    {
+        return $this->hasMany(Reservation::class, 'parent_reservation_id');
+    }
+
+    /** Retourne tous les équipements de la réservation + les équipements des réservations associées. */
+    public function getAllAssetsAttribute()
+    {
+        $assets = $this->assets;
+
+        // Si c'est une réservation parente, ajouter les équipements des enfants
+        if ($this->childReservations->isNotEmpty()) {
+            foreach ($this->childReservations as $child) {
+                $assets = $assets->merge($child->assets);
+            }
+        }
+
+        return $assets;
+    }
+
+    /** Retourne toutes les réservations du groupe (parent + enfants). */
+    public function getGroupedReservationsAttribute()
+    {
+        // Si c'est une réservation enfant, retourner le groupe du parent
+        if ($this->parent_reservation_id) {
+            $parent = $this->parentReservation;
+            return collect([$parent])->merge($parent->childReservations);
+        }
+
+        // Si c'est une réservation parente, retourner elle-même + ses enfants
+        if ($this->childReservations->isNotEmpty()) {
+            return collect([$this])->merge($this->childReservations);
+        }
+
+        // Sinon, retourner juste cette réservation
+        return collect([$this]);
     }
 
     public function getStatusLabelAttribute(): string

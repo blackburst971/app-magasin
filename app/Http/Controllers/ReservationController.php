@@ -1165,4 +1165,56 @@ class ReservationController extends Controller
         return redirect()->route('reservations.index')
             ->with('success', "Réservation #{$id} supprimée définitivement.");
     }
+
+    /**
+     * Associer une ou plusieurs réservations à une réservation parente.
+     * Seul l'admin peut faire cette action.
+     */
+    public function associateReservations(Request $request)
+    {
+        $request->validate([
+            'parent_id'      => 'required|exists:reservations,id',
+            'child_ids'      => 'required|array|min:1',
+            'child_ids.*'    => 'required|exists:reservations,id',
+        ]);
+
+        $parentId = $request->input('parent_id');
+        $childIds = $request->input('child_ids');
+
+        // Vérifier que la réservation parente n'est pas elle-même un enfant
+        $parent = Reservation::find($parentId);
+        if ($parent->parent_reservation_id) {
+            return back()->withErrors(['parent_id' => 'Cette réservation est déjà associée à une autre réservation.']);
+        }
+
+        // Vérifier que les enfants ne sont pas déjà associés
+        $alreadyAssociated = Reservation::whereIn('id', $childIds)
+            ->whereNotNull('parent_reservation_id')
+            ->pluck('id');
+
+        if ($alreadyAssociated->isNotEmpty()) {
+            return back()->withErrors(['child_ids' => 'Certaines réservations sont déjà associées à une autre réservation.']);
+        }
+
+        // Associer les réservations
+        Reservation::whereIn('id', $childIds)->update(['parent_reservation_id' => $parentId]);
+
+        $count = count($childIds);
+        return back()->with('success', "{$count} réservation(s) associée(s) avec succès.");
+    }
+
+    /**
+     * Dissocier une réservation de sa parente.
+     * Seul l'admin peut faire cette action.
+     */
+    public function dissociateReservation(Request $request, Reservation $reservation)
+    {
+        if (!$reservation->parent_reservation_id) {
+            return back()->withErrors(['error' => 'Cette réservation n\'est pas associée à une autre.']);
+        }
+
+        $reservation->update(['parent_reservation_id' => null]);
+
+        return back()->with('success', 'Réservation dissociée avec succès.');
+    }
 }
