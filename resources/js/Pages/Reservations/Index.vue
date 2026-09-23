@@ -353,7 +353,7 @@ const filterBtns = [
                   <!-- Admin: dissociate -->
                   <button v-if="isAdmin && r.parent_reservation_id"
                     @click="() => {
-                      if (confirm('Dissocier cette réservation de sa parente ?'))
+                      if (window.confirm('Dissocier cette réservation de sa parente ?'))
                         router.post(route('reservations.dissociate', r.id))
                     }"
                     class="text-xs text-purple-500 hover:text-purple-700 hover:underline flex items-center gap-0.5">
