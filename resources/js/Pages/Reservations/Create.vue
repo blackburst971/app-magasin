@@ -23,16 +23,45 @@ function goBack() {
 // Initialiser les dates/heures avec l'heure actuelle (format datetime-local : YYYY-MM-DDTHH:MM)
 function getCurrentDateTimeLocal() {
   const now = new Date()
-  // Convertir en heure de La Paz (GMT-4)
-  const laPazTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+  // La Paz est GMT-4 (UTC-4)
+  const laPazOffsetMinutes = -4 * 60 // -240 minutes
+  const localOffsetMinutes = now.getTimezoneOffset() // Décalage local par rapport à UTC
+
+  // Calculer le décalage total pour passer de l'heure locale à La Paz
+  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
+
+  // Créer une nouvelle date ajustée à l'heure de La Paz
+  const laPazTime = new Date(now.getTime() + totalOffsetMinutes * 60000)
+
   // Arrondir à la minute (pas de secondes)
   laPazTime.setSeconds(0, 0)
+
   // Format ISO local sans le Z (datetime-local ne supporte pas le Z)
   const year = laPazTime.getFullYear()
   const month = String(laPazTime.getMonth() + 1).padStart(2, '0')
   const day = String(laPazTime.getDate()).padStart(2, '0')
   const hours = String(laPazTime.getHours()).padStart(2, '0')
   const minutes = String(laPazTime.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+// Date/heure minimale pour start_date (heure actuelle - 15 minutes de tolérance)
+function getMinStartDateTime() {
+  const now = new Date()
+  // La Paz est GMT-4 (UTC-4)
+  const laPazOffsetMinutes = -4 * 60
+  const localOffsetMinutes = now.getTimezoneOffset()
+  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
+
+  // Ajuster à l'heure de La Paz et retirer 15 minutes de tolérance
+  const minTime = new Date(now.getTime() + totalOffsetMinutes * 60000 - 15 * 60000)
+  minTime.setSeconds(0, 0)
+
+  const year = minTime.getFullYear()
+  const month = String(minTime.getMonth() + 1).padStart(2, '0')
+  const day = String(minTime.getDate()).padStart(2, '0')
+  const hours = String(minTime.getHours()).padStart(2, '0')
+  const minutes = String(minTime.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
@@ -122,13 +151,16 @@ let timeInterval = null
 
 function updateCurrentTime() {
   const now = new Date()
-  // Convertir en heure de La Paz (GMT-4)
-  const laPazTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
-  currentTime.value = laPazTime.toLocaleTimeString('fr-FR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  })
+  // La Paz est GMT-4 (UTC-4)
+  const laPazOffsetMinutes = -4 * 60
+  const localOffsetMinutes = now.getTimezoneOffset()
+  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
+
+  const laPazTime = new Date(now.getTime() + totalOffsetMinutes * 60000)
+
+  const hours = String(laPazTime.getHours()).padStart(2, '0')
+  const minutes = String(laPazTime.getMinutes()).padStart(2, '0')
+  currentTime.value = `${hours}:${minutes}`
 }
 
 onMounted(() => {
@@ -147,6 +179,16 @@ const examMinDate = computed(() => {
   d.setHours(d.getHours() + props.examAdvanceHours)
   d.setSeconds(0, 0)
   return d.toISOString().slice(0, 16)
+})
+
+// Date minimale pour le champ start_date (15 min de tolérance ou mode examen)
+const minStartDate = computed(() => {
+  // En mode examen, utiliser la date d'examen (prioritaire)
+  if (props.examMode && examMinDate.value) {
+    return examMinDate.value
+  }
+  // Sinon, utiliser l'heure actuelle - 15 min de tolérance
+  return getMinStartDateTime()
 })
 
 const submit = () => form.post(route('reservations.store'))
@@ -190,10 +232,10 @@ const submit = () => form.post(route('reservations.store'))
                   <span class="text-xs text-gray-500 font-normal ml-1">({{ currentTime }})</span>
                 </label>
                 <input v-model="form.start_date" @change="loadAvailableAssets" type="datetime-local" required
-                  :min="examMinDate ?? undefined"
+                  :min="minStartDate"
                   step="60"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                <p class="text-xs text-gray-500 mt-1">Heure de La Paz (GMT-4)</p>
+                <p class="text-xs text-gray-500 mt-1">Heure de La Paz (GMT-4) · 15 min de tolérance</p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">
