@@ -175,10 +175,23 @@ onBeforeUnmount(() => {
 // ─── Mode examen ─────────────────────────────────────────────────────────────
 const examMinDate = computed(() => {
   if (!props.examMode) return null
-  const d = new Date()
-  d.setHours(d.getHours() + props.examAdvanceHours)
-  d.setSeconds(0, 0)
-  return d.toISOString().slice(0, 16)
+
+  const now = new Date()
+  // La Paz est GMT-4 (UTC-4)
+  const laPazOffsetMinutes = -4 * 60
+  const localOffsetMinutes = now.getTimezoneOffset()
+  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
+
+  // Ajouter les heures d'avance requises pour l'examen
+  const examTime = new Date(now.getTime() + totalOffsetMinutes * 60000 + props.examAdvanceHours * 3600000)
+  examTime.setSeconds(0, 0)
+
+  const year = examTime.getFullYear()
+  const month = String(examTime.getMonth() + 1).padStart(2, '0')
+  const day = String(examTime.getDate()).padStart(2, '0')
+  const hours = String(examTime.getHours()).padStart(2, '0')
+  const minutes = String(examTime.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 })
 
 // Date minimale pour le champ start_date (15 min de tolérance ou mode examen)
