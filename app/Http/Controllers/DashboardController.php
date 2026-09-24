@@ -28,8 +28,9 @@ class DashboardController extends Controller
 
             $upcomingReturns = collect();
             if ($reminderEnabled && $reminderMinutes > 0) {
-                $upcomingReturns = Reservation::with(['user', 'assets'])
+                $upcomingReturns = Reservation::with(['user', 'assets', 'childReservations.assets'])
                     ->where('status', 'active')
+                    ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                     ->where('end_date', '>', now())
                     ->where('end_date', '<=', now()->addMinutes($reminderMinutes))
                     ->orderBy('end_date')
@@ -40,15 +41,16 @@ class DashboardController extends Controller
                         'user'         => $r->user->name,
                         'end_date'     => $r->end_date->format('d/m/Y H:i'),
                         'end_date_ts'  => $r->end_date->timestamp,
-                        'assets_count' => $r->assets->count(),
-                        'assets'       => $r->assets->map(fn($a) => $a->name)->join(', '),
+                        'assets_count' => $r->all_assets->count(), // Inclut équipements des enfants
+                        'assets'       => $r->all_assets->map(fn($a) => $a->name)->join(', '),
                         'minutes_left' => (int) now()->diffInMinutes($r->end_date, false),
                     ]);
             }
 
             // Toutes les réservations actives (matériel sorti) — pour les compteurs du dashboard
-            $checkoutReservations = Reservation::with(['user', 'assets'])
+            $checkoutReservations = Reservation::with(['user', 'assets', 'childReservations.assets'])
                 ->where('status', 'active')
+                ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                 ->orderBy('end_date')
                 ->get()
                 ->map(fn($r) => [
@@ -57,14 +59,15 @@ class DashboardController extends Controller
                     'user'        => $r->user->name,
                     'end_date'    => $r->end_date->format('d/m/Y H:i'),
                     'end_date_ts' => $r->end_date->timestamp,
-                    'assets'      => $r->assets->map(fn($a) => $a->name)->join(', '),
-                    'assets_count'=> $r->assets->count(),
+                    'assets'      => $r->all_assets->map(fn($a) => $a->name)->join(', '),
+                    'assets_count'=> $r->all_assets->count(),
                     'is_overdue'  => $r->end_date->lt(now()),
                 ]);
 
             // Réservations en retard (actives avec end_date dépassée)
-            $overdueReturns = Reservation::with(['user', 'assets'])
+            $overdueReturns = Reservation::with(['user', 'assets', 'childReservations.assets'])
                 ->where('status', 'active')
+                ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                 ->where('end_date', '<', now())
                 ->orderBy('end_date')
                 ->get()
@@ -74,8 +77,8 @@ class DashboardController extends Controller
                     'user'            => $r->user->name,
                     'end_date'        => $r->end_date->format('d/m/Y H:i'),
                     'end_date_ts'     => $r->end_date->timestamp,
-                    'assets_count'    => $r->assets->count(),
-                    'assets'          => $r->assets->map(fn($a) => $a->name)->join(', '),
+                    'assets_count'    => $r->all_assets->count(),
+                    'assets'          => $r->all_assets->map(fn($a) => $a->name)->join(', '),
                     'minutes_overdue' => (int) $r->end_date->diffInMinutes(now()),
                 ]);
 
@@ -83,8 +86,9 @@ class DashboardController extends Controller
             $autoCancelEnabled = Setting::get('auto_cancel_enabled', 'false') === 'true';
             $autoCancelHours   = (int) Setting::get('auto_cancel_hours', '24');
 
-            $approvedReservations = Reservation::with(['user', 'assets'])
+            $approvedReservations = Reservation::with(['user', 'assets', 'childReservations.assets'])
                 ->approved()
+                ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                 ->latest('approved_at')
                 ->get()
                 ->map(function ($r) use ($autoCancelEnabled, $autoCancelHours) {
@@ -98,8 +102,8 @@ class DashboardController extends Controller
                         'user'         => $r->user->name,
                         'start_date'   => $r->start_date->format('d/m/Y H:i'),
                         'approved_at'  => $r->approved_at?->format('d/m/Y H:i'),
-                        'assets_count' => $r->assets->count(),
-                        'assets'       => $r->assets->map(fn($a) => $a->name)->join(', '),
+                        'assets_count' => $r->all_assets->count(),
+                        'assets'       => $r->all_assets->map(fn($a) => $a->name)->join(', '),
                         'hours_elapsed'=> $hoursElapsed,
                         'hours_left'   => $hoursLeft,
                         'at_risk'      => $autoCancelEnabled && $hoursLeft !== null && $hoursLeft <= 4,
@@ -111,7 +115,9 @@ class DashboardController extends Controller
                 ->groupBy('status')
                 ->pluck('total', 'status');
 
+            // Compteurs de réservations (exclure les enfants pour éviter les doublons)
             $reservationCounts = Reservation::select('status', DB::raw('count(*) as total'))
+                ->whereNull('parent_reservation_id')
                 ->groupBy('status')
                 ->pluck('total', 'status');
 
@@ -130,8 +136,9 @@ class DashboardController extends Controller
                 'overdue_returns'           => $overdueReturns->count(),
             ];
 
-            $pendingReservations = Reservation::with(['user', 'assets'])
+            $pendingReservations = Reservation::with(['user', 'assets', 'childReservations.assets'])
                 ->pending()
+                ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                 ->latest()
                 ->take(5)
                 ->get()
@@ -141,7 +148,7 @@ class DashboardController extends Controller
                     'user' => $r->user->name,
                     'start_date' => $r->start_date->format('d/m/Y H:i'),
                     'end_date' => $r->end_date->format('d/m/Y H:i'),
-                    'assets_count' => $r->assets->count(),
+                    'assets_count' => $r->all_assets->count(),
                     'status' => $r->status,
                     'status_label' => $r->status_label,
                 ]);
@@ -190,6 +197,7 @@ class DashboardController extends Controller
                 'label' => ucfirst($month->translatedFormat('M y')),
                 'count' => Reservation::whereYear('created_at', $month->year)
                     ->whereMonth('created_at', $month->month)
+                    ->whereNull('parent_reservation_id') // Exclure les réservations enfants
                     ->count(),
             ])->values();
 
