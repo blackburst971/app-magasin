@@ -20,10 +20,26 @@ function goBack() {
   else router.visit(route('reservations.index'))
 }
 
+// Initialiser les dates/heures avec l'heure actuelle (format datetime-local : YYYY-MM-DDTHH:MM)
+function getCurrentDateTimeLocal() {
+  const now = new Date()
+  // Convertir en heure de La Paz (GMT-4)
+  const laPazTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+  // Arrondir à la minute (pas de secondes)
+  laPazTime.setSeconds(0, 0)
+  // Format ISO local sans le Z (datetime-local ne supporte pas le Z)
+  const year = laPazTime.getFullYear()
+  const month = String(laPazTime.getMonth() + 1).padStart(2, '0')
+  const day = String(laPazTime.getDate()).padStart(2, '0')
+  const hours = String(laPazTime.getHours()).padStart(2, '0')
+  const minutes = String(laPazTime.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
 const form = useForm({
   title: '',
-  start_date: '',
-  end_date: '',
+  start_date: getCurrentDateTimeLocal(),
+  end_date: getCurrentDateTimeLocal(),
   asset_ids: [],
   notes: '',
   form_id: props.requiredForm?.id ?? null,
