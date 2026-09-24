@@ -13,13 +13,16 @@ const props = defineProps({
 const { playSoundByName } = useSound()
 
 const SOUND_OPTIONS = [
-  { value: 'chime',   label: '🔔 Chime (ding montant)' },
-  { value: 'ding',    label: '🔕 Ding (note unique)' },
-  { value: 'beep',    label: '📡 Bip court' },
-  { value: 'buzz',    label: '⚠️ Buzz (erreur grave)' },
-  { value: 'success', label: '✅ Mélodie succès' },
-  { value: 'error',   label: '❌ Mélodie erreur' },
-  { value: 'none',    label: '🔇 Silencieux' },
+  { value: 'chime',              label: '🔔 Chime (ding montant)' },
+  { value: 'ding',               label: '🔕 Ding (note unique)' },
+  { value: 'beep',               label: '📡 Bip court' },
+  { value: 'buzz',               label: '⚠️ Buzz (erreur grave)' },
+  { value: 'success',            label: '✅ Mélodie succès' },
+  { value: 'fanfare',            label: '🎺 Fanfare (succès festif)' },
+  { value: 'error',              label: '❌ Mélodie erreur' },
+  { value: 'exit',               label: '🚪 Sortie/Conclusion' },
+  { value: 'supervisor_request', label: '🔔 Sonnette demande responsable' },
+  { value: 'none',               label: '🔇 Silencieux' },
 ]
 
 const form = useForm({
@@ -78,6 +81,8 @@ const form = useForm({
   'sounds.notification_kit':     props.settings?.sounds?.['sounds.notification_kit']     ?? 'ding',
   'sounds.scan_success':         props.settings?.sounds?.['sounds.scan_success']         ?? 'beep',
   'sounds.scan_error':           props.settings?.sounds?.['sounds.scan_error']           ?? 'buzz',
+  'sounds.reservation_complete': props.settings?.sounds?.['sounds.reservation_complete'] ?? 'exit',
+  'sounds.supervisor_request':   props.settings?.sounds?.['sounds.supervisor_request']   ?? 'supervisor_request',
   // Fonctionnalités optionnelles
   todo_enabled: props.settings?.features?.todo_enabled ?? 'false',
 
@@ -117,6 +122,36 @@ function testSound(key) {
   const soundName = form[key]
   const volume = parseInt(form['sounds.volume']) / 100
   playSoundByName(soundName, volume)
+}
+
+// ── Sons personnalisés (MP3) ──────────────────────────────────────────────────
+const soundForms = {
+  notification_general: useForm({ type: 'notification_general', file: null }),
+  notification_kit:     useForm({ type: 'notification_kit',     file: null }),
+  scan_success:         useForm({ type: 'scan_success',         file: null }),
+  scan_error:           useForm({ type: 'scan_error',           file: null }),
+  reservation_complete: useForm({ type: 'reservation_complete', file: null }),
+  supervisor_request:   useForm({ type: 'supervisor_request',   file: null }),
+}
+
+function handleSoundFile(type, event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  soundForms[type].file = file
+  soundForms[type].post(route('settings.sound.upload'), {
+    onSuccess: () => {
+      soundForms[type].file = null
+      // Reset input
+      event.target.value = ''
+    }
+  })
+}
+
+function deleteSound(type) {
+  router.delete(route('settings.sound.delete'), {
+    data: { type },
+    preserveScroll: true,
+  })
 }
 
 // ── Test email ────────────────────────────────────────────────────────────────
@@ -491,6 +526,8 @@ function sendTestEmail() {
               { key: 'sounds.notification_kit',     label: '📦 Notification réservation kit',      desc: 'Réservation d\'un kit reçue' },
               { key: 'sounds.scan_success',         label: '✅ Scan réussi',                        desc: 'Code-barres reconnu avec succès' },
               { key: 'sounds.scan_error',           label: '❌ Scan erreur',                        desc: 'Code-barres non reconnu ou erreur' },
+              { key: 'sounds.reservation_complete', label: '✓ Retour complet',                      desc: 'Tous les équipements d\'une réservation sont rendus' },
+              { key: 'sounds.supervisor_request',   label: '🔔 Demande responsable',                desc: 'Un étudiant demande l\'intervention d\'un responsable' },
             ]" :key="soundDef.key"
                  class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-blue-200 transition">
               <div class="flex-1">
@@ -507,6 +544,81 @@ function sendTestEmail() {
                       title="Tester ce son">
                 ▶ Tester
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sons personnalisés (MP3) -->
+        <div class="bg-white rounded-xl shadow-sm border p-6">
+          <h2 class="font-semibold text-gray-900 mb-1">🎵 Sons personnalisés (MP3)</h2>
+          <p class="text-sm text-gray-500 mb-5">
+            Importez vos propres fichiers audio pour personnaliser les notifications sonores.
+            Une fois importé, le fichier MP3 remplacera le son synthétisé par défaut.
+          </p>
+
+          <div class="space-y-4">
+            <div v-for="soundType in [
+              { type: 'notification_general', label: '🔔 Notification réservation (général)', icon: '🔔' },
+              { type: 'notification_kit',     label: '📦 Notification réservation kit',      icon: '📦' },
+              { type: 'scan_success',         label: '✅ Scan réussi',                        icon: '✅' },
+              { type: 'scan_error',           label: '❌ Scan erreur',                        icon: '❌' },
+              { type: 'reservation_complete', label: '✓ Retour complet',                      icon: '✓' },
+              { type: 'supervisor_request',   label: '🔔 Demande responsable',                icon: '🔔' },
+            ]" :key="soundType.type"
+                 class="border rounded-lg p-4 transition"
+                 :class="$page.props.soundSettings?.[soundType.type + '_mp3'] ? 'border-green-200 bg-green-50/30' : 'border-gray-200'">
+
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-sm font-medium text-gray-900">{{ soundType.label }}</p>
+                <span v-if="$page.props.soundSettings?.[soundType.type + '_mp3']"
+                      class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                  MP3 actif
+                </span>
+              </div>
+
+              <!-- Fichier actuel -->
+              <div v-if="$page.props.soundSettings?.[soundType.type + '_mp3']"
+                   class="mb-3 bg-white border border-green-200 rounded-lg p-3 flex items-center justify-between">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <span class="text-lg">🎵</span>
+                  <span class="text-xs text-gray-600 truncate">
+                    {{ $page.props.soundSettings[soundType.type + '_mp3'].split('/').pop() }}
+                  </span>
+                </div>
+                <button type="button"
+                        @click="deleteSound(soundType.type)"
+                        class="text-xs text-red-600 border border-red-200 rounded px-2 py-1 hover:bg-red-50 transition flex-shrink-0">
+                  🗑️ Supprimer
+                </button>
+              </div>
+
+              <!-- Upload -->
+              <div class="flex gap-2">
+                <label class="flex-1 cursor-pointer">
+                  <input type="file" class="hidden" accept=".mp3,.wav,.ogg"
+                         @change="handleSoundFile(soundType.type, $event)"
+                         :disabled="soundForms[soundType.type].processing" />
+                  <span :class="['block text-center text-xs font-medium py-2 px-3 rounded-lg border transition',
+                    soundForms[soundType.type].processing
+                      ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                      : $page.props.soundSettings?.[soundType.type + '_mp3']
+                        ? 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'
+                        : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100']">
+                    {{ soundForms[soundType.type].processing
+                       ? 'Envoi...'
+                       : $page.props.soundSettings?.[soundType.type + '_mp3']
+                         ? '🔄 Remplacer'
+                         : '⬆️ Importer MP3' }}
+                  </span>
+                </label>
+              </div>
+
+              <p class="text-xs text-gray-400 mt-2">
+                MP3, WAV, OGG · max 2 Mo
+                {{ $page.props.soundSettings?.[soundType.type + '_mp3']
+                   ? '· Le son par défaut sera rétabli après suppression'
+                   : '' }}
+              </p>
             </div>
           </div>
         </div>

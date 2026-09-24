@@ -749,10 +749,42 @@ class ReservationController extends Controller
         }
 
         // Notifier l'utilisateur du retour confirmé
-        $reservation->user->notify(new \App\Notifications\ReservationReturnedNotification($reservation));
-        try {
-            Mail::to($reservation->user->email)->send(new ReservationReturned($reservation));
-        } catch (\Exception $e) {}
+        // Notifications et email : uniquement pour les réservations parentes ou indépendantes
+        $shouldNotify = !$reservation->parent_reservation_id;
+
+        // Si c'est une réservation parente avec des enfants, vérifier que tous les enfants sont aussi retournés
+        if ($shouldNotify && $reservation->childReservations()->exists()) {
+            $allChildrenReturned = $reservation->childReservations()
+                ->where('status', '!=', 'returned')
+                ->doesntExist();
+            $shouldNotify = $allChildrenReturned;
+        }
+
+        if ($shouldNotify) {
+            $reservation->user->notify(new \App\Notifications\ReservationReturnedNotification($reservation));
+            try {
+                Mail::to($reservation->user->email)->send(new ReservationReturned($reservation));
+            } catch (\Exception $e) {}
+        }
+
+        // Si c'est une réservation enfant qui vient d'être retournée, vérifier si le parent peut maintenant envoyer le mail
+        if (!$shouldNotify && $reservation->parent_reservation_id) {
+            $parent = $reservation->parentReservation;
+            if ($parent && $parent->status === 'returned') {
+                // Vérifier si tous les enfants du parent sont maintenant retournés
+                $allChildrenReturned = $parent->childReservations()
+                    ->where('status', '!=', 'returned')
+                    ->doesntExist();
+
+                if ($allChildrenReturned) {
+                    // Envoyer le mail pour le parent maintenant
+                    $parent->user->notify(new \App\Notifications\ReservationReturnedNotification($parent));
+                    try {
+                        Mail::to($parent->user->email)->send(new ReservationReturned($parent));
+                    } catch (\Exception $e) {}
+                }
+            }
+        }
 
         return back()->with('success', 'Retour confirmé. Matériel disponible. L\'utilisateur a été notifié.');
     }
@@ -838,10 +870,43 @@ class ReservationController extends Controller
         $reservation->refresh();
         if ($reservation->assets->every(fn($a) => $a->pivot->returned_at !== null)) {
             $reservation->update(['status' => 'returned', 'return_at' => now()]);
-            $reservation->user->notify(new \App\Notifications\ReservationReturnedNotification($reservation));
-            try {
-                Mail::to($reservation->user->email)->send(new ReservationReturned($reservation));
-            } catch (\Exception $e) {}
+
+            // Notifications et email : uniquement pour les réservations parentes ou indépendantes
+            $shouldNotify = !$reservation->parent_reservation_id;
+
+            // Si c'est une réservation parente avec des enfants, vérifier que tous les enfants sont aussi retournés
+            if ($shouldNotify && $reservation->childReservations()->exists()) {
+                $allChildrenReturned = $reservation->childReservations()
+                    ->where('status', '!=', 'returned')
+                    ->doesntExist();
+                $shouldNotify = $allChildrenReturned;
+            }
+
+            if ($shouldNotify) {
+                $reservation->user->notify(new \App\Notifications\ReservationReturnedNotification($reservation));
+                try {
+                    Mail::to($reservation->user->email)->send(new ReservationReturned($reservation));
+                } catch (\Exception $e) {}
+            }
+
+            // Si c'est une réservation enfant qui vient d'être retournée, vérifier si le parent peut maintenant envoyer le mail
+            if (!$shouldNotify && $reservation->parent_reservation_id) {
+                $parent = $reservation->parentReservation;
+                if ($parent && $parent->status === 'returned') {
+                    // Vérifier si tous les enfants du parent sont maintenant retournés
+                    $allChildrenReturned = $parent->childReservations()
+                        ->where('status', '!=', 'returned')
+                        ->doesntExist();
+
+                    if ($allChildrenReturned) {
+                        // Envoyer le mail pour le parent maintenant
+                        $parent->user->notify(new \App\Notifications\ReservationReturnedNotification($parent));
+                        try {
+                            Mail::to($parent->user->email)->send(new ReservationReturned($parent));
+                        } catch (\Exception $e) {}
+                    }
+                }
+            }
         }
 
         // Si endommagé → créer automatiquement une fiche maintenance

@@ -77,6 +77,21 @@ class HandleInertiaRequests extends Middleware
                 'notification_kit'     => \App\Models\Setting::get('sounds.notification_kit', 'ding'),
                 'scan_success'         => \App\Models\Setting::get('sounds.scan_success', 'beep'),
                 'scan_error'           => \App\Models\Setting::get('sounds.scan_error', 'buzz'),
+                'reservation_complete' => \App\Models\Setting::get('sounds.reservation_complete', 'exit'),
+                'supervisor_request'   => \App\Models\Setting::get('sounds.supervisor_request', 'supervisor_request'),
+                // Fichiers MP3 personnalisés
+                'notification_general_mp3'  => ($mp3 = \App\Models\Setting::get('sounds.notification_general_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
+                'notification_kit_mp3'      => ($mp3 = \App\Models\Setting::get('sounds.notification_kit_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
+                'scan_success_mp3'          => ($mp3 = \App\Models\Setting::get('sounds.scan_success_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
+                'scan_error_mp3'            => ($mp3 = \App\Models\Setting::get('sounds.scan_error_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
+                'reservation_complete_mp3'  => ($mp3 = \App\Models\Setting::get('sounds.reservation_complete_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
+                'supervisor_request_mp3'    => ($mp3 = \App\Models\Setting::get('sounds.supervisor_request_mp3')) && $mp3
+                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($mp3) : null,
             ] : null,
 
             // Logos lycée / BTS (partagés globalement pour AppLayout)

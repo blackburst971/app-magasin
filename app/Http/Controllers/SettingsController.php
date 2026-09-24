@@ -151,4 +151,59 @@ class SettingsController extends Controller
 
         return back()->with('success', 'Logo supprimé.');
     }
+
+    /**
+     * Upload d'un fichier audio MP3 personnalisé pour un type de son
+     */
+    public function uploadSound(Request $request)
+    {
+        $request->validate([
+            'type' => 'required|in:notification_general,notification_kit,scan_success,scan_error,reservation_complete,supervisor_request',
+            'file' => 'required|file|mimes:mp3,wav,ogg|max:2048', // Max 2MB
+        ]);
+
+        $type = $request->type;
+        $file = $request->file('file');
+
+        // Supprimer l'ancien fichier s'il existe
+        $oldPath = Setting::get("sounds.{$type}_mp3");
+        if ($oldPath && Storage::disk('public')->exists($oldPath)) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        // Stocker le nouveau fichier
+        $path = $file->store('sounds', 'public');
+
+        // Enregistrer le chemin dans les settings
+        Setting::updateOrCreate(
+            ['key' => "sounds.{$type}_mp3"],
+            ['value' => $path, 'group' => 'sounds']
+        );
+
+        return back()->with('success', 'Fichier audio uploadé avec succès.');
+    }
+
+    /**
+     * Suppression d'un fichier audio MP3 personnalisé
+     */
+    public function deleteSound(Request $request)
+    {
+        $request->validate([
+            'type' => 'required|in:notification_general,notification_kit,scan_success,scan_error,reservation_complete,supervisor_request',
+        ]);
+
+        $type = $request->type;
+        $path = Setting::get("sounds.{$type}_mp3");
+
+        if ($path && Storage::disk('public')->exists($path)) {
+            Storage::disk('public')->delete($path);
+        }
+
+        Setting::updateOrCreate(
+            ['key' => "sounds.{$type}_mp3"],
+            ['value' => '', 'group' => 'sounds']
+        );
+
+        return back()->with('success', 'Fichier audio supprimé. Le son par défaut sera utilisé.');
+    }
 }

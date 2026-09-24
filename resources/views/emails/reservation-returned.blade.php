@@ -28,11 +28,11 @@ body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0}
       <tr><td>Réservation</td><td>{{ $reservation->title }}</td></tr>
       <tr><td>Période</td><td>{{ $reservation->start_date->format('d/m/Y') }} → {{ $reservation->end_date->format('d/m/Y') }}</td></tr>
       <tr><td>Retour le</td><td>{{ $reservation->return_at?->format('d/m/Y H:i') }}</td></tr>
-      <tr><td>Équipements</td><td>{{ $reservation->assets->count() }} équipement(s)</td></tr>
+      <tr><td>Équipements</td><td>{{ $reservation->all_assets->count() }} équipement(s)</td></tr>
     </table>
-    @if($reservation->assets->count() > 0)
+    @if($reservation->all_assets->count() > 0)
     <p><strong>Matériels retournés :</strong></p>
-    <ul>@foreach($reservation->assets as $asset)<li>{{ $asset->name }} ({{ $asset->asset_tag }})</li>@endforeach</ul>
+    <ul>@foreach($reservation->all_assets as $asset)<li>{{ $asset->name }} ({{ $asset->asset_tag }})</li>@endforeach</ul>
     @endif
     <a href="{{ url('/reservations/' . $reservation->id) }}" class="btn">Voir la réservation</a>
   </div>

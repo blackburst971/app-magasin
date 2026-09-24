@@ -527,6 +527,7 @@ const kitsGroupedByCategory = computed(() => {
                 <p v-if="kit.description" class="text-xs text-gray-500 mt-1">{{ kit.description }}</p>
                 <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
                   <span>{{ kit.assets_count }} équipement(s)</span>
+                  <span v-if="kit.checked_out_to" class="text-gray-600 font-medium">👤 {{ kit.checked_out_to.name }}</span>
                   <span v-if="!kit.is_reservable" class="text-red-500 font-medium">🚫 Non réservable</span>
                   <span v-if="kit.pending_missing_count > 0" class="text-orange-600 font-medium">
                     ⚠️ {{ kit.pending_missing_count }} manquant(s)
@@ -613,6 +614,7 @@ const kitsGroupedByCategory = computed(() => {
                   <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Kit</th>
                   <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Catégorie</th>
                   <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Statut</th>
+                  <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Affecté à</th>
                   <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Équipements</th>
                   <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Note d'état</th>
                   <th class="px-4 py-2.5"></th>
@@ -644,6 +646,11 @@ const kitsGroupedByCategory = computed(() => {
                   <td class="px-4 py-3">
                     <span v-if="kit.in_preparation" class="text-xs border px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 border-blue-200">🔧 En préparation</span>
                     <span v-else :class="['text-xs border px-2 py-0.5 rounded-full font-medium', statusColors[kit.status]]">{{ kit.status_label }}</span>
+                  </td>
+                  <!-- Affecté à -->
+                  <td class="px-4 py-3 hidden md:table-cell">
+                    <span v-if="kit.checked_out_to" class="text-sm text-gray-700">{{ kit.checked_out_to.name }}</span>
+                    <span v-else class="text-gray-400 text-xs">—</span>
                   </td>
                   <!-- Équipements -->
                   <td class="px-4 py-3 hidden md:table-cell">
@@ -713,6 +720,7 @@ const kitsGroupedByCategory = computed(() => {
                     <p v-if="kit.description" class="text-xs text-gray-500 mt-1">{{ kit.description }}</p>
                     <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
                       <span>{{ kit.assets_count }} équipement(s)</span>
+                      <span v-if="kit.checked_out_to" class="text-gray-600 font-medium">👤 {{ kit.checked_out_to.name }}</span>
                     </div>
                   </div>
 
@@ -773,6 +781,7 @@ const kitsGroupedByCategory = computed(() => {
                   <span v-else :class="['text-xs border px-2 py-0.5 rounded-full font-medium flex-shrink-0', statusColors[kit.status]]">
                     {{ kit.status_label }}
                   </span>
+                  <span v-if="kit.checked_out_to" class="text-xs text-gray-500 flex-shrink-0 hidden md:inline">👤 {{ kit.checked_out_to.name }}</span>
                   <span class="text-xs text-gray-400 flex-shrink-0">{{ kit.assets_count }} éq.</span>
                   <button @click="toggleKit(kit)"
                     :disabled="!kit.is_reservable"

@@ -104,14 +104,8 @@ function closeDropdown() {
   showNotifDropdown.value = false
 }
 
-// Jouer un son quand le compteur de notifications non lues augmente
-let prevUnread = unreadCount.value
-watch(unreadCount, (newVal) => {
-  if (newVal > prevUnread && isAdmin.value) {
-    playSound('notification_general')
-  }
-  prevUnread = newVal
-})
+// Note : Le son de notification est géré par pollUnread() (ligne ~296)
+// pour éviter les doublons lors des navigations Inertia
 
 function formatNotifTime(date) {
   if (!date) return ''

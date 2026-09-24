@@ -939,21 +939,21 @@ function scanFromReservation(res) {
       <Transition name="completion-flash">
         <div v-if="completionFlash"
              class="fixed inset-0 z-[200] pointer-events-none flex items-center justify-center p-6">
-          <!-- Fond semi-transparent vert -->
-          <div class="absolute inset-0 bg-emerald-600/20 backdrop-blur-[2px]" />
+          <!-- Fond semi-transparent sobre -->
+          <div class="absolute inset-0 bg-gray-900/30 backdrop-blur-[2px]" />
           <!-- Carte centrale -->
-          <div class="relative bg-emerald-600 text-white rounded-2xl shadow-2xl px-10 py-8 text-center max-w-lg w-full border-4 border-emerald-300">
-            <div class="text-6xl mb-3 leading-none">🎉</div>
-            <p class="text-2xl font-black tracking-tight mb-1">Réservation complète !</p>
-            <p class="text-emerald-100 text-base font-medium truncate">
+          <div class="relative bg-white text-gray-900 rounded-xl shadow-2xl px-8 py-6 text-center max-w-lg w-full border border-gray-200">
+            <div class="text-4xl mb-3 leading-none text-emerald-600">✓</div>
+            <p class="text-xl font-semibold tracking-tight mb-2">Retour des équipements de la réservation complet</p>
+            <p class="text-gray-600 text-base font-medium truncate">
               « {{ completionFlash.title }} »
             </p>
-            <p class="text-emerald-200 text-sm mt-1">
-              {{ completionFlash.isKit ? '📦 Kit' : '📋 Réservation' }} — Tous les équipements sont rendus
+            <p class="text-gray-500 text-sm mt-1">
+              {{ completionFlash.isKit ? 'Kit' : 'Réservation' }} — Tous les équipements sont rendus
             </p>
             <!-- Barre de progression -->
-            <div class="mt-4 h-1.5 bg-emerald-400/40 rounded-full overflow-hidden">
-              <div class="h-full bg-white/70 rounded-full completion-bar" />
+            <div class="mt-4 h-1 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full bg-emerald-500 rounded-full completion-bar" />
             </div>
           </div>
         </div>

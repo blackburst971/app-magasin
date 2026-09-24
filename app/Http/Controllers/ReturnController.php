@@ -450,15 +450,63 @@ class ReturnController extends Controller
             if ($allAccountedFor) {
                 $reservation->update(['status' => 'returned', 'return_at' => now()]);
                 $this->resetKitStatusOnReturn($reservation->fresh());
-                $reservation->user->notify(new ReservationReturnedNotification($reservation));
-                $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
-                $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
-                if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
-                    try {
-                        Mail::to($reservation->user->email)->send(new ReservationReturned($reservation->fresh()));
-                    } catch (\Exception $e) {}
+
+                // Déterminer si tout le groupe (parent + enfants) est complet
+                $groupFullyReturned = false;
+
+                // Notifications et email : uniquement pour les réservations parentes ou indépendantes
+                // Si c'est une réservation enfant, ne pas envoyer de mail (sera géré par le parent)
+                $shouldNotify = !$reservation->parent_reservation_id;
+
+                // Si c'est une réservation parente avec des enfants, vérifier que tous les enfants sont aussi retournés
+                if ($shouldNotify && $reservation->childReservations()->exists()) {
+                    $allChildrenReturned = $reservation->childReservations()
+                        ->where('status', '!=', 'returned')
+                        ->doesntExist();
+                    $shouldNotify = $allChildrenReturned;
+                    $groupFullyReturned = $allChildrenReturned;
+                } elseif ($shouldNotify) {
+                    // Réservation indépendante (pas de parent ni d'enfants)
+                    $groupFullyReturned = true;
                 }
-                $allReturned = true;
+
+                if ($shouldNotify) {
+                    $reservation->user->notify(new ReservationReturnedNotification($reservation));
+                    $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
+                    $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
+                    if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
+                        try {
+                            Mail::to($reservation->user->email)->send(new ReservationReturned($reservation->fresh()));
+                        } catch (\Exception $e) {}
+                    }
+                }
+
+                // Si c'est une réservation enfant qui vient d'être retournée, vérifier si le parent peut maintenant envoyer le mail
+                if (!$shouldNotify && $reservation->parent_reservation_id) {
+                    $parent = $reservation->parentReservation;
+                    if ($parent && $parent->status === 'returned') {
+                        // Vérifier si tous les enfants du parent sont maintenant retournés
+                        $allChildrenReturned = $parent->childReservations()
+                            ->where('status', '!=', 'returned')
+                            ->doesntExist();
+
+                        if ($allChildrenReturned) {
+                            // Envoyer le mail pour le parent maintenant
+                            $parent->user->notify(new ReservationReturnedNotification($parent));
+                            $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
+                            $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
+                            if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
+                                try {
+                                    Mail::to($parent->user->email)->send(new ReservationReturned($parent->fresh()));
+                                } catch (\Exception $e) {}
+                            }
+                            // Marquer que le groupe entier est maintenant complet
+                            $groupFullyReturned = true;
+                        }
+                    }
+                }
+
+                $allReturned = $groupFullyReturned;
             }
         }
 
@@ -531,15 +579,63 @@ class ReturnController extends Controller
         if ($allAccountedFor && $reservation->status !== 'returned') {
             $reservation->update(['status' => 'returned', 'return_at' => now()]);
             $this->resetKitStatusOnReturn($reservation->fresh());
-            $reservation->user->notify(new ReservationReturnedNotification($reservation));
-            $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
-            $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
-            if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
-                try {
-                    Mail::to($reservation->user->email)->send(new ReservationReturned($reservation->fresh()));
-                } catch (\Exception $e) {}
+
+            // Déterminer si tout le groupe (parent + enfants) est complet
+            $groupFullyReturned = false;
+
+            // Notifications et email : uniquement pour les réservations parentes ou indépendantes
+            // Si c'est une réservation enfant, ne pas envoyer de mail (sera géré par le parent)
+            $shouldNotify = !$reservation->parent_reservation_id;
+
+            // Si c'est une réservation parente avec des enfants, vérifier que tous les enfants sont aussi retournés
+            if ($shouldNotify && $reservation->childReservations()->exists()) {
+                $allChildrenReturned = $reservation->childReservations()
+                    ->where('status', '!=', 'returned')
+                    ->doesntExist();
+                $shouldNotify = $allChildrenReturned;
+                $groupFullyReturned = $allChildrenReturned;
+            } elseif ($shouldNotify) {
+                // Réservation indépendante (pas de parent ni d'enfants)
+                $groupFullyReturned = true;
             }
-            $allReturned = true;
+
+            if ($shouldNotify) {
+                $reservation->user->notify(new ReservationReturnedNotification($reservation));
+                $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
+                $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
+                if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
+                    try {
+                        Mail::to($reservation->user->email)->send(new ReservationReturned($reservation->fresh()));
+                    } catch (\Exception $e) {}
+                }
+            }
+
+            // Si c'est une réservation enfant qui vient d'être retournée, vérifier si le parent peut maintenant envoyer le mail
+            if (!$shouldNotify && $reservation->parent_reservation_id) {
+                $parent = $reservation->parentReservation;
+                if ($parent && $parent->status === 'returned') {
+                    // Vérifier si tous les enfants du parent sont maintenant retournés
+                    $allChildrenReturned = $parent->childReservations()
+                        ->where('status', '!=', 'returned')
+                        ->doesntExist();
+
+                    if ($allChildrenReturned) {
+                        // Envoyer le mail pour le parent maintenant
+                        $parent->user->notify(new ReservationReturnedNotification($parent));
+                        $alertEnabled = \App\Models\Setting::get('alert_reservation_returned_enabled', 'true') === 'true';
+                        $alertChannel = \App\Models\Setting::get('alert_reservation_returned_channel', 'notification');
+                        if ($alertEnabled && in_array($alertChannel, ['email', 'both'])) {
+                            try {
+                                Mail::to($parent->user->email)->send(new ReservationReturned($parent->fresh()));
+                            } catch (\Exception $e) {}
+                        }
+                        // Marquer que le groupe entier est maintenant complet
+                        $groupFullyReturned = true;
+                    }
+                }
+            }
+
+            $allReturned = $groupFullyReturned;
         }
 
         return response()->json([

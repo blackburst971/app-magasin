@@ -64,6 +64,7 @@ class KitController extends Controller
                 'reservations' => function($query) {
                     // Charger les réservations actives et approuvées pour calculer le statut
                     $query->whereIn('status', ['active', 'approved'])
+                          ->with('user')
                           ->orderByDesc('created_at');
                 }
             ])
@@ -100,6 +101,8 @@ class KitController extends Controller
                     'notes'            => $m->notes,
                     'created_at'       => $m->created_at->format('d/m/Y H:i'),
                 ]),
+                'checked_out_to' => $k->reservations->first()?->user ?
+                    ['name' => $k->reservations->first()->user->name] : null,
             ]);
 
         $availableAssets = Asset::with('category')

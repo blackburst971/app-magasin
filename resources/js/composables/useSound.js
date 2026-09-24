@@ -157,6 +157,23 @@ const SOUNDS = {
     })
   },
 
+  // Son de sortie/conclusion sobre — descente douce mi4 → do4 → la3
+  exit: (ctx, vol) => {
+    const notes = [329.63, 261.63, 220.00] // E4, C4, A3
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, ctx.currentTime)
+      const t = ctx.currentTime + i * 0.18
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(vol * 0.4, t + 0.03)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4)
+      osc.start(t); osc.stop(t + 0.45)
+    })
+  },
+
   none: () => {}, // silencieux
 }
 
@@ -181,18 +198,47 @@ export function useSound() {
       notification_kit:      s.notification_kit      ?? 'ding',
       scan_success:          s.scan_success          ?? 'beep',
       scan_error:            s.scan_error            ?? 'buzz',
-      reservation_complete:  s.reservation_complete  ?? 'fanfare',
+      reservation_complete:  s.reservation_complete  ?? 'exit',
       supervisor_request:    s.supervisor_request    ?? 'supervisor_request',
+      // Chemins des fichiers MP3 personnalisés (si configurés)
+      notification_general_mp3:  s.notification_general_mp3  ?? null,
+      notification_kit_mp3:      s.notification_kit_mp3      ?? null,
+      scan_success_mp3:          s.scan_success_mp3          ?? null,
+      scan_error_mp3:            s.scan_error_mp3            ?? null,
+      reservation_complete_mp3:  s.reservation_complete_mp3  ?? null,
+      supervisor_request_mp3:    s.supervisor_request_mp3    ?? null,
     }
   }
 
   /**
-   * @param {'notification_general'|'notification_kit'|'scan_success'|'scan_error'} type
+   * Joue un fichier MP3 personnalisé
+   */
+  function playMP3(url, volume = 0.8) {
+    try {
+      const audio = new Audio(url)
+      audio.volume = volume
+      audio.play().catch(() => {})
+    } catch (e) {}
+  }
+
+  /**
+   * @param {'notification_general'|'notification_kit'|'scan_success'|'scan_error'|'reservation_complete'|'supervisor_request'} type
    */
   function playSound(type) {
     const settings = getSoundSettings()
     if (!settings.enabled) return
 
+    // Vérifier si un fichier MP3 personnalisé est configuré pour ce type
+    const mp3Key = `${type}_mp3`
+    const mp3Url = settings[mp3Key]
+
+    if (mp3Url) {
+      // Utiliser le fichier MP3 personnalisé
+      playMP3(mp3Url, settings.volume)
+      return
+    }
+
+    // Sinon, utiliser le son synthétisé par défaut
     const soundName = settings[type] ?? 'none'
     const fn = SOUNDS[soundName] ?? SOUNDS.none
 

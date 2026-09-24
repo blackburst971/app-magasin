@@ -1470,6 +1470,7 @@ function getStatusClasses(statusKey) {
                   <th class="px-4 py-3 text-left hidden lg:table-cell">Emplacement</th>
                   <th class="px-4 py-3 text-left hidden xl:table-cell">Accessoires</th>
                   <th class="px-4 py-3 text-left">Statut</th>
+                  <th class="px-4 py-3 text-left hidden md:table-cell">Affecté à</th>
                   <th class="px-4 py-3 text-left hidden xl:table-cell">État</th>
                   <th class="px-4 py-3 text-left">Actions</th>
                 </tr>
@@ -1519,6 +1520,12 @@ function getStatusClasses(statusKey) {
                     <span v-else class="text-gray-300 text-xs">—</span>
                   </td>
                   <td class="px-4 py-3"><StatusBadge :status="asset.status" type="asset" /></td>
+                  <td class="px-4 py-3 hidden md:table-cell">
+                    <span v-if="asset.checked_out_to" class="text-sm text-gray-700">
+                      {{ asset.checked_out_to.name }}
+                    </span>
+                    <span v-else class="text-gray-400 text-xs">—</span>
+                  </td>
                   <td class="px-4 py-3 hidden xl:table-cell">
                     <div v-if="asset.condition_note"
                          class="group relative max-w-xs">
@@ -1551,7 +1558,7 @@ function getStatusClasses(statusKey) {
                   </td>
                 </tr>
                 <tr v-if="assets.data.length === 0">
-                  <td colspan="8" class="px-4 py-12 text-center text-gray-400">
+                  <td colspan="9" class="px-4 py-12 text-center text-gray-400">
                     <p class="text-4xl mb-2">📦</p>
                     <p class="font-medium">Aucun équipement disponible à l'emprunt.</p>
                   </td>

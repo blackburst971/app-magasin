@@ -487,6 +487,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test-email');
         Route::post('/settings/logo', [SettingsController::class, 'uploadLogo'])->name('settings.logo.upload');
         Route::delete('/settings/logo/{type}', [SettingsController::class, 'deleteLogo'])->name('settings.logo.delete');
+        Route::post('/settings/sound', [SettingsController::class, 'uploadSound'])->name('settings.sound.upload');
+        Route::delete('/settings/sound', [SettingsController::class, 'deleteSound'])->name('settings.sound.delete');
     });
 
     // Inventaire (admin only)
