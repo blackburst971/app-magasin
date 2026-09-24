@@ -23,45 +23,54 @@ function goBack() {
 // Initialiser les dates/heures avec l'heure actuelle (format datetime-local : YYYY-MM-DDTHH:MM)
 function getCurrentDateTimeLocal() {
   const now = new Date()
-  // La Paz est GMT-4 (UTC-4)
-  const laPazOffsetMinutes = -4 * 60 // -240 minutes
-  const localOffsetMinutes = now.getTimezoneOffset() // Décalage local par rapport à UTC
 
-  // Calculer le décalage total pour passer de l'heure locale à La Paz
-  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
+  // Obtenir l'heure UTC
+  const utcYear = now.getUTCFullYear()
+  const utcMonth = now.getUTCMonth()
+  const utcDate = now.getUTCDate()
+  const utcHours = now.getUTCHours()
+  const utcMinutes = now.getUTCMinutes()
 
-  // Créer une nouvelle date ajustée à l'heure de La Paz
-  const laPazTime = new Date(now.getTime() + totalOffsetMinutes * 60000)
+  // Créer un objet Date en UTC
+  const utcTime = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHours, utcMinutes, 0, 0))
 
-  // Arrondir à la minute (pas de secondes)
-  laPazTime.setSeconds(0, 0)
+  // Appliquer le décalage de La Paz (GMT-4 = UTC-4 = -4 heures)
+  const laPazTime = new Date(utcTime.getTime() - 4 * 3600000)
 
-  // Format ISO local sans le Z (datetime-local ne supporte pas le Z)
-  const year = laPazTime.getFullYear()
-  const month = String(laPazTime.getMonth() + 1).padStart(2, '0')
-  const day = String(laPazTime.getDate()).padStart(2, '0')
-  const hours = String(laPazTime.getHours()).padStart(2, '0')
-  const minutes = String(laPazTime.getMinutes()).padStart(2, '0')
+  // Extraire les composants de la date/heure La Paz
+  const year = laPazTime.getUTCFullYear()
+  const month = String(laPazTime.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(laPazTime.getUTCDate()).padStart(2, '0')
+  const hours = String(laPazTime.getUTCHours()).padStart(2, '0')
+  const minutes = String(laPazTime.getUTCMinutes()).padStart(2, '0')
+
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 // Date/heure minimale pour start_date (heure actuelle - 15 minutes de tolérance)
 function getMinStartDateTime() {
   const now = new Date()
-  // La Paz est GMT-4 (UTC-4)
-  const laPazOffsetMinutes = -4 * 60
-  const localOffsetMinutes = now.getTimezoneOffset()
-  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
 
-  // Ajuster à l'heure de La Paz et retirer 15 minutes de tolérance
-  const minTime = new Date(now.getTime() + totalOffsetMinutes * 60000 - 15 * 60000)
-  minTime.setSeconds(0, 0)
+  // Obtenir l'heure UTC
+  const utcYear = now.getUTCFullYear()
+  const utcMonth = now.getUTCMonth()
+  const utcDate = now.getUTCDate()
+  const utcHours = now.getUTCHours()
+  const utcMinutes = now.getUTCMinutes()
 
-  const year = minTime.getFullYear()
-  const month = String(minTime.getMonth() + 1).padStart(2, '0')
-  const day = String(minTime.getDate()).padStart(2, '0')
-  const hours = String(minTime.getHours()).padStart(2, '0')
-  const minutes = String(minTime.getMinutes()).padStart(2, '0')
+  // Créer un objet Date en UTC
+  const utcTime = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHours, utcMinutes, 0, 0))
+
+  // Appliquer le décalage de La Paz (GMT-4 = -4 heures) et retirer 15 minutes de tolérance
+  const minTime = new Date(utcTime.getTime() - 4 * 3600000 - 15 * 60000)
+
+  // Extraire les composants
+  const year = minTime.getUTCFullYear()
+  const month = String(minTime.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(minTime.getUTCDate()).padStart(2, '0')
+  const hours = String(minTime.getUTCHours()).padStart(2, '0')
+  const minutes = String(minTime.getUTCMinutes()).padStart(2, '0')
+
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
@@ -151,15 +160,22 @@ let timeInterval = null
 
 function updateCurrentTime() {
   const now = new Date()
-  // La Paz est GMT-4 (UTC-4)
-  const laPazOffsetMinutes = -4 * 60
-  const localOffsetMinutes = now.getTimezoneOffset()
-  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
 
-  const laPazTime = new Date(now.getTime() + totalOffsetMinutes * 60000)
+  // Obtenir l'heure UTC
+  const utcTime = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours(),
+    now.getUTCMinutes(),
+    0, 0
+  ))
 
-  const hours = String(laPazTime.getHours()).padStart(2, '0')
-  const minutes = String(laPazTime.getMinutes()).padStart(2, '0')
+  // Appliquer le décalage de La Paz (GMT-4 = -4 heures)
+  const laPazTime = new Date(utcTime.getTime() - 4 * 3600000)
+
+  const hours = String(laPazTime.getUTCHours()).padStart(2, '0')
+  const minutes = String(laPazTime.getUTCMinutes()).padStart(2, '0')
   currentTime.value = `${hours}:${minutes}`
 }
 
@@ -177,20 +193,26 @@ const examMinDate = computed(() => {
   if (!props.examMode) return null
 
   const now = new Date()
-  // La Paz est GMT-4 (UTC-4)
-  const laPazOffsetMinutes = -4 * 60
-  const localOffsetMinutes = now.getTimezoneOffset()
-  const totalOffsetMinutes = laPazOffsetMinutes - localOffsetMinutes
 
-  // Ajouter les heures d'avance requises pour l'examen
-  const examTime = new Date(now.getTime() + totalOffsetMinutes * 60000 + props.examAdvanceHours * 3600000)
-  examTime.setSeconds(0, 0)
+  // Obtenir l'heure UTC
+  const utcTime = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours(),
+    now.getUTCMinutes(),
+    0, 0
+  ))
 
-  const year = examTime.getFullYear()
-  const month = String(examTime.getMonth() + 1).padStart(2, '0')
-  const day = String(examTime.getDate()).padStart(2, '0')
-  const hours = String(examTime.getHours()).padStart(2, '0')
-  const minutes = String(examTime.getMinutes()).padStart(2, '0')
+  // Appliquer le décalage de La Paz (GMT-4) + ajouter les heures d'avance pour l'examen
+  const examTime = new Date(utcTime.getTime() - 4 * 3600000 + props.examAdvanceHours * 3600000)
+
+  const year = examTime.getUTCFullYear()
+  const month = String(examTime.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(examTime.getUTCDate()).padStart(2, '0')
+  const hours = String(examTime.getUTCHours()).padStart(2, '0')
+  const minutes = String(examTime.getUTCMinutes()).padStart(2, '0')
+
   return `${year}-${month}-${day}T${hours}:${minutes}`
 })
 
