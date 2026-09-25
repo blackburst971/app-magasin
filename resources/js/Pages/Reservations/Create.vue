@@ -21,23 +21,23 @@ function goBack() {
 }
 
 // Initialiser les dates/heures avec l'heure actuelle (format datetime-local : YYYY-MM-DDTHH:MM)
+// Note: Le serveur PHP est en UTC, mais nous devons afficher l'heure La Paz (UTC-4)
 function getCurrentDateTimeLocal() {
   const now = new Date()
 
-  // Obtenir l'heure UTC
-  const utcYear = now.getUTCFullYear()
-  const utcMonth = now.getUTCMonth()
-  const utcDate = now.getUTCDate()
-  const utcHours = now.getUTCHours()
-  const utcMinutes = now.getUTCMinutes()
+  // Convertir UTC vers La Paz (UTC-4) en utilisant les méthodes UTC
+  const utcTime = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours(),
+    now.getUTCMinutes(),
+    0, 0
+  )
 
-  // Créer un objet Date en UTC
-  const utcTime = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHours, utcMinutes, 0, 0))
+  // Soustraire 4 heures pour La Paz
+  const laPazTime = new Date(utcTime - 4 * 3600000)
 
-  // Appliquer le décalage de La Paz (GMT-4 = UTC-4 = -4 heures)
-  const laPazTime = new Date(utcTime.getTime() - 4 * 3600000)
-
-  // Extraire les composants de la date/heure La Paz
   const year = laPazTime.getUTCFullYear()
   const month = String(laPazTime.getUTCMonth() + 1).padStart(2, '0')
   const day = String(laPazTime.getUTCDate()).padStart(2, '0')
@@ -51,20 +51,19 @@ function getCurrentDateTimeLocal() {
 function getMinStartDateTime() {
   const now = new Date()
 
-  // Obtenir l'heure UTC
-  const utcYear = now.getUTCFullYear()
-  const utcMonth = now.getUTCMonth()
-  const utcDate = now.getUTCDate()
-  const utcHours = now.getUTCHours()
-  const utcMinutes = now.getUTCMinutes()
+  // Convertir UTC vers La Paz (UTC-4)
+  const utcTime = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours(),
+    now.getUTCMinutes(),
+    0, 0
+  )
 
-  // Créer un objet Date en UTC
-  const utcTime = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHours, utcMinutes, 0, 0))
+  // Soustraire 4 heures pour La Paz + 15 minutes de tolérance
+  const minTime = new Date(utcTime - 4 * 3600000 - 15 * 60000)
 
-  // Appliquer le décalage de La Paz (GMT-4 = -4 heures) et retirer 15 minutes de tolérance
-  const minTime = new Date(utcTime.getTime() - 4 * 3600000 - 15 * 60000)
-
-  // Extraire les composants
   const year = minTime.getUTCFullYear()
   const month = String(minTime.getUTCMonth() + 1).padStart(2, '0')
   const day = String(minTime.getUTCDate()).padStart(2, '0')
@@ -161,18 +160,17 @@ let timeInterval = null
 function updateCurrentTime() {
   const now = new Date()
 
-  // Obtenir l'heure UTC
-  const utcTime = new Date(Date.UTC(
+  // Convertir UTC vers La Paz (UTC-4)
+  const utcTime = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
     now.getUTCDate(),
     now.getUTCHours(),
     now.getUTCMinutes(),
     0, 0
-  ))
+  )
 
-  // Appliquer le décalage de La Paz (GMT-4 = -4 heures)
-  const laPazTime = new Date(utcTime.getTime() - 4 * 3600000)
+  const laPazTime = new Date(utcTime - 4 * 3600000)
 
   const hours = String(laPazTime.getUTCHours()).padStart(2, '0')
   const minutes = String(laPazTime.getUTCMinutes()).padStart(2, '0')
@@ -194,18 +192,18 @@ const examMinDate = computed(() => {
 
   const now = new Date()
 
-  // Obtenir l'heure UTC
-  const utcTime = new Date(Date.UTC(
+  // Convertir UTC vers La Paz (UTC-4)
+  const utcTime = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
     now.getUTCDate(),
     now.getUTCHours(),
     now.getUTCMinutes(),
     0, 0
-  ))
+  )
 
-  // Appliquer le décalage de La Paz (GMT-4) + ajouter les heures d'avance pour l'examen
-  const examTime = new Date(utcTime.getTime() - 4 * 3600000 + props.examAdvanceHours * 3600000)
+  // Soustraire 4 heures pour La Paz + ajouter heures d'avance examen
+  const examTime = new Date(utcTime - 4 * 3600000 + props.examAdvanceHours * 3600000)
 
   const year = examTime.getUTCFullYear()
   const month = String(examTime.getUTCMonth() + 1).padStart(2, '0')
