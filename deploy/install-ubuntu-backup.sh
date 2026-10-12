@@ -241,7 +241,37 @@ print_success "Permissions configurées"
 print_step "7/9 - Installation des dépendances PHP (Composer)"
 
 cd "$INSTALL_DIR"
-sudo -u $WEB_USER composer install --no-dev --optimize-autoloader --no-interaction
+
+# Vérifier la version PHP actuelle
+PHP_CURRENT_VERSION=$(php -r 'echo PHP_VERSION;')
+print_warning "Version PHP détectée : ${PHP_CURRENT_VERSION}"
+
+# Si composer.lock existe et nécessite une version PHP différente, le régénérer
+if [ -f "composer.lock" ]; then
+    print_warning "Vérification de la compatibilité du composer.lock..."
+
+    # Tenter l'installation, si échec, régénérer le lock
+    if ! sudo -u $WEB_USER composer install --no-dev --optimize-autoloader --no-interaction 2>&1 | tee /tmp/composer-install.log; then
+        if grep -q "does not satisfy that requirement" /tmp/composer-install.log; then
+            print_warning "composer.lock incompatible avec PHP ${PHP_CURRENT_VERSION}"
+            print_warning "Régénération du composer.lock..."
+
+            # Supprimer le lock file et régénérer
+            rm -f composer.lock
+            sudo -u $WEB_USER composer update --no-dev --optimize-autoloader --no-interaction
+
+            print_success "composer.lock régénéré pour PHP ${PHP_CURRENT_VERSION}"
+        else
+            print_error "Erreur lors de l'installation des dépendances"
+            exit 1
+        fi
+    else
+        print_success "composer.lock compatible"
+    fi
+else
+    # Pas de composer.lock, installation normale
+    sudo -u $WEB_USER composer install --no-dev --optimize-autoloader --no-interaction
+fi
 
 print_success "Dépendances PHP installées"
 
