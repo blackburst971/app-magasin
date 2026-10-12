@@ -3,6 +3,9 @@
 ################################################################################
 # Script d'installation automatique - App Magasin BTS MAV
 # Serveur Backup Ubuntu (Raspberry Pi 5 / Ubuntu Server)
+#
+# PRÉREQUIS : Code source déjà téléchargé dans /var/www/app-magasin
+# Ce script installe UNIQUEMENT les dépendances système et configure le serveur
 ################################################################################
 
 set -e  # Arrêter le script en cas d'erreur
@@ -15,8 +18,6 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="https://github.com/VOTRE_UTILISATEUR/app-magasin.git"  # À MODIFIER
-GITHUB_BRANCH="master"  # ou main
 INSTALL_DIR="/var/www/app-magasin"
 WEB_USER="www-data"
 PHP_VERSION="8.2"
@@ -48,8 +49,10 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 print_step "INSTALLATION SERVEUR BACKUP - APP MAGASIN BTS MAV"
-echo "Ce script va installer l'application complète sur Ubuntu"
+echo "Ce script va installer toutes les dépendances nécessaires"
 echo "Raspberry Pi 5 détecté : $(uname -m)"
+echo ""
+echo "IMPORTANT : Le code source doit déjà être présent dans $INSTALL_DIR"
 echo ""
 read -p "Voulez-vous continuer ? (o/n) " -n 1 -r
 echo
@@ -58,9 +61,32 @@ if [[ ! $REPLY =~ ^[Oo]$ ]]; then
 fi
 
 ################################################################################
+# VÉRIFICATION : Code source présent
+################################################################################
+print_step "Vérification du code source"
+
+if [ ! -d "$INSTALL_DIR" ]; then
+    print_error "Le répertoire $INSTALL_DIR n'existe pas !"
+    echo ""
+    echo "Veuillez d'abord télécharger le code source depuis GitHub :"
+    echo "  1. Créer le répertoire : sudo mkdir -p /var/www"
+    echo "  2. Télécharger : cd /var/www && sudo git clone https://github.com/blackburst971/app-magasin.git"
+    echo "  3. Relancer ce script"
+    exit 1
+fi
+
+if [ ! -f "$INSTALL_DIR/composer.json" ]; then
+    print_error "Fichier composer.json introuvable dans $INSTALL_DIR"
+    echo "Le code source n'est pas complet. Vérifiez le téléchargement."
+    exit 1
+fi
+
+print_success "Code source trouvé dans $INSTALL_DIR"
+
+################################################################################
 # ÉTAPE 1 : Mise à jour système
 ################################################################################
-print_step "1/10 - Mise à jour du système"
+print_step "1/9 - Mise à jour du système"
 apt update
 apt upgrade -y
 print_success "Système mis à jour"
@@ -68,11 +94,12 @@ print_success "Système mis à jour"
 ################################################################################
 # ÉTAPE 2 : Installation des dépendances système
 ################################################################################
-print_step "2/10 - Installation des paquets système"
+print_step "2/9 - Installation des paquets système"
 apt install -y \
     curl \
     git \
     unzip \
+    zip \
     sqlite3 \
     nginx \
     supervisor \
@@ -80,13 +107,16 @@ apt install -y \
     htop \
     net-tools \
     rsync \
-    wget
+    wget \
+    ca-certificates \
+    gnupg \
+    lsb-release
 print_success "Paquets système installés"
 
 ################################################################################
 # ÉTAPE 3 : Installation PHP 8.2
 ################################################################################
-print_step "3/10 - Installation PHP ${PHP_VERSION}"
+print_step "3/9 - Installation PHP ${PHP_VERSION}"
 
 # Ajouter le PPA Ondrej pour PHP (si nécessaire)
 apt install -y software-properties-common
@@ -116,7 +146,7 @@ print_success "PHP ${PHP_VERSION} installé : $(php -r 'echo PHP_VERSION;')"
 ################################################################################
 # ÉTAPE 4 : Installation Composer
 ################################################################################
-print_step "4/10 - Installation de Composer"
+print_step "4/9 - Installation de Composer"
 
 if [ -f "/usr/local/bin/composer" ]; then
     print_warning "Composer déjà installé, mise à jour..."
@@ -144,7 +174,7 @@ print_success "Composer installé : $(composer --version | head -n1)"
 ################################################################################
 # ÉTAPE 5 : Installation Node.js
 ################################################################################
-print_step "5/10 - Installation de Node.js ${NODE_VERSION}"
+print_step "5/9 - Installation de Node.js ${NODE_VERSION}"
 
 if command -v node &> /dev/null; then
     print_warning "Node.js déjà installé : $(node --version)"
@@ -158,39 +188,15 @@ npm --version
 print_success "Node.js installé : $(node --version), npm : $(npm --version)"
 
 ################################################################################
-# ÉTAPE 6 : Clonage du dépôt GitHub
+# ÉTAPE 6 : Configuration des permissions
 ################################################################################
-print_step "6/10 - Clonage du code source depuis GitHub"
-
-# Vérifier si le répertoire existe
-if [ -d "$INSTALL_DIR" ]; then
-    print_warning "Le répertoire $INSTALL_DIR existe déjà"
-    read -p "Voulez-vous le supprimer et recommencer ? (o/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Oo]$ ]]; then
-        rm -rf "$INSTALL_DIR"
-    else
-        print_error "Installation annulée"
-        exit 1
-    fi
-fi
-
-# Cloner le dépôt
-print_warning "Clonage depuis : $GITHUB_REPO (branche: $GITHUB_BRANCH)"
-git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$INSTALL_DIR"
+print_step "6/9 - Configuration des permissions"
 
 cd "$INSTALL_DIR"
-print_success "Code source cloné dans $INSTALL_DIR"
-
-################################################################################
-# ÉTAPE 7 : Configuration des permissions
-################################################################################
-print_step "7/10 - Configuration des permissions"
-
 chown -R $WEB_USER:$WEB_USER "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
-chmod -R 775 "$INSTALL_DIR/storage"
-chmod -R 775 "$INSTALL_DIR/bootstrap/cache"
+chmod -R 775 "$INSTALL_DIR/storage" 2>/dev/null || mkdir -p "$INSTALL_DIR/storage" && chmod -R 775 "$INSTALL_DIR/storage"
+chmod -R 775 "$INSTALL_DIR/bootstrap/cache" 2>/dev/null || mkdir -p "$INSTALL_DIR/bootstrap/cache" && chmod -R 775 "$INSTALL_DIR/bootstrap/cache"
 
 # Créer le fichier SQLite s'il n'existe pas
 mkdir -p "$INSTALL_DIR/database"
@@ -203,9 +209,9 @@ fi
 print_success "Permissions configurées"
 
 ################################################################################
-# ÉTAPE 8 : Installation des dépendances PHP
+# ÉTAPE 7 : Installation des dépendances PHP
 ################################################################################
-print_step "8/10 - Installation des dépendances PHP (Composer)"
+print_step "7/9 - Installation des dépendances PHP (Composer)"
 
 cd "$INSTALL_DIR"
 sudo -u $WEB_USER composer install --no-dev --optimize-autoloader --no-interaction
@@ -213,9 +219,9 @@ sudo -u $WEB_USER composer install --no-dev --optimize-autoloader --no-interacti
 print_success "Dépendances PHP installées"
 
 ################################################################################
-# ÉTAPE 9 : Installation des dépendances Node.js et build frontend
+# ÉTAPE 8 : Installation des dépendances Node.js et build frontend
 ################################################################################
-print_step "9/10 - Installation des dépendances Node.js et compilation assets"
+print_step "8/9 - Installation des dépendances Node.js et compilation assets"
 
 cd "$INSTALL_DIR"
 sudo -u $WEB_USER npm install
@@ -224,9 +230,9 @@ sudo -u $WEB_USER npm run build
 print_success "Assets frontend compilés"
 
 ################################################################################
-# ÉTAPE 10 : Configuration Laravel
+# ÉTAPE 9 : Configuration Laravel
 ################################################################################
-print_step "10/10 - Configuration de l'application Laravel"
+print_step "9/9 - Configuration de l'application Laravel"
 
 # Copier le fichier .env.example
 if [ ! -f "$INSTALL_DIR/.env" ]; then
@@ -317,7 +323,7 @@ print_success "Nginx configuré et démarré"
 ################################################################################
 # Configuration PHP-FPM
 ################################################################################
-print_step "Optimisation PHP-FPM"
+print_step "Optimisation PHP-FPM pour Raspberry Pi"
 
 # Ajuster les paramètres PHP-FPM pour Raspberry Pi
 sed -i 's/pm.max_children = .*/pm.max_children = 10/' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
@@ -384,6 +390,7 @@ echo -e "${YELLOW}PROCHAINES ÉTAPES :${NC}"
 echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo "1. Modifier le fichier .env pour configurer :"
+echo "   ${GREEN}sudo nano ${INSTALL_DIR}/.env${NC}"
 echo "   - Les informations de mail (SMTP Gmail)"
 echo "   - L'URL de l'application"
 echo "   - Le nom de l'application"
@@ -391,11 +398,11 @@ echo ""
 echo "2. Lancer les migrations pour créer les tables :"
 echo "   ${GREEN}cd ${INSTALL_DIR} && sudo -u ${WEB_USER} php artisan migrate --force${NC}"
 echo ""
-echo "3. Créer le compte administrateur :"
+echo "3. Créer le compte administrateur (optionnel si base synchronisée) :"
 echo "   ${GREEN}cd ${INSTALL_DIR} && sudo -u ${WEB_USER} php artisan db:seed --class=AdminSeeder${NC}"
 echo ""
 echo "4. Synchroniser la base de données depuis le serveur principal"
-echo "   (voir script de synchronisation)"
+echo "   (voir script de synchronisation dans deploy/)"
 echo ""
 echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
 echo ""

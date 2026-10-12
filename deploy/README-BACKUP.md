@@ -57,61 +57,56 @@ Ce guide vous permet d'installer un **serveur backup en miroir** de l'applicatio
 
 ---
 
-### Étape 2 : Modifier le script d'installation
+### Étape 2 : Télécharger le code source depuis GitHub
 
-**IMPORTANT** : Avant de lancer l'installation, vous devez modifier l'URL GitHub.
-
-1. Sur votre **serveur Windows**, ouvrir le fichier :
-   ```
-   C:\inetpub\wwwroot\app-magasin\deploy\install-ubuntu-backup.sh
-   ```
-
-2. Modifier la ligne 19 avec l'URL de votre dépôt GitHub :
-   ```bash
-   GITHUB_REPO="https://github.com/VOTRE_UTILISATEUR/VOTRE_DEPOT.git"
-   ```
-
-   Exemples :
-   - Si dépôt public : `https://github.com/votrenom/app-magasin.git`
-   - Si dépôt privé : `https://VOTRE_TOKEN@github.com/votrenom/app-magasin.git`
-
-3. Vérifier la branche (ligne 20) :
-   ```bash
-   GITHUB_BRANCH="master"  # ou "main" selon votre dépôt
-   ```
-
-4. **Sauvegarder le fichier**
-
----
-
-### Étape 3 : Transférer et lancer le script d'installation
-
-Depuis votre **serveur Windows**, transférer le script vers le Raspberry Pi :
-
-```powershell
-# Depuis PowerShell sur Windows
-scp C:\inetpub\wwwroot\app-magasin\deploy\install-ubuntu-backup.sh pi@<IP_RASPBERRY>:~/
-```
-
-Ensuite, sur le **Raspberry Pi** (via SSH) :
+**Sur le Raspberry Pi** (via SSH) :
 
 ```bash
 # Se connecter en SSH
 ssh pi@<IP_RASPBERRY>
 
+# Installer Git (si pas déjà installé)
+sudo apt update
+sudo apt install -y git
+
+# Créer le répertoire et télécharger le code source
+sudo mkdir -p /var/www
+cd /var/www
+sudo git clone https://github.com/blackburst971/app-magasin.git
+
+# Vérifier que le téléchargement est complet
+ls -la /var/www/app-magasin
+```
+
+Vous devez voir les fichiers de l'application : `app/`, `composer.json`, `package.json`, etc.
+
+✅ **Code source téléchargé !**
+
+---
+
+### Étape 3 : Lancer le script d'installation
+
+Le script d'installation est **inclus dans le code source** téléchargé.
+
+**Sur le Raspberry Pi** (toujours en SSH) :
+
+```bash
+# Se placer dans le dossier de déploiement
+cd /var/www/app-magasin/deploy
+
 # Rendre le script exécutable
-chmod +x ~/install-ubuntu-backup.sh
+chmod +x install-ubuntu-backup.sh
 
 # Lancer l'installation (avec sudo)
 sudo ./install-ubuntu-backup.sh
 ```
 
 Le script va automatiquement :
-1. ✅ Mettre à jour Ubuntu
-2. ✅ Installer PHP 8.2 + toutes les extensions requises
-3. ✅ Installer Composer
-4. ✅ Installer Node.js 20
-5. ✅ Cloner le code depuis GitHub
+1. ✅ Vérifier que le code source est présent
+2. ✅ Mettre à jour Ubuntu
+3. ✅ Installer PHP 8.2 + toutes les extensions requises
+4. ✅ Installer Composer
+5. ✅ Installer Node.js 20
 6. ✅ Installer les dépendances PHP (composer install)
 7. ✅ Compiler les assets frontend (npm run build)
 8. ✅ Configurer Nginx

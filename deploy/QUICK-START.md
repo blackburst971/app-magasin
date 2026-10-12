@@ -1,6 +1,6 @@
 # Guide de démarrage rapide - Serveur Backup Raspberry Pi
 
-## ⚡ Installation en 5 étapes
+## ⚡ Installation en 4 étapes
 
 ### 📋 Avant de commencer
 
@@ -8,37 +8,57 @@
 - ✅ Raspberry Pi 5 (8 Go RAM) avec Ubuntu Server installé
 - ✅ Connexion réseau (IP du Raspberry Pi)
 - ✅ Accès SSH au Raspberry Pi
-- ✅ Compte GitHub avec le code source de l'application
 - ✅ OpenSSH Client sur Windows Server
 
 ---
 
-## Étape 1️⃣ : Modifier l'URL GitHub
+## Étape 1️⃣ : Télécharger le code source sur Raspberry Pi
 
-**Sur Windows**, éditer le fichier :
-```
-C:\inetpub\wwwroot\app-magasin\deploy\install-ubuntu-backup.sh
-```
+**Sur le Raspberry Pi** (via SSH) :
 
-**Ligne 19**, remplacer par votre dépôt GitHub :
 ```bash
-GITHUB_REPO="https://github.com/VOTRE_UTILISATEUR/VOTRE_DEPOT.git"
+# Se connecter
+ssh pi@<IP_RASPBERRY>
+
+# Installer Git si nécessaire
+sudo apt update && sudo apt install -y git
+
+# Télécharger le code source depuis GitHub
+sudo mkdir -p /var/www
+cd /var/www
+sudo git clone https://github.com/blackburst971/app-magasin.git
+
+# Vérifier
+ls -la /var/www/app-magasin
 ```
+
+✅ **Code source téléchargé !**
 
 ---
 
-## Étape 2️⃣ : Transférer et lancer l'installation
+## Étape 2️⃣ : Lancer l'installation automatique
 
-**Depuis Windows** (PowerShell) :
-```powershell
-scp C:\inetpub\wwwroot\app-magasin\deploy\install-ubuntu-backup.sh pi@<IP_RASPBERRY>:~/
-```
+**Sur le Raspberry Pi** (toujours en SSH) :
 
-**Sur le Raspberry Pi** (SSH) :
 ```bash
-chmod +x ~/install-ubuntu-backup.sh
+# Se placer dans le dossier de déploiement
+cd /var/www/app-magasin/deploy
+
+# Rendre le script exécutable
+chmod +x install-ubuntu-backup.sh
+
+# Lancer l'installation (TOUT est automatique !)
 sudo ./install-ubuntu-backup.sh
 ```
+
+Le script va installer :
+- ✅ PHP 8.2 + toutes extensions requises
+- ✅ Composer
+- ✅ Node.js 20
+- ✅ Nginx (serveur web)
+- ✅ Toutes les dépendances PHP (composer install)
+- ✅ Compilation assets frontend (npm run build)
+- ✅ Configuration Nginx et pare-feu
 
 ⏱️ **Durée : 15-30 minutes**
 
