@@ -106,6 +106,31 @@ class ReservationController extends Controller
         // Superviseur principal (par défaut)
         $principalSupervisorId = $request->user()->supervisor_id;
 
+        // Liste des utilisateurs disponibles pour les participants
+        $currentUser = $request->user();
+        $availableUsers = collect();
+
+        // Étudiants : peuvent choisir uniquement d'autres étudiants
+        if ($currentUser->hasRole('student')) {
+            $availableUsers = \App\Models\User::role('student')
+                ->where('id', '!=', $currentUser->id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'email']);
+        }
+        // Professeurs : peuvent choisir étudiants ET professeurs
+        elseif ($currentUser->hasRole('professeur')) {
+            $availableUsers = \App\Models\User::whereHas('roles', function($q) {
+                $q->whereIn('name', ['student', 'professeur']);
+            })
+            ->where('id', '!=', $currentUser->id)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email']);
+        }
+        // Personnel et autres : pas de participants pour le moment
+        else {
+            $availableUsers = collect();
+        }
+
         return Inertia::render('Reservations/Create', [
             'requiredForm'            => $requiredForm,
             'examMode'                => $examMode,
@@ -114,6 +139,7 @@ class ReservationController extends Controller
             'examAdvanceHours'        => (int) Setting::get('exam_advance_hours', 24),
             'examProcessStart'        => (int) Setting::get('exam_process_start', 7),
             'examProcessEnd'          => (int) Setting::get('exam_process_end', 9),
+            'availableParticipants'   => $availableUsers,
         ]);
     }
 
@@ -122,16 +148,18 @@ class ReservationController extends Controller
         $isAdmin = $request->user()->hasRole('admin');
 
         $rules = [
-            'title'          => 'required|string|max:255',
-            'start_date'     => 'required|date',
-            'end_date'       => 'required|date|after:start_date',
-            'asset_ids'      => 'nullable|array',
-            'asset_ids.*'    => 'exists:assets,id',
-            'kit_ids'        => 'nullable|array',
-            'kit_ids.*'      => 'exists:kits,id',
-            'notes'          => 'nullable|string|max:1000',
-            'form_id'        => 'nullable|exists:checkout_forms,id',
-            'form_responses' => 'nullable|array',
+            'title'           => 'required|string|max:255',
+            'start_date'      => 'required|date',
+            'end_date'        => 'required|date|after:start_date',
+            'asset_ids'       => 'nullable|array',
+            'asset_ids.*'     => 'exists:assets,id',
+            'kit_ids'         => 'nullable|array',
+            'kit_ids.*'       => 'exists:kits,id',
+            'notes'           => 'nullable|string|max:1000',
+            'form_id'         => 'nullable|exists:checkout_forms,id',
+            'form_responses'  => 'nullable|array',
+            'participant_ids' => 'nullable|array',
+            'participant_ids.*' => 'exists:users,id',
         ];
         if ($isAdmin) {
             $rules['user_id'] = 'nullable|exists:users,id';
@@ -325,6 +353,13 @@ class ReservationController extends Controller
                 if ($supervisor) {
                     $supervisor->notify(new \App\Notifications\ReservationAwaitingSupervisorNotification($reservation));
                     try { Mail::to($supervisor->email)->send(new ReservationAwaitingSupervisor($reservation, $supervisor)); } catch (\Exception $e) {}
+
+                    // Notifier les admins de manière discrète qu'une demande est en attente de signature
+                    $admins = User::role('admin')->get();
+                    foreach ($admins as $admin) {
+                        $admin->notify(new \App\Notifications\ReservationAwaitingSignatureNotification($reservation));
+                    }
+
                     return redirect()->route('reservations.show', $reservation)
                         ->with('success', 'Demande envoyée à votre responsable pour signature et validation.');
                 }
@@ -334,6 +369,16 @@ class ReservationController extends Controller
             foreach ($admins as $admin) {
                 // Envoyer uniquement la notification (qui gère email + database selon les paramètres)
                 $admin->notify(new \App\Notifications\ReservationPendingNotification($reservation));
+            }
+        }
+
+        // Attacher les participants (utilisateurs additionnels)
+        if (!empty($data['participant_ids'])) {
+            $participantIds = array_filter($data['participant_ids']);
+            // Ne pas inclure le demandeur principal comme participant
+            $participantIds = array_diff($participantIds, [$targetUserId]);
+            if (!empty($participantIds)) {
+                $reservation->participants()->attach($participantIds);
             }
         }
 
@@ -381,12 +426,16 @@ class ReservationController extends Controller
                         $asset->update(['status' => 'reserved']);
                     }
                 }
+                // Mettre à jour le statut des kits complets dans cette réservation
+                $reservation->fresh()->updateKitStatuses('reserved');
             } elseif (in_array($request->status, ['cancelled', 'rejected']) && $previousStatus === 'approved') {
                 foreach ($reservation->assets as $asset) {
                     if ($asset->status === 'reserved') {
                         $asset->update(['status' => 'available']);
                     }
                 }
+                // Remettre les kits à disponible
+                $reservation->fresh()->updateKitStatuses('available');
             }
             $count++;
         }
@@ -430,12 +479,14 @@ class ReservationController extends Controller
     public function adminUpdate(Request $request, Reservation $reservation)
     {
         $data = $request->validate([
-            'title'       => 'required|string|max:255',
-            'start_date'  => 'required|date',
-            'end_date'    => 'required|date|after:start_date',
-            'notes'       => 'nullable|string|max:1000',
-            'admin_notes' => 'nullable|string|max:500',
-            'status'      => 'required|in:pending,approved,active,returned,cancelled,rejected,awaiting_supervisor',
+            'title'           => 'required|string|max:255',
+            'start_date'      => 'required|date',
+            'end_date'        => 'required|date|after:start_date',
+            'notes'           => 'nullable|string|max:1000',
+            'admin_notes'     => 'nullable|string|max:500',
+            'status'          => 'required|in:pending,approved,active,returned,cancelled,rejected,awaiting_supervisor',
+            'participant_ids' => 'nullable|array',
+            'participant_ids.*' => 'exists:users,id',
         ]);
 
         $updates = $data;
@@ -476,6 +527,14 @@ class ReservationController extends Controller
             $reservation->fresh()->updateKitStatuses('available');
         }
 
+        // Mettre à jour les participants (admin uniquement)
+        if (isset($data['participant_ids'])) {
+            $participantIds = array_filter($data['participant_ids']);
+            // Ne pas inclure le demandeur principal comme participant
+            $participantIds = array_diff($participantIds, [$reservation->user_id]);
+            $reservation->participants()->sync($participantIds);
+        }
+
         return back()->with('success', 'Réservation mise à jour.');
     }
 
@@ -490,7 +549,7 @@ class ReservationController extends Controller
             abort(403);
         }
 
-        $reservation->load(['user', 'assets.category', 'approvedBy', 'supervisorApprovedBy', 'formResponse.form']);
+        $reservation->load(['user', 'assets.category', 'approvedBy', 'supervisorApprovedBy', 'formResponse.form', 'participants']);
 
         // Enrichir les assets avec l'URL d'image
         $assetsWithImage = $reservation->assets->map(function ($asset) {
@@ -575,6 +634,16 @@ class ReservationController extends Controller
             'supervisor_signature'   => $request->supervisor_signature,
         ]);
 
+        // Marquer les équipements comme "réservé" dès la validation du superviseur
+        foreach ($reservation->assets as $asset) {
+            if (in_array($asset->status, ['available', 'en_preparation'])) {
+                $asset->update(['status' => 'reserved']);
+            }
+        }
+
+        // Mettre à jour le statut des kits complets dans cette réservation
+        $reservation->fresh()->updateKitStatuses('reserved');
+
         // Notifier les admins
         $admins = User::role('admin')->get();
         foreach ($admins as $admin) {
@@ -646,6 +715,9 @@ class ReservationController extends Controller
             }
         }
 
+        // Mettre à jour le statut des kits complets dans cette réservation
+        $reservation->fresh()->updateKitStatuses('reserved');
+
         try {
             Mail::to($reservation->user->email)->send(new ReservationConfirmed(
                     $reservation,
@@ -665,6 +737,16 @@ class ReservationController extends Controller
             'status'      => 'rejected',
             'admin_notes' => $request->admin_notes,
         ]);
+
+        // Libérer les équipements s'ils étaient réservés (validation superviseur déjà effectuée)
+        foreach ($reservation->assets as $asset) {
+            if ($asset->status === 'reserved') {
+                $asset->update(['status' => 'available']);
+            }
+        }
+
+        // Remettre les kits à disponible
+        $reservation->fresh()->updateKitStatuses('available');
 
         try {
             Mail::to($reservation->user->email)->send(new ReservationRejected($reservation));

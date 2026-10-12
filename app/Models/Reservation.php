@@ -49,6 +49,12 @@ class Reservation extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** Participants de la réservation (utilisateurs additionnels) */
+    public function participants()
+    {
+        return $this->belongsToMany(User::class, 'reservation_participants')->withTimestamps();
+    }
+
     public function event()
     {
         return $this->belongsTo(\App\Models\Event::class);
@@ -292,6 +298,18 @@ class Reservation extends Model
 
                     if (!$allScanned) {
                         continue; // Ne pas mettre à jour si pas tous scannés
+                    }
+                }
+
+                // Pour le retour (available), vérifier que tous sont retournés
+                if ($targetStatus === 'available') {
+                    $allReturned = $this->assets()
+                        ->whereIn('assets.id', $kitAssetIds)
+                        ->wherePivotNotNull('returned_at')
+                        ->count() === $kitAssetIds->count();
+
+                    if (!$allReturned) {
+                        continue; // Ne pas mettre à jour si pas tous retournés
                     }
                 }
 

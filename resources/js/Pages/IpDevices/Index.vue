@@ -469,14 +469,6 @@ function confirmBulkDelete() {
               <KeyIcon class="w-3 h-3" />
               {{ c.license_assignments_count }}
             </div>
-            <!-- Badge inventaire lié -->
-            <div v-if="c.asset_id"
-              class="absolute top-2 left-2 text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1"
-              :class="c.asset_is_reservable ? 'bg-green-600 text-white' : 'bg-gray-700 text-white'"
-              :title="c.asset_is_reservable ? 'Réservable par les utilisateurs' : 'Non réservable'">
-              <CubeIcon class="w-3 h-3" />
-              {{ c.asset_is_reservable ? 'Réservable' : 'Inventaire' }}
-            </div>
           </div>
 
           <!-- Infos -->

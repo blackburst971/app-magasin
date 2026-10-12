@@ -317,7 +317,7 @@ function modalRemoveAsset(asset) {
 }
 
 // ─── Participants supplémentaires (admin) ──────────────────────────────────────
-const participants      = ref([...(props.reservation.additional_users ?? [])])
+const participants      = ref([...(props.reservation.participants ?? [])])
 const participantSearch = ref('')
 const participantAdding = ref(false)
 const participantError  = ref('')
@@ -334,9 +334,19 @@ async function addParticipant(user) {
   participantAdding.value = true
   participantError.value  = ''
   try {
-    await axios.post(route('reservations.users.add', props.reservation.id), { user_id: user.id })
-    participants.value.push({ id: user.id, name: user.name, email: user.email })
-    participantSearch.value = ''
+    // Ajouter via la mise à jour admin
+    const currentParticipantIds = participants.value.map(u => u.id)
+    const newParticipantIds = [...currentParticipantIds, user.id]
+
+    await router.patch(route('reservations.admin-update', props.reservation.id), {
+      participant_ids: newParticipantIds
+    }, {
+      preserveState: true,
+      onSuccess: () => {
+        participants.value.push({ id: user.id, name: user.name, email: user.email })
+        participantSearch.value = ''
+      }
+    })
   } catch (e) {
     participantError.value = e.response?.data?.error ?? 'Erreur'
   } finally {
@@ -346,8 +356,16 @@ async function addParticipant(user) {
 
 async function removeParticipant(user) {
   try {
-    await axios.delete(route('reservations.users.remove', [props.reservation.id, user.id]))
-    participants.value = participants.value.filter(u => u.id !== user.id)
+    const newParticipantIds = participants.value.filter(u => u.id !== user.id).map(u => u.id)
+
+    await router.patch(route('reservations.admin-update', props.reservation.id), {
+      participant_ids: newParticipantIds
+    }, {
+      preserveState: true,
+      onSuccess: () => {
+        participants.value = participants.value.filter(u => u.id !== user.id)
+      }
+    })
   } catch {}
 }
 

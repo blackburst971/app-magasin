@@ -32,3 +32,8 @@ Schedule::command('app:check-todo-reminders')
 Schedule::command('app:auto-checkout-preparations')
     ->everyMinute()
     ->withoutOverlapping();
+
+// Libération automatique des équipements bloqués en 'reserved' — toutes les heures
+Schedule::command('app:release-stuck-reserved-assets --force')
+    ->hourly()
+    ->withoutOverlapping();

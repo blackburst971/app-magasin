@@ -382,11 +382,11 @@ class AttributionController extends Controller
             return response()->json(['error' => "Cet equipement est deja dans la reservation"], 409);
         }
 
-        // Attacher + checker out immediatement
-        $reservation->assets()->attach($asset->id, ['checkout_at' => now()]);
+        // Attacher SANS checkout (nécessite scan)
+        $reservation->assets()->attach($asset->id, ['checkout_at' => null]);
         $asset->update([
-            'status'                 => 'checked_out',
-            'checked_out_to_user_id' => $reservation->user_id,
+            'status'                 => 'reserved',
+            'checked_out_to_user_id' => null,
             'expected_return_at'     => $reservation->end_date,
         ]);
 
@@ -394,8 +394,8 @@ class AttributionController extends Controller
             'asset_id'       => $asset->id,
             'reservation_id' => $reservation->id,
             'user_id'        => Auth::id(),
-            'action'         => 'checkout',
-            'notes'          => "Ajout hors-reservation et attribution par " . Auth::user()->name,
+            'action'         => 'reserve',
+            'notes'          => "Ajout extra dans reservation par " . Auth::user()->name . " (scan requis)",
         ]);
 
         // Verifier si tout est sorti
@@ -484,7 +484,8 @@ class AttributionController extends Controller
     }
 
     /**
-     * Attribution libre en lot : crée une réservation active avec plusieurs équipements et/ou kits.
+     * Attribution libre en lot : crée une réservation avec plusieurs équipements et/ou kits.
+     * Les équipements des kits doivent être scannés; les équipements individuels sont sortis immédiatement.
      */
     public function freeBulkCheckout(Request $request)
     {
@@ -509,7 +510,7 @@ class AttributionController extends Controller
         $assets     = [];
         $errors     = [];
 
-        // ── Équipements individuels ──────────────────────────────────────────
+        // ── Équipements individuels (scannés immédiatement) ──────────────────────────────────────────
         foreach ($request->input('asset_tags', []) as $tag) {
             $tag   = trim($tag);
             $asset = Asset::where('asset_tag', $tag)->first();
@@ -524,7 +525,7 @@ class AttributionController extends Controller
             $assets[] = $asset;
         }
 
-        // ── Kits : on ajoute tous leurs équipements disponibles ─────────────
+        // ── Kits : on ajoute tous leurs équipements (à scanner) ─────────────
         $kits = [];
         $kitAssets = [];
         foreach ($request->input('kit_ids', []) as $kitId) {
@@ -544,9 +545,7 @@ class AttributionController extends Controller
             }
         }
 
-        $allAssets = array_merge($assets, $kitAssets);
-
-        if (empty($allAssets)) {
+        if (empty($assets) && empty($kitAssets)) {
             return response()->json(['error' => 'Aucun équipement valide. ' . implode('. ', $errors)], 422);
         }
 
@@ -555,28 +554,37 @@ class AttributionController extends Controller
             $kitNames = implode(', ', array_map(fn($k) => $k->name, $kits));
             $title = $request->title ?: "Attribution libre — {$kitNames}";
         } else {
-            $names = implode(', ', array_map(fn($a) => $a->name, $allAssets));
+            $allForTitle = array_merge($assets, $kitAssets);
+            $names = implode(', ', array_map(fn($a) => $a->name, $allForTitle));
             $title = $request->title ?: "Attribution libre — {$names}";
         }
+
+        // Déterminer le statut initial :
+        // - Si seulement des équipements individuels → 'active' (sortis immédiatement)
+        // - Si des kits → 'approved' (nécessite scan)
+        $hasKits = !empty($kitAssets);
+        $initialStatus = $hasKits ? 'approved' : 'active';
 
         $reservation = Reservation::create([
             'user_id'     => $targetUser->id,
             'title'       => $title,
             'start_date'  => now(),
             'end_date'    => $request->end_date,
-            'status'      => 'active',
+            'status'      => $initialStatus,
             'approved_by' => Auth::id(),
             'approved_at' => now(),
-            'checkout_at' => now(),
+            'checkout_at' => $hasKits ? null : now(),
         ]);
 
         // Lier les kits à la réservation
         foreach ($kits as $kit) {
             $reservation->kits()->attach($kit->id);
+            // Marquer le kit comme réservé (sera mis à jour à 'checked_out' après scan complet)
+            $kit->update(['status' => 'reserved']);
         }
 
-        // Attacher et sortir tous les équipements
-        foreach ($allAssets as $asset) {
+        // ── Équipements individuels : sortis immédiatement ──
+        foreach ($assets as $asset) {
             $reservation->assets()->attach($asset->id, ['checkout_at' => now()]);
             $asset->update([
                 'status'                 => 'checked_out',
@@ -588,7 +596,20 @@ class AttributionController extends Controller
                 'reservation_id' => $reservation->id,
                 'user_id'        => Auth::id(),
                 'action'         => 'checkout',
-                'notes'          => "Attribution libre (lot) par " . Auth::user()->name . " → {$targetUser->name}",
+                'notes'          => "Attribution libre (scan immédiat) par " . Auth::user()->name . " → {$targetUser->name}",
+            ]);
+        }
+
+        // ── Équipements de kits : attachés mais NON sortis (nécessitent scan) ──
+        foreach ($kitAssets as $asset) {
+            $reservation->assets()->attach($asset->id, ['checkout_at' => null]);
+            $asset->update(['status' => 'reserved']);
+            AssetMovement::create([
+                'asset_id'       => $asset->id,
+                'reservation_id' => $reservation->id,
+                'user_id'        => Auth::id(),
+                'action'         => 'status_change',
+                'notes'          => "Réservé pour attribution libre (kit) — À scanner pour sortie",
             ]);
         }
 
@@ -603,8 +624,9 @@ class AttributionController extends Controller
             $reservation->additionalUsers()->sync($additionalUserIds);
         }
 
+        // Email de confirmation uniquement si pas de kits (sortie immédiate)
         $checkoutEmailSent = false;
-        if ($request->boolean('send_checkout_email')) {
+        if (!$hasKits && $request->boolean('send_checkout_email')) {
             $fresh = $reservation->fresh();
             try {
                 Mail::to($targetUser->email)->send(new CheckoutSummary($fresh));
@@ -629,8 +651,10 @@ class AttributionController extends Controller
             'reservation_id'      => $reservation->id,
             'user'                => $targetUser->name,
             'end_date'            => $reservation->end_date->format('d/m/Y H:i'),
-            'assets'              => array_map(fn($a) => ['name' => $a->name, 'asset_tag' => $a->asset_tag], $allAssets),
+            'assets'              => array_map(fn($a) => ['name' => $a->name, 'asset_tag' => $a->asset_tag], $assets),
+            'kit_assets'          => array_map(fn($a) => ['name' => $a->name, 'asset_tag' => $a->asset_tag], $kitAssets),
             'kits'                => array_map(fn($k) => ['name' => $k->name], $kits),
+            'requires_scan'       => $hasKits,
             'errors'              => $errors,
             'checkout_email_sent' => $checkoutEmailSent,
             'pending_forms'       => $pendingForms,
@@ -753,6 +777,19 @@ class AttributionController extends Controller
         // Remove original from reservation, add scanned asset
         $reservation->assets()->detach($originalAsset->id);
         $reservation->assets()->attach($scannedAsset->id, ['checkout_at' => now()]);
+
+        // Libérer l'équipement original s'il était réservé (substitution)
+        if ($originalAsset->status === 'reserved') {
+            $originalAsset->update(['status' => 'available']);
+
+            AssetMovement::create([
+                'asset_id'       => $originalAsset->id,
+                'reservation_id' => $reservation->id,
+                'user_id'        => Auth::id(),
+                'action'         => 'status_change',
+                'notes'          => "Libération automatique (substitution par {$scannedAsset->asset_tag}) — Réservation #{$reservation->id}",
+            ]);
+        }
 
         // Update asset statuses
         $scannedAsset->update([

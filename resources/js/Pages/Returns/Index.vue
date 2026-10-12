@@ -215,6 +215,149 @@ function cancelAccessoriesCheck() {
   setTimeout(() => { scanResult.value = null; focusPreferred() }, 7000)
 }
 
+// ─── Modal vérification note d'état ───────────────────────────────────────────
+const stateCheckModal = ref({
+  open:            false,
+  asset:           null,
+  returnCheckNote: '',
+  pendingTag:      '',
+  pendingData:     null,
+})
+
+function showStateCheckModal(data, tag) {
+  stateCheckModal.value = {
+    open:            true,
+    asset:           data.asset,
+    returnCheckNote: data.return_check_note,
+    pendingTag:      tag,
+    pendingData:     data,
+  }
+}
+
+function validateStateCheck() {
+  stateCheckModal.value.open = false
+  // Relancer le scan avec confirmation
+  doScanReturnWithStateConfirmed(stateCheckModal.value.pendingTag)
+}
+
+function createReportFromStateCheck() {
+  stateCheckModal.value.open = false
+  const asset = stateCheckModal.value.asset
+  // Ouvrir rapport dans nouvel onglet
+  const url = route('admin-reports.create', {
+    asset: asset.id,
+    return_condition: 'damaged'
+  })
+  window.open(url, '_blank')
+  scanResult.value = {
+    type: 'info',
+    message: `ℹ️ Veuillez remplir le rapport de signalement pour ${asset.name}`,
+  }
+  setTimeout(() => { scanResult.value = null }, 5000)
+}
+
+async function doScanReturnWithStateConfirmed(tag) {
+  scanning.value = true
+  try {
+    const payload = {
+      asset_tag:            tag,
+      condition:            scanCondition.value,
+      return_notes:         scanNotes.value || null,
+      returned_by_user_id:  scanReturnedBy.value || null,
+      state_check_confirmed: true, // Confirme qu'on a vérifié la note
+    }
+
+    const { data } = await axios.post(route('returns.scan'), payload)
+
+    // Continuer le flux normal (composants, etc.)
+    processScanReturnData(data, tag)
+  } catch (err) {
+    playSound('scan_error')
+    scanResult.value = {
+      type:    'error',
+      message: err.response?.data?.error ?? 'Erreur lors du retour',
+    }
+    setTimeout(() => { scanResult.value = null }, 5000)
+  } finally {
+    scanning.value = false
+  }
+}
+
+// ─── Fonction de traitement des données de retour de scan ─────────────────────
+function processScanReturnData(data, tag, opts = {}) {
+  const scratchLost = opts.scratchLost || data.scratch_lost || false
+  const belgeLost   = opts.belgeLost   || data.belge_lost   || false
+
+  // Si composants requis → ouvrir pop-up composants
+  if (data.require_components && data.components) {
+    playSound('scan_success')
+    openComponentModal(data)
+    scanning.value = false
+    return
+  }
+
+  // Si assignation lieu requis → pop-up stockage
+  if (data.require_storage_place) {
+    playSound('scan_success')
+    openStoragePlaceModal(data.asset, data.from_place, tag)
+    scanning.value = false
+    return
+  }
+
+  const isComplete    = data.reservation?.all_returned === true
+  const hasComponents = data.components && data.components.length > 0
+  const isPendingMode = data.condition === 'pending'
+
+  scanNotes.value     = ''
+  scanCondition.value = 'good'
+
+  // Mémoriser ce retour pour l'annulation dans la fenêtre de 5 min
+  if (!isPendingMode && data.reservation?.id && data.asset?.id) {
+    recentReturns.value.unshift({
+      reservationId: data.reservation.id,
+      assetId:       data.asset.id,
+      assetName:     data.asset.name,
+      returnedAt:    new Date(),
+      undoLoading:   false,
+    })
+    // Nettoyer les anciens (> 10 min) pour ne pas accumuler
+    recentReturns.value = recentReturns.value.filter(r => (Date.now() - r.returnedAt.getTime()) < 10 * 60 * 1000)
+  }
+
+  // Composants → popup vérification (pas de belge post-retour maintenant, c'était pré-retour)
+  if (hasComponents && !isPendingMode) {
+    playSound('scan_success')
+    openComponentModal(data)
+    return
+  }
+
+  if (isComplete) {
+    playSound('reservation_complete')
+    showCompletionFlash(data.reservation.title, data.reservation.is_kit)
+  } else {
+    playSound('scan_success')
+  }
+
+  const conditionEmoji  = { good: '✅', damaged: '⚠️', lost: '❌', pending: '🔍' }[data.condition ?? 'good'] ?? '✅'
+  const reservationInfo = data.reservation
+    ? ` — « ${data.reservation.title} »${isComplete ? ' ✅ Complet !' : ''}${data.reservation.is_kit ? ' 📦 KIT' : ''}`
+    : ''
+  const actionLabel = isPendingMode ? 'mis en attente de vérification' : 'retourné'
+  let lostBadge = ''
+  if (scratchLost) lostBadge += ' · 🪢 velcro noté manquant'
+  if (belgeLost)   lostBadge += ' · 👜 belge noté manquant'
+
+  scanResult.value = {
+    type:    lostBadge ? 'warning' : 'success',
+    message: `${conditionEmoji} ${data.asset.name} (${data.asset.asset_tag}) ${actionLabel}${lostBadge}${reservationInfo}`,
+  }
+
+  router.reload({
+    only:      ['overdueReservations', 'activeReservations', 'kitsAwaitingRegularization', 'placeAssignments'],
+    onSuccess: () => { focusPreferred() },
+  })
+}
+
 // ─── Modal sélection lieu de stockage ─────────────────────────────────────────
 const storagePlaceModal = ref({
   open:       false,
@@ -548,6 +691,24 @@ async function doScanReturn(tag, opts = {}) {
 
     const { data } = await axios.post(route('returns.scan'), payload)
 
+    // Si besoin de créer un rapport admin (condition != good)
+    if (data.needs_admin_report) {
+      playSound('scan_success')
+      scanning.value = false
+      // Ouvrir nouvel onglet vers création rapport
+      window.open(data.report_url, '_blank')
+      alert(`⚠️ Veuillez remplir le rapport de signalement pour ${data.asset.name}\n\nLe retour ne sera validé qu'après avoir complété le rapport.`)
+      return
+    }
+
+    // Si affichage pop-up vérification note d'état
+    if (data.show_state_check) {
+      playSound('scan_success')
+      scanning.value = false
+      showStateCheckModal(data, tag)
+      return
+    }
+
     // Si retour d'affectation de lieu → demander le lieu de stockage
     if (data.needs_storage_place) {
       playSound('scan_success')
@@ -556,58 +717,8 @@ async function doScanReturn(tag, opts = {}) {
       return
     }
 
-    const isComplete    = data.reservation?.all_returned === true
-    const hasComponents = data.components && data.components.length > 0
-    const isPendingMode = data.condition === 'pending'
-
-    scanNotes.value     = ''
-    scanCondition.value = 'good'
-
-    // Mémoriser ce retour pour l'annulation dans la fenêtre de 5 min
-    if (!isPendingMode && data.reservation?.id && data.asset?.id) {
-      recentReturns.value.unshift({
-        reservationId: data.reservation.id,
-        assetId:       data.asset.id,
-        assetName:     data.asset.name,
-        returnedAt:    new Date(),
-        undoLoading:   false,
-      })
-      // Nettoyer les anciens (> 10 min) pour ne pas accumuler
-      recentReturns.value = recentReturns.value.filter(r => (Date.now() - r.returnedAt.getTime()) < 10 * 60 * 1000)
-    }
-
-    // Composants → popup vérification (pas de belge post-retour maintenant, c'était pré-retour)
-    if (hasComponents && !isPendingMode) {
-      playSound('scan_success')
-      openComponentModal(data)
-      return
-    }
-
-    if (isComplete) {
-      playSound('reservation_complete')
-      showCompletionFlash(data.reservation.title, data.reservation.is_kit)
-    } else {
-      playSound('scan_success')
-    }
-
-    const conditionEmoji  = { good: '✅', damaged: '⚠️', lost: '❌', pending: '🔍' }[data.condition ?? 'good'] ?? '✅'
-    const reservationInfo = data.reservation
-      ? ` — « ${data.reservation.title} »${isComplete ? ' ✅ Complet !' : ''}${data.reservation.is_kit ? ' 📦 KIT' : ''}`
-      : ''
-    const actionLabel = isPendingMode ? 'mis en attente de vérification' : 'retourné'
-    let lostBadge = ''
-    if (scratchLost) lostBadge += ' · 🪢 velcro noté manquant'
-    if (belgeLost)   lostBadge += ' · 👜 belge noté manquant'
-
-    scanResult.value = {
-      type:    lostBadge ? 'warning' : 'success',
-      message: `${conditionEmoji} ${data.asset.name} (${data.asset.asset_tag}) ${actionLabel}${lostBadge}${reservationInfo}`,
-    }
-
-    router.reload({
-      only:      ['overdueReservations', 'activeReservations', 'kitsAwaitingRegularization', 'placeAssignments'],
-      onSuccess: () => { focusPreferred() },
-    })
+    // Traiter le retour normalement
+    processScanReturnData(data, tag, opts)
 
   } catch (err) {
     playSound('scan_error')
@@ -2475,6 +2586,59 @@ function scanFromReservation(res) {
       </Transition>
     </Teleport>
 
+    <!-- ═══ Pop-up : vérification état après scan (note d'état) ═══ -->
+    <Teleport to="body">
+      <Transition name="state-check-fade">
+        <div v-if="stateCheckModal.open"
+             class="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
+
+            <!-- En-tête rouge/orange -->
+            <div class="bg-gradient-to-r from-orange-500 to-red-500 px-8 py-6 text-white">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-bold text-white/90 uppercase tracking-widest">⚠️ Vérification d'état</span>
+              </div>
+              <p class="text-xl font-bold text-white truncate">{{ stateCheckModal.asset?.name }}</p>
+              <p class="text-sm text-white/80 mt-1">{{ stateCheckModal.asset?.asset_tag }}</p>
+            </div>
+
+            <!-- Corps : affichage de la note d'état -->
+            <div class="px-8 py-8">
+              <div class="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 mb-6">
+                <p class="text-sm font-semibold text-amber-700 uppercase tracking-wider mb-2">📝 Note d'état de retour :</p>
+                <p class="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{{ stateCheckModal.returnCheckNote }}</p>
+              </div>
+
+              <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                <p class="text-sm text-blue-800">
+                  <span class="font-semibold">Que souhaitez-vous faire ?</span><br>
+                  • <strong>Valider le retour</strong> si l'état est conforme<br>
+                  • <strong>Créer un signalement</strong> si vous constatez un problème
+                </p>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-4 px-8 pb-8">
+              <button
+                @click="createReportFromStateCheck"
+                class="flex-1 flex items-center justify-center gap-3 py-5 rounded-2xl border-3 border-orange-300 bg-orange-50 text-orange-700 font-black text-lg hover:bg-orange-100 transition active:scale-95">
+                <span class="text-2xl">📋</span>
+                CRÉER UN SIGNALEMENT
+              </button>
+              <button
+                @click="validateStateCheck"
+                class="flex-1 flex items-center justify-center gap-3 py-5 rounded-2xl bg-green-600 text-white font-black text-lg hover:bg-green-700 transition shadow-lg active:scale-95">
+                <span class="text-2xl">✅</span>
+                VALIDER LE RETOUR
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- ═══ Pop-up : vérification à faire pour le retour ═══ -->
     <Teleport to="body">
       <Transition name="check-note-fade">
@@ -2615,6 +2779,12 @@ function scanFromReservation(res) {
 .belge-check-fade-leave-active { transition: all 0.2s ease-in; }
 .belge-check-fade-enter-from   { opacity: 0; transform: scale(0.88); }
 .belge-check-fade-leave-to     { opacity: 0; transform: scale(0.95); }
+
+/* Pop-up vérification état après scan */
+.state-check-fade-enter-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.state-check-fade-leave-active { transition: all 0.2s ease-in; }
+.state-check-fade-enter-from   { opacity: 0; transform: scale(0.88); }
+.state-check-fade-leave-to     { opacity: 0; transform: scale(0.95); }
 
 /* Pop-up vérification retour */
 .check-note-fade-enter-active { transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }

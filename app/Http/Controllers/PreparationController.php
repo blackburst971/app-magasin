@@ -119,6 +119,7 @@ class PreparationController extends Controller
             'notes'                 => $data['notes'] ?? null,
             'status'                => 'preparing',
             'reservation_id'        => $data['reservation_id'] ?? null,
+            'mode'                  => !empty($data['reservation_id']) ? 'reservation' : 'free',
             'send_preparation_mail' => $data['send_preparation_mail'] ?? false,
             'send_checkout_mail'    => $data['send_checkout_mail'] ?? false,
         ]);
@@ -596,7 +597,11 @@ class PreparationController extends Controller
         $preparation->load(['user', 'assets.category']);
 
         try {
+            // Envoyer l'email
             Mail::to($preparation->user->email)->send(new PreparationReadyMail($preparation));
+
+            // Envoyer la notification dans l'espace utilisateur
+            $preparation->user->notify(new \App\Notifications\PreparationReadyNotification($preparation));
         } catch (\Exception $e) {
             return response()->json(['error' => 'Erreur lors de l\'envoi : ' . $e->getMessage()], 500);
         }

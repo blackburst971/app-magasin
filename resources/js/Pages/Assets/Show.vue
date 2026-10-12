@@ -881,6 +881,61 @@
                         </div>
                     </div>
 
+                    <!-- Rapports admin (signalements) -->
+                    <div v-if="adminReports && adminReports.length > 0"
+                         class="bg-white rounded-xl shadow-sm p-6 scroll-mt-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                <span>🔧</span>
+                                Signalements admin
+                                <span class="text-xs font-normal normal-case text-gray-400">({{ adminReports.length }})</span>
+                            </h2>
+                            <button v-if="isAdmin" @click="router.visit(route('admin-reports.create', { asset: asset.id }))"
+                                class="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 font-medium">
+                                + Ajouter
+                            </button>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-for="report in adminReports" :key="report.id"
+                                 class="border rounded-xl overflow-hidden border-indigo-200 bg-indigo-50/30">
+                                <!-- En-tête rapport -->
+                                <div class="flex items-start gap-3 px-4 py-3 bg-indigo-50">
+                                    <span class="text-lg flex-shrink-0 mt-0.5">📝</span>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <p class="text-sm font-semibold text-gray-900">{{ report.title }}</p>
+                                            <span v-if="report.return_condition"
+                                                  class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                                  :class="{
+                                                      'bg-amber-100 text-amber-800': report.return_condition === 'damaged',
+                                                      'bg-red-100 text-red-800': report.return_condition === 'lost',
+                                                      'bg-blue-100 text-blue-800': report.return_condition === 'pending',
+                                                  }">
+                                                {{ report.return_condition === 'damaged' ? 'Endommagé' :
+                                                   report.return_condition === 'lost' ? 'Perdu' :
+                                                   report.return_condition === 'pending' ? 'À vérifier' : 'Bon' }}
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-0.5">
+                                            {{ report.created_by?.name ?? 'Admin' }} · {{ report.created_at }}
+                                        </p>
+                                    </div>
+                                    <!-- Actions admin -->
+                                    <div v-if="isAdmin" class="flex items-center gap-1 flex-shrink-0">
+                                        <button @click="router.visit(route('admin-reports.edit', report.id))"
+                                                class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-100 rounded-lg transition">
+                                            <PencilIcon class="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <!-- Corps rapport -->
+                                <div class="px-4 py-3 bg-white">
+                                    <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ report.content }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Historique des mouvements (admin uniquement) -->
                     <div v-if="isAdmin" class="bg-white rounded-xl shadow-sm p-6">
                         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Historique</h2>
@@ -1183,6 +1238,7 @@ const props = defineProps({
     assignableAssets:  { type: Array,   default: () => [] },
     components:        { type: Array,   default: () => [] },
     reports:           { type: Array,   default: () => [] },
+    adminReports:      { type: Array,   default: () => [] },
 })
 
 const isAdmin = computed(() => page.props.auth?.user?.is_admin)

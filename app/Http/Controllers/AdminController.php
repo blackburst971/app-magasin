@@ -387,16 +387,34 @@ class AdminController extends Controller
                 'reported_at'          => $m->created_at->format('d/m/Y H:i'),
             ]);
 
+        // Rapports de dégradation liés aux réservations de l'utilisateur
+        $damageReports = \App\Models\AdminAssetReport::with(['asset', 'reservation'])
+            ->whereHas('reservation', fn($q) => $q->where('user_id', $user->id))
+            ->whereIn('type', ['damage', 'malfunction'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn($r) => [
+                'id'               => $r->id,
+                'type'             => $r->type,
+                'title'            => $r->title,
+                'content'          => $r->content,
+                'return_condition' => $r->return_condition,
+                'asset'            => ['id' => $r->asset->id, 'name' => $r->asset->name, 'asset_tag' => $r->asset->asset_tag],
+                'reservation'      => $r->reservation ? ['id' => $r->reservation->id, 'title' => $r->reservation->title] : null,
+                'created_at'       => $r->created_at->format('d/m/Y H:i'),
+            ]);
+
         return Inertia::render('Admin/UserDetail', [
             'user' => [
-                'id'                => $user->id,
-                'name'              => $user->name,
-                'email'             => $user->email,
-                'department'        => $user->department,
-                'phone'             => $user->phone,
-                'roles'             => $user->getRoleNames(),
-                'created_at'        => $user->created_at->format('d/m/Y à H:i'),
-                'email_verified_at' => $user->email_verified_at?->format('d/m/Y'),
+                'id'                 => $user->id,
+                'name'               => $user->name,
+                'email'              => $user->email,
+                'department'         => $user->department,
+                'phone'              => $user->phone,
+                'roles'              => $user->getRoleNames(),
+                'created_at'         => $user->created_at->format('d/m/Y à H:i'),
+                'email_verified_at'  => $user->email_verified_at?->format('d/m/Y'),
+                'profile_photo_url'  => $user->profile_photo_path ? \Storage::url($user->profile_photo_path) : null,
             ],
             'reservations' => $reservations->map(fn($r) => [
                 'id'                => $r->id,
@@ -418,8 +436,9 @@ class AdminController extends Controller
                 ])->values(),
                 'created_at'        => $r->created_at->format('d/m/Y'),
             ])->values(),
-            'stats'         => $stats,
-            'missing_items' => $missingItems,
+            'stats'          => $stats,
+            'missing_items'  => $missingItems,
+            'damage_reports' => $damageReports,
         ]);
     }
 

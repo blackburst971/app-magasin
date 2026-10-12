@@ -4,10 +4,11 @@ import { ref, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
 
 const props = defineProps({
-  user:          Object,
-  reservations:  Array,
-  stats:         Object,
-  missing_items: Array,
+  user:           Object,
+  reservations:   Array,
+  stats:          Object,
+  missing_items:  Array,
+  damage_reports: Array,
 })
 
 const statusColors = {
@@ -60,7 +61,10 @@ const pendingMissingCount = computed(() => props.missing_items?.filter(m => !m.r
           <div class="bg-white rounded-2xl shadow-sm border p-6">
             <!-- Avatar -->
             <div class="flex flex-col items-center text-center mb-5">
-              <div class="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold mb-3 shadow-md">
+              <div v-if="user.profile_photo_url" class="w-20 h-20 rounded-full mb-3 shadow-md overflow-hidden">
+                <img :src="user.profile_photo_url" :alt="user.name" class="w-full h-full object-cover">
+              </div>
+              <div v-else class="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold mb-3 shadow-md">
                 {{ user.name.charAt(0).toUpperCase() }}
               </div>
               <h1 class="text-xl font-bold text-gray-900">{{ user.name }}</h1>
@@ -169,6 +173,17 @@ const pendingMissingCount = computed(() => props.missing_items?.filter(m => !m.r
               <span v-if="pendingMissingCount > 0"
                 class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">
                 {{ pendingMissingCount }}
+              </span>
+            </button>
+            <button @click="activeTab = 'damages'"
+              :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition flex items-center gap-1.5',
+                activeTab === 'damages'
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700']">
+              🔧 Dégradations
+              <span v-if="damage_reports?.length > 0"
+                class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-semibold">
+                {{ damage_reports.length }}
               </span>
             </button>
           </div>
@@ -302,6 +317,74 @@ const pendingMissingCount = computed(() => props.missing_items?.filter(m => !m.r
               <a :href="route('kits.index')" class="text-xs text-orange-600 hover:underline font-medium">
                 Gérer les régularisations →
               </a>
+            </div>
+          </div>
+
+          <!-- Onglet dégradations -->
+          <div v-if="activeTab === 'damages'" class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+            <div class="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <h2 class="font-semibold text-gray-900">🔧 Rapports de dégradation liés à {{ user.name }}</h2>
+              <span class="text-sm text-gray-500">{{ damage_reports?.length ?? 0 }} rapport(s)</span>
+            </div>
+
+            <div v-if="!damage_reports?.length" class="text-center py-16 text-gray-400">
+              <p class="text-4xl mb-3">✅</p>
+              <p class="text-sm">Aucun rapport de dégradation pour cet utilisateur</p>
+            </div>
+
+            <div v-else class="divide-y">
+              <div v-for="report in damage_reports" :key="report.id" class="px-5 py-4 hover:bg-gray-50 transition">
+                <div class="flex items-start gap-4">
+                  <!-- Icône type -->
+                  <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 text-lg">
+                    {{ report.type === 'damage' ? '⚠️' : report.type === 'malfunction' ? '🔧' : '📝' }}
+                  </div>
+
+                  <div class="flex-1 min-w-0">
+                    <!-- Titre et équipement -->
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                      <div class="flex-1">
+                        <h3 class="font-semibold text-gray-900">{{ report.title }}</h3>
+                        <p class="text-sm text-gray-600 mt-0.5">
+                          Équipement :
+                          <a :href="route('assets.show', report.asset.id)" class="text-blue-600 hover:underline font-medium">
+                            {{ report.asset.name }} ({{ report.asset.asset_tag }})
+                          </a>
+                        </p>
+                      </div>
+                      <span class="text-xs text-gray-400 flex-shrink-0">{{ report.created_at }}</span>
+                    </div>
+
+                    <!-- Description -->
+                    <p class="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 mb-2">{{ report.content }}</p>
+
+                    <!-- Condition de retour -->
+                    <div v-if="report.return_condition" class="flex items-center gap-2 text-xs">
+                      <span class="text-gray-500">État au retour :</span>
+                      <span :class="['px-2 py-0.5 rounded-full font-semibold',
+                        report.return_condition === 'damaged' ? 'bg-orange-100 text-orange-700' :
+                        report.return_condition === 'lost' ? 'bg-red-100 text-red-700' :
+                        'bg-amber-100 text-amber-700']">
+                        {{ report.return_condition === 'damaged' ? 'Endommagé' :
+                           report.return_condition === 'lost' ? 'Perdu' :
+                           report.return_condition === 'pending' ? 'À vérifier' : report.return_condition }}
+                      </span>
+                    </div>
+
+                    <!-- Réservation liée -->
+                    <div v-if="report.reservation" class="mt-2 text-xs text-blue-600">
+                      Réservation :
+                      <a :href="route('reservations.show', report.reservation.id)" class="hover:underline font-medium">
+                        {{ report.reservation.title }} (#{{ report.reservation.id }})
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="damage_reports?.length" class="px-5 py-3 bg-gray-50 border-t text-right">
+              <p class="text-xs text-gray-500">Rapports générés par les retours de réservations</p>
             </div>
           </div>
 

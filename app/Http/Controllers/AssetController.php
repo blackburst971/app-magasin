@@ -200,7 +200,7 @@ class AssetController extends Controller
             }
         }
 
-        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files', 'activeAssignment.assignedToAsset', 'assignedAssets.asset', 'components', 'reports.user', 'reports.validatedBy']);
+        $asset->load(['category', 'movements.user', 'equipmentModel.documents', 'supplier', 'maintenances.createdBy', 'accessories', 'parentAsset', 'files', 'activeAssignment.assignedToAsset', 'assignedAssets.asset', 'components', 'reports.user', 'reports.validatedBy', 'adminReports.creator', 'adminReports.reservation']);
 
         $movements = $asset->movements->map(fn($m) => [
             'id'         => $m->id,
@@ -356,6 +356,16 @@ class AssetController extends Controller
                     'user'         => $r->user ? ['id' => $r->user->id, 'name' => $r->user->name] : null,
                     'reservation_id' => $r->reservation_id,
                 ])->values(),
+            'adminReports' => $asset->adminReports->map(fn($r) => [
+                'id'               => $r->id,
+                'type'             => $r->type,
+                'title'            => $r->title,
+                'content'          => $r->content,
+                'return_condition' => $r->return_condition,
+                'created_at'       => $r->created_at->format('d/m/Y H:i'),
+                'created_by'       => $r->creator ? ['id' => $r->creator->id, 'name' => $r->creator->name] : null,
+                'reservation_id'   => $r->reservation_id,
+            ])->values(),
         ]);
     }
 

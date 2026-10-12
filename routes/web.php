@@ -198,16 +198,16 @@ Route::middleware('auth')->group(function () {
     // ─── Préparations (admin only) ───────────────────────────────────────
     Route::middleware('role:admin')->group(function () {
         Route::get('/preparations', [PreparationController::class, 'index'])->name('preparations.index');
-        Route::post('/preparations', [PreparationController::class, 'store'])->name('preparations.store');
-        Route::post('/preparations/validate-tag', [PreparationController::class, 'validateTag'])->name('preparations.validate-tag');
-        Route::post('/preparations/search-kits', [PreparationController::class, 'searchKits'])->name('preparations.search-kits');
-        Route::post('/preparations/{preparation}/add-asset', [PreparationController::class, 'addAsset'])->name('preparations.add-asset');
-        Route::post('/preparations/{preparation}/add-kit', [PreparationController::class, 'addKit'])->name('preparations.add-kit');
-        Route::delete('/preparations/{preparation}/assets/{asset}', [PreparationController::class, 'removeAsset'])->name('preparations.remove-asset');
-        Route::post('/preparations/{preparation}/validate-checkout', [PreparationController::class, 'validateCheckout'])->name('preparations.validate-checkout');
-        Route::post('/preparations/{preparation}/cancel', [PreparationController::class, 'cancel'])->name('preparations.cancel');
-        Route::post('/preparations/{preparation}/send-notification', [PreparationController::class, 'sendNotification'])->name('preparations.send-notification');
-        Route::post('/preparations/{preparation}/scan-asset', [PreparationController::class, 'scanReservationAsset'])->name('preparations.scan-asset');
+        Route::post('/preparations', [PreparationController::class, 'store'])->name('preparation.store');
+        Route::post('/preparations/validate-tag', [PreparationController::class, 'validateTag'])->name('preparation.validate-tag');
+        Route::post('/preparations/search-kits', [PreparationController::class, 'searchKits'])->name('preparation.search-kits');
+        Route::post('/preparations/{preparation}/add-asset', [PreparationController::class, 'addAsset'])->name('preparation.add-asset');
+        Route::post('/preparations/{preparation}/add-kit', [PreparationController::class, 'addKit'])->name('preparation.add-kit');
+        Route::delete('/preparations/{preparation}/assets/{asset}', [PreparationController::class, 'removeAsset'])->name('preparation.remove-asset');
+        Route::post('/preparations/{preparation}/validate-checkout', [PreparationController::class, 'validateCheckout'])->name('preparation.validate');
+        Route::post('/preparations/{preparation}/cancel', [PreparationController::class, 'cancel'])->name('preparation.cancel');
+        Route::post('/preparations/{preparation}/send-notification', [PreparationController::class, 'sendNotification'])->name('preparation.notify');
+        Route::post('/preparations/{preparation}/scan-asset', [PreparationController::class, 'scanReservationAsset'])->name('preparation.scan-reservation');
     });
 
     // Calendar API
@@ -569,6 +569,15 @@ Route::middleware('auth')->group(function () {
         Route::delete('/rooms/{room}', [RoomController::class, 'destroy'])->name('rooms.destroy');
         Route::post('/room-reservations/{roomReservation}/approve', [RoomController::class, 'approveReservation'])->name('room-reservations.approve');
         Route::post('/room-reservations/{roomReservation}/reject', [RoomController::class, 'rejectReservation'])->name('room-reservations.reject');
+    });
+
+    // ─── Rapports admin ───────────────────────────────────────────────────
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/admin-reports/assets/{asset}/create', [\App\Http\Controllers\AdminAssetReportController::class, 'create'])->name('admin-reports.create');
+        Route::post('/admin-reports', [\App\Http\Controllers\AdminAssetReportController::class, 'store'])->name('admin-reports.store');
+        Route::get('/admin-reports/{report}/edit', [\App\Http\Controllers\AdminAssetReportController::class, 'edit'])->name('admin-reports.edit');
+        Route::patch('/admin-reports/{report}', [\App\Http\Controllers\AdminAssetReportController::class, 'update'])->name('admin-reports.update');
+        Route::delete('/admin-reports/{report}', [\App\Http\Controllers\AdminAssetReportController::class, 'destroy'])->name('admin-reports.destroy');
     });
 
     // ─── Lieux (Places) ──────────────────────────────────────────────────

@@ -1046,12 +1046,6 @@ function getStatusClasses(statusKey) {
                        @change="toggleSelect(asset)"
                        class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shadow bg-white/90" />
               </div>
-              <!-- Status badge overlay -->
-              <div class="absolute top-2 left-9">
-                <span :class="['text-xs font-semibold px-2 py-1 rounded-full', statusColor(asset.status)]">
-                  {{ statusLabel(asset.status) }}
-                </span>
-              </div>
               <!-- Cart indicator -->
               <div v-if="!isAdmin && cart.hasItem(asset.id)"
                    class="absolute top-2 right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">

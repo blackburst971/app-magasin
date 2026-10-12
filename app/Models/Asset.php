@@ -125,6 +125,11 @@ class Asset extends Model
         return $this->hasMany(AssetReport::class)->orderByDesc('created_at');
     }
 
+    public function adminReports()
+    {
+        return $this->hasMany(AdminAssetReport::class)->orderByDesc('created_at');
+    }
+
     /** Affectations actives de cet équipement vers un autre équipement */
     public function activeAssignment()
     {
@@ -218,8 +223,10 @@ class Asset extends Model
 
         // Conflit de dates avec une réservation approuvée ou active
         // (le fait qu'un équipement soit sorti mais hors de la période demandée ne bloque pas)
+        // IMPORTANT: Exclure les équipements déjà retournés (returned_at dans le pivot)
         $conflict = $this->reservations()
             ->whereIn('reservations.status', ['approved', 'active'])
+            ->wherePivotNull('returned_at')  // NE PAS bloquer si déjà retourné
             ->where(function ($q) use ($start, $end) {
                 $q->where('reservations.start_date', '<', $end)
                   ->where('reservations.end_date', '>', $start);
@@ -272,8 +279,10 @@ class Asset extends Model
         }
 
         // 3. Conflit de dates dur : réservation approuvée ou active qui chevauche la période
+        // IMPORTANT: Exclure les équipements déjà retournés (returned_at dans le pivot)
         $hardConflict = $this->reservations()
             ->whereIn('reservations.status', ['approved', 'active'])
+            ->wherePivotNull('returned_at')  // NE PAS bloquer si déjà retourné
             ->where(function ($q) use ($start, $end) {
                 $q->where('reservations.start_date', '<', $end)
                   ->where('reservations.end_date', '>', $start);

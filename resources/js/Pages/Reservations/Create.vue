@@ -13,6 +13,7 @@ const props = defineProps({
   examProcessEnd:         { type: Number, default: 9 },
   userSupervisors:        { type: Array, default: () => [] },
   principalSupervisorId:  { type: Number, default: null },
+  availableParticipants:  { type: Array, default: () => [] },
 })
 
 function goBack() {
@@ -20,29 +21,17 @@ function goBack() {
   else router.visit(route('reservations.index'))
 }
 
-// Initialiser les dates/heures avec l'heure actuelle (format datetime-local : YYYY-MM-DDTHH:MM)
-// Note: Le serveur PHP est en UTC, mais nous devons afficher l'heure La Paz (UTC-4)
+// Initialiser les dates/heures avec l'heure actuelle
+// Le navigateur est déjà configuré en timezone La Paz, pas besoin de conversion
 function getCurrentDateTimeLocal() {
   const now = new Date()
+  now.setSeconds(0, 0) // Arrondir à la minute
 
-  // Convertir UTC vers La Paz (UTC-4) en utilisant les méthodes UTC
-  const utcTime = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours(),
-    now.getUTCMinutes(),
-    0, 0
-  )
-
-  // Soustraire 4 heures pour La Paz
-  const laPazTime = new Date(utcTime - 4 * 3600000)
-
-  const year = laPazTime.getUTCFullYear()
-  const month = String(laPazTime.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(laPazTime.getUTCDate()).padStart(2, '0')
-  const hours = String(laPazTime.getUTCHours()).padStart(2, '0')
-  const minutes = String(laPazTime.getUTCMinutes()).padStart(2, '0')
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
 
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
@@ -50,25 +39,14 @@ function getCurrentDateTimeLocal() {
 // Date/heure minimale pour start_date (heure actuelle - 15 minutes de tolérance)
 function getMinStartDateTime() {
   const now = new Date()
+  const minTime = new Date(now.getTime() - 15 * 60000)
+  minTime.setSeconds(0, 0)
 
-  // Convertir UTC vers La Paz (UTC-4)
-  const utcTime = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours(),
-    now.getUTCMinutes(),
-    0, 0
-  )
-
-  // Soustraire 4 heures pour La Paz + 15 minutes de tolérance
-  const minTime = new Date(utcTime - 4 * 3600000 - 15 * 60000)
-
-  const year = minTime.getUTCFullYear()
-  const month = String(minTime.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(minTime.getUTCDate()).padStart(2, '0')
-  const hours = String(minTime.getUTCHours()).padStart(2, '0')
-  const minutes = String(minTime.getUTCMinutes()).padStart(2, '0')
+  const year = minTime.getFullYear()
+  const month = String(minTime.getMonth() + 1).padStart(2, '0')
+  const day = String(minTime.getDate()).padStart(2, '0')
+  const hours = String(minTime.getHours()).padStart(2, '0')
+  const minutes = String(minTime.getMinutes()).padStart(2, '0')
 
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
@@ -83,6 +61,7 @@ const form = useForm({
   form_responses: {},
   // Présélectionner le superviseur principal par défaut
   supervisor_chosen_id: props.principalSupervisorId,
+  participant_ids: [],
 })
 
 // ─── Équipements disponibles ──────────────────────────────────────────────────
@@ -159,21 +138,8 @@ let timeInterval = null
 
 function updateCurrentTime() {
   const now = new Date()
-
-  // Convertir UTC vers La Paz (UTC-4)
-  const utcTime = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours(),
-    now.getUTCMinutes(),
-    0, 0
-  )
-
-  const laPazTime = new Date(utcTime - 4 * 3600000)
-
-  const hours = String(laPazTime.getUTCHours()).padStart(2, '0')
-  const minutes = String(laPazTime.getUTCMinutes()).padStart(2, '0')
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
   currentTime.value = `${hours}:${minutes}`
 }
 
@@ -191,25 +157,14 @@ const examMinDate = computed(() => {
   if (!props.examMode) return null
 
   const now = new Date()
+  const examTime = new Date(now.getTime() + props.examAdvanceHours * 3600000)
+  examTime.setSeconds(0, 0)
 
-  // Convertir UTC vers La Paz (UTC-4)
-  const utcTime = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours(),
-    now.getUTCMinutes(),
-    0, 0
-  )
-
-  // Soustraire 4 heures pour La Paz + ajouter heures d'avance examen
-  const examTime = new Date(utcTime - 4 * 3600000 + props.examAdvanceHours * 3600000)
-
-  const year = examTime.getUTCFullYear()
-  const month = String(examTime.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(examTime.getUTCDate()).padStart(2, '0')
-  const hours = String(examTime.getUTCHours()).padStart(2, '0')
-  const minutes = String(examTime.getUTCMinutes()).padStart(2, '0')
+  const year = examTime.getFullYear()
+  const month = String(examTime.getMonth() + 1).padStart(2, '0')
+  const day = String(examTime.getDate()).padStart(2, '0')
+  const hours = String(examTime.getHours()).padStart(2, '0')
+  const minutes = String(examTime.getMinutes()).padStart(2, '0')
 
   return `${year}-${month}-${day}T${hours}:${minutes}`
 })
@@ -285,6 +240,26 @@ const submit = () => form.post(route('reservations.store'))
               <label class="block text-sm font-medium text-gray-700 mb-1">Notes (optionnel)</label>
               <textarea v-model="form.notes" rows="2" placeholder="Informations supplémentaires..."
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+            </div>
+
+            <!-- ── Sélection des participants ── -->
+            <div v-if="availableParticipants.length > 0">
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Participants (optionnel)
+                <span class="text-xs text-gray-500 font-normal ml-1">
+                  (Autres utilisateurs qui utiliseront ce matériel avec vous)
+                </span>
+              </label>
+              <select v-model="form.participant_ids" multiple
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                style="min-height: 100px;">
+                <option v-for="user in availableParticipants" :key="user.id" :value="user.id">
+                  {{ user.name }} ({{ user.email }})
+                </option>
+              </select>
+              <p class="text-xs text-gray-500 mt-1">
+                Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+              </p>
             </div>
 
             <!-- ── Sélection du superviseur si plusieurs disponibles ── -->

@@ -308,6 +308,39 @@ class ReturnController extends Controller
         $returnedById = $request->input('returned_by_user_id') ?: null;
         $returnNotes  = $request->input('return_notes');
 
+        // ── Si condition != good, demander à ouvrir un rapport admin ──────────────
+        if ($conditionValue !== 'good' && !$request->boolean('skip_report_prompt')) {
+            return response()->json([
+                'success'           => true,
+                'needs_admin_report' => true,
+                'condition'         => $conditionValue,
+                'report_url'        => route('admin-reports.create', [
+                    'asset' => $asset->id,
+                    'reservation_id' => $reservation->id,
+                    'return_condition' => $conditionValue,
+                ]),
+                'asset' => [
+                    'id'        => $asset->id,
+                    'name'      => $asset->name,
+                    'asset_tag' => $asset->asset_tag,
+                ],
+            ]);
+        }
+
+        // ── Si note d'état existe et condition = good, afficher pop-up de vérification ──
+        if ($goodCondition && $asset->return_check_note && !$request->boolean('state_check_confirmed')) {
+            return response()->json([
+                'success'              => true,
+                'show_state_check'     => true,
+                'return_check_note'    => $asset->return_check_note,
+                'asset' => [
+                    'id'        => $asset->id,
+                    'name'      => $asset->name,
+                    'asset_tag' => $asset->asset_tag,
+                ],
+            ]);
+        }
+
         // Accessoires manquants déclarés perdus par l'admin (scratch / belge)
         $scratchLost = $request->boolean('scratch_lost');
         $belgeLost   = $request->boolean('belge_lost');
@@ -378,8 +411,15 @@ class ReturnController extends Controller
             $reservation->update(['returned_by_user_id' => $returnedById]);
         }
 
-        // Statut asset : perdu → maintenance, sinon disponible
-        $newAssetStatus = $isMissing ? 'maintenance' : 'available';
+        // Statut asset selon condition
+        if ($isMissing) {
+            $newAssetStatus = 'perdu'; // Statut 'perdu' au lieu de 'maintenance'
+        } elseif ($conditionValue === 'damaged') {
+            $newAssetStatus = 'a_verifier'; // 'Endommagé' → reste en vérification jusqu'au rapport
+        } else {
+            $newAssetStatus = 'available';
+        }
+
         $assetUpdateData = [
             'status'                 => $newAssetStatus,
             'checked_out_to_user_id' => null,
