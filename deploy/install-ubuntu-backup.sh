@@ -110,7 +110,8 @@ apt install -y \
     wget \
     ca-certificates \
     gnupg \
-    lsb-release
+    lsb-release \
+    bc
 print_success "Paquets système installés"
 
 ################################################################################
@@ -118,12 +119,38 @@ print_success "Paquets système installés"
 ################################################################################
 print_step "3/9 - Installation PHP ${PHP_VERSION}"
 
-# Ajouter le PPA Ondrej pour PHP (si nécessaire)
-apt install -y software-properties-common
-add-apt-repository -y ppa:ondrej/php
-apt update
+# Détection de la version Ubuntu
+UBUNTU_VERSION=$(lsb_release -rs)
+UBUNTU_CODENAME=$(lsb_release -cs)
+
+print_warning "Détection : Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME})"
+
+# Pour Ubuntu 24.04 (Noble) et plus récent, utiliser packages.sury.org
+if (( $(echo "$UBUNTU_VERSION >= 24.04" | bc -l) )); then
+    print_warning "Utilisation du dépôt packages.sury.org pour Ubuntu ${UBUNTU_VERSION}"
+
+    # Installer les dépendances
+    apt install -y lsb-release ca-certificates curl
+
+    # Ajouter la clé GPG
+    curl -sSLo /tmp/debsuryorg-archive-keyring.deb https://packages.sury.org/debsuryorg-archive-keyring.deb
+    dpkg -i /tmp/debsuryorg-archive-keyring.deb
+    rm /tmp/debsuryorg-archive-keyring.deb
+
+    # Ajouter le dépôt
+    sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list'
+
+    apt update
+else
+    # Pour Ubuntu 22.04 (Jammy) et versions antérieures, utiliser le PPA Ondrej
+    print_warning "Utilisation du PPA Ondrej pour Ubuntu ${UBUNTU_VERSION}"
+    apt install -y software-properties-common
+    add-apt-repository -y ppa:ondrej/php
+    apt update
+fi
 
 # Installation PHP et extensions requises
+print_warning "Installation de PHP ${PHP_VERSION} et extensions..."
 apt install -y \
     php${PHP_VERSION} \
     php${PHP_VERSION}-cli \
