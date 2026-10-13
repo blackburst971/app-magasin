@@ -1229,6 +1229,31 @@ class ReservationController extends Controller
 
         $reservation->assets()->attach($asset->id);
 
+        // Mettre à jour le statut de l'équipement et le champ affecté selon le statut de la réservation
+        if ($reservation->status === 'approved') {
+            // Réservation approuvée → équipement réservé
+            $asset->update([
+                'status'                 => 'reserved',
+                'checked_out_to_user_id' => null,
+                'expected_return_at'     => $reservation->end_date,
+            ]);
+        } elseif ($reservation->status === 'active') {
+            // Réservation active → attribution directe (checkout)
+            $reservation->assets()->updateExistingPivot($asset->id, ['checkout_at' => now()]);
+            $asset->update([
+                'status'                 => 'checked_out',
+                'checked_out_to_user_id' => $reservation->user_id,
+                'expected_return_at'     => $reservation->end_date,
+            ]);
+            AssetMovement::create([
+                'asset_id'       => $asset->id,
+                'reservation_id' => $reservation->id,
+                'user_id'        => $request->user()->id,
+                'action'         => 'checkout',
+                'notes'          => "Attribution directe lors de l'ajout à la réservation #{$reservation->id}",
+            ]);
+        }
+
         // Requête AJAX directe (ex: page Attribution) → réponse JSON
         if (!$request->header('X-Inertia')) {
             return response()->json([
