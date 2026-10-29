@@ -3,7 +3,7 @@
 .SYNOPSIS
     Installation complète d'App-Magasin sur Windows 10 Pro 22H2
 .DESCRIPTION
-    Script d'installation automatique pour configurer IIS, PHP 8.2, Composer, Node.js et déployer l'application
+    Script d'installation automatique pour configurer Nginx, PHP 8.2, Composer, Node.js et déployer l'application
 .NOTES
     - Exécuter en tant qu'Administrateur
     - Le code source doit déjà être téléchargé dans le répertoire cible
@@ -12,7 +12,7 @@
 
 param(
     [string]$InstallPath = "C:\inetpub\wwwroot\app-magasin",
-    [string]$SiteName = "AppMagasin",
+    [string]$NginxPath = "C:\nginx",
     [int]$Port = 8080,
     [string]$AppUrl = "http://10.15.80.229:8080"
 )
@@ -62,42 +62,7 @@ if (-not (Test-Path "$InstallPath\artisan")) {
 Write-Success "Code source détecté"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 2: Installation des fonctionnalités IIS
-# ═══════════════════════════════════════════════════════════
-Write-Step "Installation d'IIS et des modules requis"
-
-$iisFeatures = @(
-    "IIS-WebServerRole",
-    "IIS-WebServer",
-    "IIS-CommonHttpFeatures",
-    "IIS-HttpErrors",
-    "IIS-ApplicationDevelopment",
-    "IIS-HealthAndDiagnostics",
-    "IIS-Performance",
-    "IIS-Security",
-    "IIS-RequestFiltering",
-    "IIS-StaticContent",
-    "IIS-DefaultDocument",
-    "IIS-DirectoryBrowsing",
-    "IIS-HttpLogging",
-    "IIS-CGI",
-    "IIS-ISAPIExtensions",
-    "IIS-ISAPIFilter",
-    "IIS-ManagementConsole"
-)
-
-foreach ($feature in $iisFeatures) {
-    $installed = Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction SilentlyContinue
-    if ($installed.State -ne "Enabled") {
-        Write-Info "Installation de $feature..."
-        Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart | Out-Null
-    }
-}
-
-Write-Success "IIS configuré"
-
-# ═══════════════════════════════════════════════════════════
-# ÉTAPE 3: Installation de PHP 8.2
+# ÉTAPE 2: Installation de PHP 8.2
 # ═══════════════════════════════════════════════════════════
 Write-Step "Installation de PHP 8.2"
 
@@ -118,28 +83,38 @@ if (-not (Test-Path $phpPath)) {
     # Configuration php.ini
     Copy-Item "$phpPath\php.ini-production" "$phpPath\php.ini"
 
-    $phpIniSettings = @{
-        'extension_dir' = '"C:\php\ext"'
-        'extension=curl' = 'extension=curl'
-        'extension=fileinfo' = 'extension=fileinfo'
-        'extension=gd' = 'extension=gd'
-        'extension=mbstring' = 'extension=mbstring'
-        'extension=openssl' = 'extension=openssl'
-        'extension=pdo_sqlite' = 'extension=pdo_sqlite'
-        'extension=sqlite3' = 'extension=sqlite3'
-        'date.timezone' = 'date.timezone = "America/La_Paz"'
-        'upload_max_filesize' = 'upload_max_filesize = 50M'
-        'post_max_size' = 'post_max_size = 50M'
-        'memory_limit' = 'memory_limit = 256M'
-        'max_execution_time' = 'max_execution_time = 300'
-    }
+    # Configuration de base
+    $phpIni = Get-Content "$phpPath\php.ini" -Raw
 
-    $phpIniContent = Get-Content "$phpPath\php.ini" -Raw
-    foreach ($key in $phpIniSettings.Keys) {
-        if ($phpIniContent -notmatch [regex]::Escape($phpIniSettings[$key])) {
-            Add-Content "$phpPath\php.ini" $phpIniSettings[$key]
+    # Activer les extensions
+    $extensions = @(
+        'extension=curl',
+        'extension=fileinfo',
+        'extension=gd',
+        'extension=mbstring',
+        'extension=openssl',
+        'extension=pdo_sqlite',
+        'extension=sqlite3'
+    )
+
+    foreach ($ext in $extensions) {
+        if ($phpIni -notmatch [regex]::Escape($ext)) {
+            Add-Content "$phpPath\php.ini" "`n$ext"
         }
     }
+
+    # Paramètres additionnels
+    Add-Content "$phpPath\php.ini" @"
+
+; Configuration pour Laravel
+extension_dir = "C:\php\ext"
+date.timezone = America/La_Paz
+upload_max_filesize = 50M
+post_max_size = 50M
+memory_limit = 256M
+max_execution_time = 300
+cgi.fix_pathinfo = 0
+"@
 
     # Ajout au PATH
     $envPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
@@ -154,7 +129,7 @@ if (-not (Test-Path $phpPath)) {
 }
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 4: Installation de Composer
+# ÉTAPE 3: Installation de Composer
 # ═══════════════════════════════════════════════════════════
 Write-Step "Installation de Composer"
 
@@ -181,7 +156,7 @@ if (-not (Test-Path "$composerPath\composer.bat")) {
 }
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 5: Installation de Node.js et npm
+# ÉTAPE 4: Installation de Node.js et npm
 # ═══════════════════════════════════════════════════════════
 Write-Step "Installation de Node.js"
 
@@ -205,114 +180,140 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 }
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 6: Configuration IIS pour PHP
+# ÉTAPE 5: Installation de Nginx
 # ═══════════════════════════════════════════════════════════
-Write-Step "Configuration du gestionnaire FastCGI pour PHP"
+Write-Step "Installation de Nginx"
 
-Import-Module WebAdministration
+$nginxVersion = "1.26.2"
+$nginxZip = "$env:TEMP\nginx-$nginxVersion.zip"
+$nginxUrl = "http://nginx.org/download/nginx-$nginxVersion.zip"
 
-# Configuration FastCGI
-$fastCgiPath = "C:\php\php-cgi.exe"
-$fastCgiConfig = Get-WebConfiguration -Filter "/system.webServer/fastCgi/application[@fullPath='$fastCgiPath']" -PSPath "IIS:\"
-if (-not $fastCgiConfig) {
-    Add-WebConfiguration -Filter "/system.webServer/fastCgi" -Value @{
-        fullPath = $fastCgiPath
-        maxInstances = 4
-        instanceMaxRequests = 10000
-        activityTimeout = 300
-        requestTimeout = 300
-        queueLength = 1000
+if (-not (Test-Path $NginxPath)) {
+    Write-Info "Téléchargement de Nginx $nginxVersion..."
+    Invoke-WebRequest -Uri $nginxUrl -OutFile $nginxZip -UseBasicParsing
+
+    Write-Info "Extraction de Nginx..."
+    Expand-Archive -Path $nginxZip -DestinationPath "C:\" -Force
+    Rename-Item "C:\nginx-$nginxVersion" $NginxPath
+    Remove-Item $nginxZip
+
+    Write-Success "Nginx $nginxVersion installé"
+} else {
+    Write-Success "Nginx déjà installé"
+}
+
+# ═══════════════════════════════════════════════════════════
+# ÉTAPE 6: Configuration de Nginx
+# ═══════════════════════════════════════════════════════════
+Write-Step "Configuration de Nginx"
+
+$nginxConf = @"
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    server {
+        listen       $Port;
+        server_name  10.15.80.229;
+
+        root   "$($InstallPath -replace '\\', '/')/public";
+        index  index.php index.html;
+
+        charset utf-8;
+
+        location / {
+            try_files `$uri `$uri/ /index.php?`$query_string;
+        }
+
+        location = /favicon.ico { access_log off; log_not_found off; }
+        location = /robots.txt  { access_log off; log_not_found off; }
+
+        error_page 404 /index.php;
+
+        location ~ \.php$ {
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+            fastcgi_param  SCRIPT_FILENAME  `$realpath_root`$fastcgi_script_name;
+            include        fastcgi_params;
+        }
+
+        location ~ /\.(?!well-known).* {
+            deny all;
+        }
     }
-    Write-Success "Gestionnaire FastCGI configuré"
 }
-
-# ═══════════════════════════════════════════════════════════
-# ÉTAPE 7: Création du site IIS
-# ═══════════════════════════════════════════════════════════
-Write-Step "Configuration du site IIS"
-
-# Arrêt du site par défaut
-Stop-WebSite -Name "Default Web Site" -ErrorAction SilentlyContinue
-
-# Suppression du site existant si présent
-if (Get-WebSite -Name $SiteName -ErrorAction SilentlyContinue) {
-    Remove-WebSite -Name $SiteName
-    Write-Info "Site existant supprimé"
-}
-
-# Création du pool d'applications
-$appPoolName = "${SiteName}Pool"
-if (Test-Path "IIS:\AppPools\$appPoolName") {
-    Remove-WebAppPool -Name $appPoolName
-}
-
-New-WebAppPool -Name $appPoolName
-Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedRuntimeVersion -Value ""
-Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value 0  # LocalSystem
-
-# Création du site
-New-WebSite -Name $SiteName `
-    -PhysicalPath "$InstallPath\public" `
-    -ApplicationPool $appPoolName `
-    -Port $Port `
-    -IPAddress "*"
-
-# Configuration du gestionnaire PHP
-New-WebHandler -Name "PHP_via_FastCGI" `
-    -Path "*.php" `
-    -Verb "*" `
-    -Modules "FastCgiModule" `
-    -ScriptProcessor "$fastCgiPath" `
-    -ResourceType File `
-    -PSPath "IIS:\Sites\$SiteName" `
-    -Force
-
-# Document par défaut
-Set-WebConfigurationProperty -Filter "//defaultDocument/files" `
-    -PSPath "IIS:\Sites\$SiteName" `
-    -Name Collection `
-    -Value @{value='index.php'}
-
-# URL Rewrite pour Laravel (via web.config)
-$webConfig = @"
-<?xml version="1.0" encoding="UTF-8"?>
-<configuration>
-    <system.webServer>
-        <rewrite>
-            <rules>
-                <rule name="Imported Rule 1" stopProcessing="true">
-                    <match url="^(.*)/$" ignoreCase="false" />
-                    <conditions>
-                        <add input="{REQUEST_FILENAME}" matchType="IsDirectory" ignoreCase="false" negate="true" />
-                    </conditions>
-                    <action type="Redirect" redirectType="Permanent" url="/{R:1}" />
-                </rule>
-                <rule name="Imported Rule 2" stopProcessing="true">
-                    <match url="^" ignoreCase="false" />
-                    <conditions>
-                        <add input="{REQUEST_FILENAME}" matchType="IsDirectory" ignoreCase="false" negate="true" />
-                        <add input="{REQUEST_FILENAME}" matchType="IsFile" ignoreCase="false" negate="true" />
-                    </conditions>
-                    <action type="Rewrite" url="index.php" />
-                </rule>
-            </rules>
-        </rewrite>
-        <defaultDocument>
-            <files>
-                <clear />
-                <add value="index.php" />
-            </files>
-        </defaultDocument>
-    </system.webServer>
-</configuration>
 "@
 
-Set-Content -Path "$InstallPath\public\web.config" -Value $webConfig -Force
-
-Write-Success "Site IIS créé et configuré"
+Set-Content -Path "$NginxPath\conf\nginx.conf" -Value $nginxConf -Force
+Write-Success "Configuration Nginx créée"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 8: Permissions sur les dossiers
+# ÉTAPE 7: Installation de NSSM (gestionnaire de services)
+# ═══════════════════════════════════════════════════════════
+Write-Step "Installation de NSSM"
+
+$nssmPath = "C:\nssm"
+$nssmZip = "$env:TEMP\nssm-2.24.zip"
+$nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+
+if (-not (Test-Path "$nssmPath\nssm.exe")) {
+    Write-Info "Téléchargement de NSSM..."
+    Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -UseBasicParsing
+
+    Write-Info "Extraction de NSSM..."
+    Expand-Archive -Path $nssmZip -DestinationPath $env:TEMP -Force
+    New-Item -ItemType Directory -Path $nssmPath -Force | Out-Null
+    Copy-Item "$env:TEMP\nssm-2.24\win64\nssm.exe" $nssmPath
+    Remove-Item $nssmZip
+    Remove-Item "$env:TEMP\nssm-2.24" -Recurse
+
+    Write-Success "NSSM installé"
+} else {
+    Write-Success "NSSM déjà installé"
+}
+
+# ═══════════════════════════════════════════════════════════
+# ÉTAPE 8: Création des services Windows
+# ═══════════════════════════════════════════════════════════
+Write-Step "Configuration des services Windows"
+
+# Arrêt des services s'ils existent
+Get-Service -Name "nginx" -ErrorAction SilentlyContinue | Stop-Service -Force
+Get-Service -Name "php-cgi" -ErrorAction SilentlyContinue | Stop-Service -Force
+
+# Service Nginx
+$nginxService = Get-Service -Name "nginx" -ErrorAction SilentlyContinue
+if (-not $nginxService) {
+    & "$nssmPath\nssm.exe" install nginx "$NginxPath\nginx.exe"
+    & "$nssmPath\nssm.exe" set nginx AppDirectory $NginxPath
+    & "$nssmPath\nssm.exe" set nginx DisplayName "Nginx Web Server"
+    & "$nssmPath\nssm.exe" set nginx Description "Serveur web Nginx pour App-Magasin"
+    & "$nssmPath\nssm.exe" set nginx Start SERVICE_AUTO_START
+    Write-Success "Service Nginx créé"
+}
+
+# Service PHP-CGI
+$phpCgiService = Get-Service -Name "php-cgi" -ErrorAction SilentlyContinue
+if (-not $phpCgiService) {
+    & "$nssmPath\nssm.exe" install php-cgi "$phpPath\php-cgi.exe" "-b 127.0.0.1:9000"
+    & "$nssmPath\nssm.exe" set php-cgi AppDirectory $phpPath
+    & "$nssmPath\nssm.exe" set php-cgi DisplayName "PHP FastCGI"
+    & "$nssmPath\nssm.exe" set php-cgi Description "PHP FastCGI pour App-Magasin"
+    & "$nssmPath\nssm.exe" set php-cgi Start SERVICE_AUTO_START
+    Write-Success "Service PHP-CGI créé"
+}
+
+# ═══════════════════════════════════════════════════════════
+# ÉTAPE 9: Permissions sur les dossiers
 # ═══════════════════════════════════════════════════════════
 Write-Step "Configuration des permissions"
 
@@ -325,7 +326,7 @@ $foldersToSecure = @(
 foreach ($folder in $foldersToSecure) {
     if (Test-Path $folder) {
         $acl = Get-Acl $folder
-        $permission = "IIS_IUSRS", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
+        $permission = "Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
         $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
         $acl.SetAccessRule($accessRule)
         Set-Acl $folder $acl
@@ -335,7 +336,7 @@ foreach ($folder in $foldersToSecure) {
 Write-Success "Permissions configurées"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 9: Configuration de l'application Laravel
+# ÉTAPE 10: Configuration de l'application Laravel
 # ═══════════════════════════════════════════════════════════
 Write-Step "Configuration de Laravel"
 
@@ -358,7 +359,7 @@ $envUpdates = @{
     'APP_ENV=.*' = 'APP_ENV=production'
     'APP_DEBUG=.*' = 'APP_DEBUG=false'
     'DB_CONNECTION=.*' = 'DB_CONNECTION=sqlite'
-    'DB_DATABASE=.*' = "DB_DATABASE=$InstallPath\database\database.sqlite"
+    'DB_DATABASE=.*' = "DB_DATABASE=$($InstallPath -replace '\\', '/')/database/database.sqlite"
 }
 
 foreach ($pattern in $envUpdates.Keys) {
@@ -376,7 +377,7 @@ if (-not (Test-Path "database\database.sqlite")) {
 Write-Success "Fichier .env configuré"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 10: Installation des dépendances
+# ÉTAPE 11: Installation des dépendances
 # ═══════════════════════════════════════════════════════════
 Write-Step "Installation des dépendances PHP"
 
@@ -403,7 +404,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "Dépendances Node.js installées"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 11: Initialisation de Laravel
+# ÉTAPE 12: Initialisation de Laravel
 # ═══════════════════════════════════════════════════════════
 Write-Step "Initialisation de l'application"
 
@@ -439,7 +440,7 @@ Write-Success "Assets compilés"
 Write-Success "Caches optimisés"
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 12: Configuration du pare-feu
+# ÉTAPE 13: Configuration du pare-feu
 # ═══════════════════════════════════════════════════════════
 Write-Step "Configuration du pare-feu Windows"
 
@@ -457,14 +458,14 @@ if (-not $firewallRule) {
 }
 
 # ═══════════════════════════════════════════════════════════
-# ÉTAPE 13: Redémarrage d'IIS
+# ÉTAPE 14: Démarrage des services
 # ═══════════════════════════════════════════════════════════
 Write-Step "Démarrage des services"
 
-Restart-Service W3SVC -Force
-Start-WebSite -Name $SiteName
+Start-Service php-cgi
+Start-Service nginx
 
-Write-Success "Site démarré"
+Write-Success "Services démarrés"
 
 # ═══════════════════════════════════════════════════════════
 # FIN
@@ -480,6 +481,10 @@ Write-Host @"
 📁 Répertoire           : $InstallPath
 🗄️  Base de données      : $InstallPath\database\database.sqlite
 
+🔧 Services Windows :
+   - Nginx       : Démarré (port $Port)
+   - PHP-CGI     : Démarré (port 9000)
+
 🔧 Prochaines étapes :
    1. Ouvrez un navigateur et accédez à $AppUrl
    2. Créez votre compte administrateur
@@ -489,12 +494,14 @@ Write-Host @"
 📝 Fichiers de configuration :
    - Application : $InstallPath\.env
    - PHP         : C:\php\php.ini
-   - IIS         : $InstallPath\public\web.config
+   - Nginx       : $NginxPath\conf\nginx.conf
+
+🔄 Gestion des services :
+   - Redémarrer Nginx   : Restart-Service nginx
+   - Redémarrer PHP-CGI : Restart-Service php-cgi
+   - Voir les logs Nginx: Get-Content $NginxPath\logs\error.log -Tail 50
 
 "@ -ForegroundColor Green
-
-Write-Info "Pour accéder aux logs IIS : C:\inetpub\logs\LogFiles"
-Write-Info "Pour redémarrer l'application : Restart-WebSite -Name '$SiteName'"
 
 Write-Host "`nAppuyez sur une touche pour quitter..." -ForegroundColor Yellow
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
