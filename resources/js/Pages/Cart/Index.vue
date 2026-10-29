@@ -7,11 +7,13 @@ import { TrashIcon, ShoppingCartIcon, CalendarDaysIcon } from '@heroicons/vue/24
 import axios from 'axios'
 
 const props = defineProps({
-  requiredForm:     Object,
-  examMode:         Boolean,
-  examAdvanceHours: { type: Number, default: 24 },
-  examProcessStart: { type: Number, default: 7 },
-  examProcessEnd:   { type: Number, default: 9 },
+  requiredForm:           Object,
+  examMode:               Boolean,
+  examAdvanceHours:       { type: Number, default: 24 },
+  examProcessStart:       { type: Number, default: 7 },
+  examProcessEnd:         { type: Number, default: 9 },
+  userSupervisors:        { type: Array, default: () => [] },
+  principalSupervisorId:  { type: Number, default: null },
 })
 
 const cart = useCartStore()
@@ -23,6 +25,7 @@ const form = ref({
   notes: '',
   form_id: props.requiredForm?.id ?? null,
   form_responses: {},
+  supervisor_chosen_id: props.principalSupervisorId,
 })
 const errors = ref({})
 const loading = ref(false)
@@ -194,14 +197,15 @@ function submit() {
   cart.clearCart()
 
   router.post(route('reservations.store'), {
-    title:          form.value.title,
-    start_date:     form.value.start_date,
-    end_date:       form.value.end_date,
-    notes:          form.value.notes,
-    asset_ids:      savedItems.map(i => i.id),
-    kit_ids:        savedKitItems.map(k => k.id),
-    form_id:        form.value.form_id,
-    form_responses: form.value.form_responses,
+    title:                form.value.title,
+    start_date:           form.value.start_date,
+    end_date:             form.value.end_date,
+    notes:                form.value.notes,
+    asset_ids:            savedItems.map(i => i.id),
+    kit_ids:              savedKitItems.map(k => k.id),
+    form_id:              form.value.form_id,
+    form_responses:       form.value.form_responses,
+    supervisor_chosen_id: form.value.supervisor_chosen_id,
   }, {
     onError: (e) => {
       errors.value = e
@@ -309,6 +313,24 @@ function submit() {
               <textarea v-model="form.notes" rows="3"
                         placeholder="Contexte, précisions pour l'administrateur…"
                         class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none" />
+            </div>
+
+            <!-- Sélection du superviseur (afficher si au moins 1 superviseur) -->
+            <div v-if="userSupervisors && userSupervisors.length > 0">
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Responsable pour validation <span class="text-red-500">*</span>
+                <span class="text-xs text-gray-500 font-normal ml-1">
+                  {{ principalSupervisorId ? '(Votre responsable principal est présélectionné par défaut)' : '(Choisissez le responsable qui validera votre demande)' }}
+                </span>
+              </label>
+              <select v-model="form.supervisor_chosen_id" required
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                <option :value="null" disabled>-- Sélectionnez un responsable --</option>
+                <option v-for="supervisor in userSupervisors" :key="supervisor.id" :value="supervisor.id">
+                  {{ supervisor.name }}{{ supervisor.id === principalSupervisorId ? ' (principal)' : '' }}
+                </option>
+              </select>
+              <p v-if="errors.supervisor_chosen_id" class="text-red-500 text-xs mt-1">{{ errors.supervisor_chosen_id }}</p>
             </div>
           </div>
         </div>

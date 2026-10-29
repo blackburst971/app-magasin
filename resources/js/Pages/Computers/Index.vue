@@ -581,7 +581,8 @@ function confirmBulkDelete() {
 
       <!-- Vue liste -->
       <div v-else-if="viewMode === 'list'" class="bg-white rounded-xl border overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-100">
+        <div class="overflow-x-auto">
+          <table class="divide-y divide-gray-100" style="min-width:max-content;width:100%">
           <thead class="bg-gray-50">
             <tr>
               <th class="w-10 px-3 py-2.5"></th>
@@ -667,6 +668,7 @@ function confirmBulkDelete() {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 

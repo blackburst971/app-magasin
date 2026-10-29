@@ -462,6 +462,10 @@ class ReturnController extends Controller
             'notes'          => "Retour — État : {$conditionLabel}" . ($returnNotes ? " — {$returnNotes}" : ''),
         ]);
 
+        // Mettre à jour le statut des kits si tous leurs équipements sont retournés
+        // (même si la réservation contient d'autres équipements non retournés)
+        $reservation->fresh()->updateKitStatuses('available');
+
         // Récupérer les composants de l'équipement pour la vérification post-retour
         // Exclure les composants marqués comme "missing" (manquants) car ils ne doivent pas être vérifiés
         $components = $asset->components()

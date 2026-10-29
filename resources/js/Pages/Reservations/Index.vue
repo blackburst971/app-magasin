@@ -290,7 +290,8 @@ const filterBtns = [
 
       <!-- ── Table ── -->
       <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto">
+          <table class="text-sm" style="min-width:max-content;width:100%">
           <thead>
             <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
               <!-- Checkbox col for admin -->
@@ -377,6 +378,7 @@ const filterBtns = [
             </tr>
           </tbody>
         </table>
+        </div>
 
         <!-- Empty state -->
         <div v-if="!reservations.data || reservations.data.length === 0" class="py-16 text-center text-gray-400">

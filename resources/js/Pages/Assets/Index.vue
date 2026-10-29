@@ -1451,7 +1451,8 @@ function getStatusClasses(statusKey) {
             </div>
 
             <!-- ═══ TABLE NON-ADMIN (colonnes fixes) ═══ -->
-            <table v-else class="w-full text-sm">
+            <div v-else class="overflow-x-auto">
+              <table class="text-sm" style="min-width:max-content;width:100%">
               <thead>
                 <tr class="text-xs text-gray-500 uppercase bg-gray-50 border-b">
                   <th class="px-3 py-3 w-10 text-center">
@@ -1558,7 +1559,8 @@ function getStatusClasses(statusKey) {
                   </td>
                 </tr>
               </tbody>
-            </table>
+              </table>
+            </div>
           </template>
 
           <!-- Pagination (liste) -->

@@ -262,8 +262,8 @@ const submit = () => form.post(route('reservations.store'))
               </p>
             </div>
 
-            <!-- ── Sélection du superviseur si plusieurs disponibles ── -->
-            <div v-if="userSupervisors.length >= 2">
+            <!-- ── Sélection du superviseur (afficher si au moins 1 superviseur) ── -->
+            <div v-if="userSupervisors && userSupervisors.length > 0">
               <label class="block text-sm font-medium text-gray-700 mb-1">
                 Responsable pour validation *
                 <span class="text-xs text-gray-500 font-normal ml-1">

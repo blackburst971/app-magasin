@@ -78,9 +78,9 @@ class KitController extends Controller
                 'notes'          => $k->notes,
                 'condition_note' => $k->condition_note,
                 'image'          => $this->getImageUrl($k->image),
-                'status'         => $k->status ?? 'available', // Statut statique (géré par updateKitStatuses)
-                'status_label'   => $this->getKitStatusLabel($k->status ?? 'available'),
-                'status_color'   => $this->getKitStatusColor($k->status ?? 'available'),
+                'status'         => $k->current_status, // Statut dynamique calculé
+                'status_label'   => $k->status_label,
+                'status_color'   => $k->status_color,
                 'is_reservable'  => $k->is_reservable,
                 'assets_count'   => $k->assets_count,
                 'assets'         => $k->assets->map(fn($a) => [
@@ -433,19 +433,15 @@ class KitController extends Controller
         $ids = array_filter(array_map('intval', (array) $request->input('ids', [])));
         if (empty($ids)) return response()->json([]);
 
-        $kits = Kit::with('assets')->whereIn('id', $ids)->get();
-
-        $statusLabels = [
-            'available'   => 'Disponible',
-            'unavailable' => 'Indisponible',
-            'partial'     => 'Partiel',
-            'missing'     => 'Incomplet',
-        ];
+        $kits = Kit::with(['assets', 'reservations' => function($query) {
+            $query->whereIn('status', ['active', 'approved']);
+        }])->whereIn('id', $ids)->get();
 
         return response()->json($kits->map(fn($kit) => [
             'id'           => $kit->id,
-            'status'       => $kit->status,
-            'status_label' => $statusLabels[$kit->status] ?? $kit->status,
+            'status'       => $kit->current_status, // Utiliser le statut dynamique
+            'status_label' => $kit->status_label,
+            'status_color' => $kit->status_color,
         ])->values());
     }
 

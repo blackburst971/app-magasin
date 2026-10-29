@@ -148,18 +148,19 @@ class ReservationController extends Controller
         $isAdmin = $request->user()->hasRole('admin');
 
         $rules = [
-            'title'           => 'required|string|max:255',
-            'start_date'      => 'required|date',
-            'end_date'        => 'required|date|after:start_date',
-            'asset_ids'       => 'nullable|array',
-            'asset_ids.*'     => 'exists:assets,id',
-            'kit_ids'         => 'nullable|array',
-            'kit_ids.*'       => 'exists:kits,id',
-            'notes'           => 'nullable|string|max:1000',
-            'form_id'         => 'nullable|exists:checkout_forms,id',
-            'form_responses'  => 'nullable|array',
-            'participant_ids' => 'nullable|array',
-            'participant_ids.*' => 'exists:users,id',
+            'title'                => 'required|string|max:255',
+            'start_date'           => 'required|date',
+            'end_date'             => 'required|date|after:start_date',
+            'asset_ids'            => 'nullable|array',
+            'asset_ids.*'          => 'exists:assets,id',
+            'kit_ids'              => 'nullable|array',
+            'kit_ids.*'            => 'exists:kits,id',
+            'notes'                => 'nullable|string|max:1000',
+            'form_id'              => 'nullable|exists:checkout_forms,id',
+            'form_responses'       => 'nullable|array',
+            'participant_ids'      => 'nullable|array',
+            'participant_ids.*'    => 'exists:users,id',
+            'supervisor_chosen_id' => 'nullable|exists:users,id',
         ];
         if ($isAdmin) {
             $rules['user_id'] = 'nullable|exists:users,id';
@@ -611,8 +612,12 @@ class ReservationController extends Controller
         $user = $request->user();
 
         // Vérifie que l'utilisateur courant supervise bien l'étudiant demandeur
-        // (gère superviseur direct ET superviseur de groupe, évite le bug multi-groupes)
-        if (!$user->supervisedUsers()->where('users.id', $reservation->user_id)->exists()) {
+        // (superviseur principal OU superviseur additionnel)
+        $reservationUser = $reservation->user;
+        $isSupervisor = $user->supervisedUsers()->where('users.id', $reservation->user_id)->exists()
+                     || $reservationUser->getAllSupervisors()->contains('id', $user->id);
+
+        if (!$isSupervisor) {
             abort(403, 'Vous n\'êtes pas le responsable de cet utilisateur.');
         }
 
@@ -661,7 +666,13 @@ class ReservationController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->supervisedUsers()->where('users.id', $reservation->user_id)->exists()) {
+        // Vérifie que l'utilisateur courant supervise bien l'étudiant demandeur
+        // (superviseur principal OU superviseur additionnel)
+        $reservationUser = $reservation->user;
+        $isSupervisor = $user->supervisedUsers()->where('users.id', $reservation->user_id)->exists()
+                     || $reservationUser->getAllSupervisors()->contains('id', $user->id);
+
+        if (!$isSupervisor) {
             abort(403, 'Vous n\'êtes pas le responsable de cet utilisateur.');
         }
 

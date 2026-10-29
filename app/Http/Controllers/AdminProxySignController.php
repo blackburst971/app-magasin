@@ -15,7 +15,7 @@ class AdminProxySignController extends Controller
      */
     public function index()
     {
-        $reservations = Reservation::with(['user.supervisor', 'user.groups.supervisors', 'assets'])
+        $reservations = Reservation::with(['user.supervisor', 'user.groups.supervisors', 'assets', 'supervisorChosen'])
             ->where('status', 'awaiting_supervisor')
             ->orderBy('created_at')
             ->get()
@@ -97,6 +97,11 @@ class AdminProxySignController extends Controller
                 'name'      => $a->name,
                 'asset_tag' => $a->asset_tag,
             ]),
+            // Superviseur choisi par l'utilisateur lors de la création de la réservation
+            'supervisor_chosen' => $r->supervisorChosen ? [
+                'id'   => $r->supervisorChosen->id,
+                'name' => $r->supervisorChosen->name,
+            ] : null,
             // Superviseur(s) possibles pour cette réservation
             'supervisors' => $this->getSupervisorsForUser($r->user),
         ];

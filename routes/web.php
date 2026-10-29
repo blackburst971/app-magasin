@@ -44,6 +44,37 @@ Route::get('/csrf-token', function () {
     return response()->json(['token' => csrf_token()]);
 });
 
+// Health check endpoint pour monitoring Litestream / failover
+Route::get('/api/health', function () {
+    try {
+        // Vérifier la connexion à la base de données
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+
+        // Vérifier l'accès en écriture (test simple)
+        $dbWritable = true;
+        try {
+            \Illuminate\Support\Facades\DB::table('settings')->where('key', 'health_check')->first();
+        } catch (\Exception $e) {
+            $dbWritable = false;
+        }
+
+        return response()->json([
+            'status' => 'ok',
+            'server' => gethostname(),
+            'timestamp' => now()->toIso8601String(),
+            'database' => 'connected',
+            'writable' => $dbWritable,
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'server' => gethostname(),
+            'message' => $e->getMessage(),
+            'timestamp' => now()->toIso8601String(),
+        ], 500);
+    }
+});
+
 Route::middleware('auth')->group(function () {
 
     // Dashboard
@@ -280,18 +311,31 @@ Route::middleware('auth')->group(function () {
     });
 
     // Panier
-    Route::get('/cart', function () {
+    Route::get('/cart', function (\Illuminate\Http\Request $request) {
         $requiredForm = \App\Models\CheckoutForm::where('is_active', true)
             ->where('is_required_for_reservation', true)
             ->with('fields')
             ->first();
         $examMode = \App\Models\Setting::get('exam_mode', 'false') === 'true';
+
+        // Récupérer tous les superviseurs de l'utilisateur connecté
+        $userSupervisors = $request->user()->getAllSupervisors()->map(fn($s) => [
+            'id'    => $s->id,
+            'name'  => $s->name,
+            'email' => $s->email,
+        ])->values();
+
+        // Superviseur principal (par défaut)
+        $principalSupervisorId = $request->user()->supervisor_id;
+
         return \Inertia\Inertia::render('Cart/Index', [
-            'requiredForm'     => $requiredForm,
-            'examMode'         => $examMode,
-            'examAdvanceHours' => (int) \App\Models\Setting::get('exam_advance_hours', 24),
-            'examProcessStart' => (int) \App\Models\Setting::get('exam_process_start', 7),
-            'examProcessEnd'   => (int) \App\Models\Setting::get('exam_process_end', 9),
+            'requiredForm'          => $requiredForm,
+            'examMode'              => $examMode,
+            'examAdvanceHours'      => (int) \App\Models\Setting::get('exam_advance_hours', 24),
+            'examProcessStart'      => (int) \App\Models\Setting::get('exam_process_start', 7),
+            'examProcessEnd'        => (int) \App\Models\Setting::get('exam_process_end', 9),
+            'userSupervisors'       => $userSupervisors,
+            'principalSupervisorId' => $principalSupervisorId,
         ]);
     })->name('cart.index');
 

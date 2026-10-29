@@ -371,7 +371,8 @@ const osLabel = (os) => ({
             </div>
 
             <!-- Tableau pour ce type -->
-            <table class="w-full text-sm">
+            <div class="overflow-x-auto">
+              <table class="text-sm" style="min-width:max-content;width:100%">
               <thead class="bg-gray-50 border-b">
                 <tr>
                   <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Logiciel</th>
@@ -473,6 +474,7 @@ const osLabel = (os) => ({
                 </template>
               </tbody>
             </table>
+            </div>
           </div>
         </template>
       </div>

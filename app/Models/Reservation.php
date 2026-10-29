@@ -265,6 +265,10 @@ class Reservation extends Model
     /**
      * Met à jour le statut statique d'un kit si tous ses équipements sont dans cette réservation.
      * Utilisé lors de l'approbation, du scan checkout et du retour.
+     *
+     * IMPORTANT : Pour le retour (available), un kit peut être retourné même si la réservation
+     * contient d'autres équipements non encore retournés. Seuls les équipements DU KIT doivent
+     * être tous retournés pour que le kit redevienne disponible.
      */
     public function updateKitStatuses(string $targetStatus)
     {
@@ -289,7 +293,7 @@ class Reservation extends Model
             if ($allInReservation) {
                 $oldStatus = $kit->status;
 
-                // Pour le checkout, vérifier que tous sont scannés
+                // Pour le checkout, vérifier que tous les équipements DU KIT sont scannés
                 if ($targetStatus === 'checked_out') {
                     $allScanned = $this->assets()
                         ->whereIn('assets.id', $kitAssetIds)
@@ -301,7 +305,8 @@ class Reservation extends Model
                     }
                 }
 
-                // Pour le retour (available), vérifier que tous sont retournés
+                // Pour le retour (available), vérifier que tous les équipements DU KIT sont retournés
+                // MÊME SI la réservation contient d'autres équipements non retournés
                 if ($targetStatus === 'available') {
                     $allReturned = $this->assets()
                         ->whereIn('assets.id', $kitAssetIds)
@@ -309,7 +314,7 @@ class Reservation extends Model
                         ->count() === $kitAssetIds->count();
 
                     if (!$allReturned) {
-                        continue; // Ne pas mettre à jour si pas tous retournés
+                        continue; // Ne pas mettre à jour si pas tous les équipements du kit retournés
                     }
                 }
 

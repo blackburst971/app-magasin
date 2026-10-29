@@ -27,9 +27,10 @@ const signMode         = ref('manual') // 'manual' | 'mobile'
 
 function openModal(reservation) {
   selected.value            = reservation
-  selectedSupervisorId.value = reservation.supervisors.length === 1
-    ? String(reservation.supervisors[0].id)
-    : ''
+  // Préremplir avec le superviseur choisi si disponible, sinon le seul superviseur si unique
+  selectedSupervisorId.value = reservation.supervisor_chosen
+    ? String(reservation.supervisor_chosen.id)
+    : (reservation.supervisors.length === 1 ? String(reservation.supervisors[0].id) : '')
   signature.value  = null
   signError.value  = ''
   modalOpen.value  = true
@@ -175,16 +176,32 @@ function supervisorName(reservation) {
               <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
                 Responsable(s)
               </p>
+              <!-- Superviseur choisi par l'utilisateur -->
+              <div v-if="res.supervisor_chosen" class="mb-2">
+                <p class="text-xs text-purple-600 font-medium mb-1">✓ Demande envoyée à :</p>
+                <span class="inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-800 border-2 border-purple-300 px-3 py-1.5 rounded-full font-semibold">
+                  {{ res.supervisor_chosen.name }}
+                </span>
+              </div>
+              <!-- Tous les superviseurs disponibles -->
               <div v-if="res.supervisors.length === 0"
                    class="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
                 Aucun responsable associé à cet étudiant
               </div>
-              <div v-else class="flex flex-wrap gap-1.5">
-                <span v-for="s in res.supervisors" :key="s.id"
-                      class="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full font-medium">
-                  {{ s.name }}
-                </span>
+              <div v-else>
+                <p v-if="res.supervisor_chosen" class="text-xs text-gray-500 mb-1">Autres responsables disponibles :</p>
+                <div class="flex flex-wrap gap-1.5">
+                  <span v-for="s in res.supervisors" :key="s.id"
+                        :class="[
+                          'text-xs px-2.5 py-1 rounded-full font-medium',
+                          res.supervisor_chosen?.id === s.id
+                            ? 'bg-purple-100 text-purple-800 border-2 border-purple-300'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        ]">
+                    {{ s.name }}
+                  </span>
+                </div>
               </div>
             </div>
 
